@@ -1,0 +1,1205 @@
+// OpenBFME. GPL-3.0.
+// See GameLogic/Module/ProjectileModules.h for the target facts, the addresses and what is inference.
+
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+
+#include "GameLogic/Combat/ObjectWeapons.h"
+#include "GameLogic/SnapshotXfer.h"
+#include "GameLogic/Module/ProjectileModules.h"
+#include "GameLogic/Module/StructureModules.h"
+
+#include "Common/StateHash.h"
+#include "Common/Thing/ModuleFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/AI/AIWorld.h"
+#include "GameLogic/Combat/BezierSegment.h"
+#include "GameLogic/Combat/CombatNames.h"
+#include "GameLogic/Combat/CombatQueries.h"
+#include "GameLogic/Combat/CombatState.h"
+#include "GameLogic/Combat/WeaponDelivery.h"
+#include "GameLogic/Damage.h"
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/EmotionModules.h"
+#include "GameLogic/Module/NotifyCrushModules.h"
+#include "GameLogic/Object/ObjectGeometry.h"
+#include "GameLogic/Object/PartitionManager.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/SimMath.h"
+#include "GameLogic/Weapon.h"
+
+#include <cstddef>
+#include <cstring>
+#include <stdexcept>
+
+namespace
+{
+const char *const kEmotionNames[] = { "TAUNT", "CHEER", "HERO_CHEER", "POINT", "FEAR", "UNCONTROLLABLE_FEAR", "TERROR", "DOOM", "QUARRELSOME", "ALERT", "BRACE_FOR_BEING_CRUSHED",
+	"CHEER_FOR_ABOUT_TO_CRUSH", nullptr }; // RW 0xD9FA08
+const int kModelConditionThrownProjectile = 154;                      // ModelConditionNames.inc
+const int kModelConditionAboutToHit = 155;
+const int kModelConditionSplatted = 122;
+const char *const kWeaponCpp = "Weapon.cpp";                          // RW 0xC18320
+const float kPartitionCellSize = 40.0f;                               // ZH GameData PartitionCellSize (inference S-362)
+
+// RW 0x8E09CE: a token, the index in the emotion table or -1 (an unknown name is accepted, like the binary)
+void parseEmotion(INI *ini, void *, void *store, const void *)
+{
+	const char *t = ini->getNextToken();
+	int found = -1;
+	for (int i = 0; kEmotionNames[i]; ++i)
+	{
+		if (std::strcmp(t, kEmotionNames[i]) == 0)
+		{
+			found = i;
+			break;
+		}
+	}
+	*static_cast<int *>(store) = found;
+}
+void parseName(INI *ini, void *, void *store, const void *)
+{
+	*static_cast<std::string *>(store) = ini->getNextToken();
+}
+
+#define BP_OFF(member) (int)offsetof(BezierProjectileBehaviorModuleData, member)
+// RW table 0xC58368 in the binary's row order
+const FieldParse kBezierParse[] = {
+	{ "TumbleRandomly", INI::parseBool, nullptr, BP_OFF(m_tumbleRandomly) },
+	{ "DetonateCallsKill", INI::parseBool, nullptr, BP_OFF(m_detonateCallsKill) },
+	{ "OrientToFlightPath", INI::parseBool, nullptr, BP_OFF(m_orientToFlightPath) },
+	{ "FirstHeight", INI::parseReal, nullptr, BP_OFF(m_firstHeight) },
+	{ "SecondHeight", INI::parseReal, nullptr, BP_OFF(m_secondHeight) },
+	{ "FirstPercentIndent", INI::parsePercentToReal, nullptr, BP_OFF(m_firstPercentIndent) },
+	{ "SecondPercentIndent", INI::parsePercentToReal, nullptr, BP_OFF(m_secondPercentIndent) },
+	{ "CrushStyle", INI::parseBool, nullptr, BP_OFF(m_crushStyle) },
+	{ "DieOnImpact", INI::parseBool, nullptr, BP_OFF(m_dieOnImpact) },
+	{ "FinalStuckTime", INI::parseDurationUnsignedInt, nullptr, BP_OFF(m_finalStuckTime) },
+	{ "PreLandingStateTime", INI::parseDurationUnsignedInt, nullptr, BP_OFF(m_preLandingStateTime) },
+	{ "BounceCount", INI::parseInt, nullptr, BP_OFF(m_bounceCount) },
+	{ "BounceDistance", INI::parseReal, nullptr, BP_OFF(m_bounceDistance) },
+	{ "BounceFirstHeight", INI::parseReal, nullptr, BP_OFF(m_bounceFirstHeight) },
+	{ "BounceSecondHeight", INI::parseReal, nullptr, BP_OFF(m_bounceSecondHeight) },
+	{ "BounceFirstPercentIndent", INI::parsePercentToReal, nullptr, BP_OFF(m_bounceFirstPercentIndent) },
+	{ "BounceSecondPercentIndent", INI::parsePercentToReal, nullptr, BP_OFF(m_bounceSecondPercentIndent) },
+	{ "GarrisonHitKillRequiredKindOf", ParseKindOfMask, nullptr, BP_OFF(m_garrisonHitKillRequiredKindOf) },
+	{ "GarrisonHitKillForbiddenKindOf", ParseKindOfMask, nullptr, BP_OFF(m_garrisonHitKillForbiddenKindOf) },
+	{ "GarrisonHitKillCount", INI::parseUnsignedInt, nullptr, BP_OFF(m_garrisonHitKillCount) },
+	{ "GarrisonHitKillFX", parseName, nullptr, BP_OFF(m_garrisonHitKillFX) },
+	{ "GroundHitFX", parseName, nullptr, BP_OFF(m_groundHitFX) },
+	{ "GroundBounceFX", parseName, nullptr, BP_OFF(m_groundBounceFX) },
+	{ "GroundHitWeapon", parseName, nullptr, BP_OFF(m_groundHitWeapon) },
+	{ "GroundBounceWeapon", parseName, nullptr, BP_OFF(m_groundBounceWeapon) },
+	{ "FlightPathAdjustDistPerSecond", INI::parseVelocityReal, nullptr, BP_OFF(m_flightPathAdjustDistPerFrame) },
+	{ "IgnoreTerrainHeight", INI::parseBool, nullptr, BP_OFF(m_ignoreTerrainHeight) },
+	{ "FirstPercentHeight", INI::parsePercentToReal, nullptr, BP_OFF(m_firstPercentHeight) },
+	{ "SecondPercentHeight", INI::parsePercentToReal, nullptr, BP_OFF(m_secondPercentHeight) },
+	{ "CurveFlattenMinDist", INI::parseReal, nullptr, BP_OFF(m_curveFlattenMinDist) },
+	{ "PreLandingEmotion", parseEmotion, nullptr, BP_OFF(m_preLandingEmotion) },
+	{ "PreLandingEmotionRadius", INI::parseReal, nullptr, BP_OFF(m_preLandingEmotionRadius) },
+	{ "InvisibleFrames", INI::parseUnsignedInt, nullptr, BP_OFF(m_invisibleFrames) },
+	{ "FadeInTime", INI::parseUnsignedInt, nullptr, BP_OFF(m_fadeInTime) },
+	{ "PostLandingStateTime", INI::parseDurationUnsignedInt, nullptr, BP_OFF(m_postLandingStateTime) },
+	{ "PostLandingEmotion", parseEmotion, nullptr, BP_OFF(m_postLandingEmotion) },
+	{ "PostLandingEmotionRadius", INI::parseReal, nullptr, BP_OFF(m_postLandingEmotionRadius) },
+	{ nullptr, nullptr, nullptr, 0 }
+};
+// lane BFME2MODE-0: BFME2 1.06's row that RotWK's table 0xC58368 dropped (BFME2 table 0xC41B58, after PreLandingEmotionRadius), found only in BFME2 1.06 data
+const FieldParse kBezierBfme2Rows[] = {
+	{ "PreLandingEmotionAffectsAllies", INI::parseBool, nullptr, BP_OFF(m_preLandingEmotionAffectsAllies) },
+	{ nullptr, nullptr, nullptr, 0 }
+};
+#undef BP_OFF
+
+// RW 0x6CA03E getMinimumAttackRange: the template's MinimumAttackRange less 2.5, never below 0
+float minimumAttackRange(const WeaponTemplate &w)
+{
+	const float v = SimMath::subf32(w.m_minimumAttackRange, 2.5f);
+	return 0.0f > v ? 0.0f : v;
+}
+
+// The highest terrain along the line (ZH PartitionManager::estimateTerrainExtremesAlongLine: Bresenham over the partition cells, each cell's maximum height). INFERENCE S-362: RW's
+// own routine (the terrain object's slot 0x40 of 0xDE4690) was not read; a cell's maximum is sampled on a 3x3 lattice of the ground height.
+float highestAlongLine(const GameLogic &logic, const Coord3D &a, const Coord3D &b)
+{
+	auto cellOf = [](float v) { return SimMath::floorToInt(SimMath::divf32(v, kPartitionCellSize)); };
+	const int sx = cellOf(a.x), sy = cellOf(a.y), ex = cellOf(b.x), ey = cellOf(b.y);
+	const int dxAbs = ex >= sx ? ex - sx : sx - ex;
+	const int dyAbs = ey >= sy ? ey - sy : sy - ey;
+	int x = sx, y = sy;
+	int xinc1 = ex >= sx ? 1 : -1, xinc2 = xinc1, yinc1 = ey >= sy ? 1 : -1, yinc2 = yinc1;
+	int den, num, numadd, numpixels;
+	if (dxAbs >= dyAbs)
+	{
+		xinc1 = 0;
+		yinc2 = 0;
+		den = dxAbs;
+		num = dxAbs / 2;
+		numadd = dyAbs;
+		numpixels = dxAbs;
+	}
+	else
+	{
+		xinc2 = 0;
+		yinc1 = 0;
+		den = dyAbs;
+		num = dyAbs / 2;
+		numadd = dxAbs;
+		numpixels = dyAbs;
+	}
+	float best = -1.0e10f;
+	for (int i = 0; i <= numpixels; ++i)
+	{
+		for (int ix = 0; ix < 3; ++ix)
+		{
+			for (int iy = 0; iy < 3; ++iy)
+			{
+				const float wx = SimMath::mulf32(SimMath::addf32(SimMath::sseFromInt32(x), SimMath::mulf32(SimMath::sseFromInt32(ix), 0.5f)), kPartitionCellSize);
+				const float wy = SimMath::mulf32(SimMath::addf32(SimMath::sseFromInt32(y), SimMath::mulf32(SimMath::sseFromInt32(iy), 0.5f)), kPartitionCellSize);
+				const float h = logic.getGroundHeight(wx, wy);
+				if (h > best)
+				{
+					best = h;
+				}
+			}
+		}
+		num += numadd;
+		if (num >= den)
+		{
+			num -= den;
+			x += xinc1;
+			y += yinc1;
+		}
+		x += xinc2;
+		y += yinc2;
+	}
+	return best;
+}
+
+Coord3D normalizeCoord(Coord3D v) // RW 0x403175
+{
+	const float len = SimMath::fstpDword(SimMath::sqrtPC24((double)SimMath::sumSquares3(v.x, v.y, v.z)));
+	if (len != 0.0f)
+	{
+		const float inv = SimMath::divf32(1.0f, len);
+		v.x = SimMath::mulf32(v.x, inv);
+		v.y = SimMath::mulf32(v.y, inv);
+		v.z = SimMath::mulf32(v.z, inv);
+	}
+	return v;
+}
+} // namespace
+
+float ProjectileHighestAlongLine(const GameLogic &logic, const Coord3D &a, const Coord3D &b)
+{
+	return highestAlongLine(logic, a, b);
+}
+
+// RW 0x441C56 WWMath::Inv_Sqrt: bit-pattern guess, then three Newton steps with the products regrouped (ab, ab^2, ab^2c, ab^2c^2), every x87 operation at 24 bits
+float ProjectileInvSqrt(float value)
+{
+	std::uint32_t bits;
+	std::memcpy(&bits, &value, sizeof(bits));
+	const std::uint32_t guessBits = (0xbe6eb508u - bits) >> 1;
+	const std::uint32_t halfBits = bits - 0x800000u;
+	float y0, xh;
+	std::memcpy(&y0, &guessBits, sizeof(y0));
+	std::memcpy(&xh, &halfBits, sizeof(xh));
+	const float y2 = SimMath::pc24Mul(y0, y0);
+	const float a = SimMath::pc24Mul(y2, xh);
+	const float b = SimMath::pc24Sub(1.5f, a);
+	const float ab = SimMath::pc24Mul(a, b);
+	const float ab2 = SimMath::pc24Mul(ab, b);
+	const float yb = SimMath::pc24Mul(y0, b);
+	const float c = SimMath::pc24Sub(1.5f, ab2);
+	const float ab2c = SimMath::pc24Mul(ab2, c);
+	const float ybc = SimMath::pc24Mul(yb, c);
+	const float ab2c2 = SimMath::pc24Mul(ab2c, c);
+	const float d = SimMath::pc24Sub(1.5f, ab2c2);
+	return SimMath::pc24Mul(ybc, d);
+}
+
+void BezierProjectileBehaviorModuleData::buildFieldParse(MultiIniFieldParse &p)
+{
+	static const Bfme2FieldRowsRegistration bfme2Rows(kBezierParse, kBezierBfme2Rows); // lane BFME2MODE-0
+	p.add(kBezierParse);
+}
+
+// lane BFME2MODE-0 (AGENTS.md): the pre-landing scare's relationship mask, the projectile behaviour's edition variant. RotWK passes the constant 7 (allies, enemies,
+// neutral; RW 0x85F31A .. 0x85F3F0); BFME2 1.06 builds it from PreLandingEmotionAffectsAllies (BFME2 0x85C2B8 .. 0x85C2D4 in update 0x85C226, Rva 0x45C226,
+// BezierProjectileBehavior.cpp (update): 2 (neutral), 6 (neutral | allies) when the field is set, then | 1 (enemies))
+int BezierProjectileBehaviorModuleData::preLandingRelationshipMask(GameEdition edition) const
+{
+	if (edition == GameEdition::BFME2_106)
+	{
+		return (m_preLandingEmotionAffectsAllies ? 6 : 2) | 1;
+	}
+	return 7;
+}
+
+void ProjectileModules::registerAll(ModuleFactory &modules)
+{
+	modules.bindTypedData<BezierProjectileBehaviorModuleData>("BezierProjectileBehavior", MODULETYPE_BEHAVIOR);
+	modules.bindModuleProc("BezierProjectileBehavior", MODULETYPE_BEHAVIOR, [](Thing *thing, const ModuleData *data, const ModuleFactory::ModuleTemplate &) -> std::unique_ptr<Module> {
+		const BezierProjectileBehaviorModuleData *typed = dynamic_cast<const BezierProjectileBehaviorModuleData *>(data);
+		if (!typed)
+		{
+			throw std::logic_error("BezierProjectileBehavior: the module data is not typed");
+		}
+		return std::make_unique<BezierProjectileBehavior>(thing, typed);
+	});
+}
+
+// RW 0x85F899 (the constructor): everything zero, the height scale 1, the update asleep until the launch
+BezierProjectileBehavior::BezierProjectileBehavior(Thing *thing, const BezierProjectileBehaviorModuleData *data)
+	: UpdateModule(thing, data)
+	, m_data(data)
+{
+	setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
+}
+
+// RW 0x85EBAF: a module with a path keeps updating every frame, one without sleeps
+UpdateSleepTime BezierProjectileBehavior::sleepTime() const
+{
+	return m_flightPath.empty() ? UPDATE_SLEEP_FOREVER : UPDATE_SLEEP_NONE;
+}
+
+// RW 0x85E99A
+void BezierProjectileBehavior::projectileLaunchAtObjectOrPosition(const Object *victim, const Coord3D *victimPos, Object *launcher, int wslot, int barrel, const WeaponTemplate *weapon,
+	const WeaponTemplate *warhead)
+{
+	Object *obj = getObject();
+	m_launcherID = launcher ? launcher->getID() : (ObjectID)INVALID_ID;
+	m_bonusFlags = launcher ? launcher->weaponBonusConditionMask() : 0u;
+	m_victimID = victim ? victim->getID() : (ObjectID)INVALID_ID;
+	m_weapon = weapon;
+	m_warhead = warhead;
+	m_altCurve = 0;
+	// TARGET RW 0x90FDB6 .. 0x90FE2E passes the source's current transform for
+	// a position-targeted ProjectileSelf shot; RW 0x85E9F2 uses that transform
+	// instead of positioning at a weapon bone. Object-targeted shots still use
+	// calcProjectileLaunchPosition (RW 0x90FAD7), as do newly created projectiles.
+	if (obj != launcher || victim)
+	{
+		positionForLaunch(launcher, wslot, barrel);
+	}
+	m_originPos = launcher ? *launcher->getPosition() : *obj->getPosition();
+	projectileFireAtObjectOrPosition(victim, victimPos);
+	obj->setModelConditionState(kModelConditionThrownProjectile, true);
+	obj->setStatus((unsigned)CombatNames::statuses().noAttack, true);
+	++obj->logic().combat().counters().projectilesLaunched;
+}
+
+// RW 0x6CAB85 Weapon::calcProjectileLaunchPosition (lane RENDER-2): the launch bone transform of the launcher's drawable (RW 0x6756A1; the identity when there is
+// no drawable or no bone, RW 0x6CACDA) composed with the launcher's transform (RW 0x70BCE7 Object::convertBonePosToWorldPos). TARGET FACTS: a launcher with status
+// INSIDE_GARRISON (bit 0x3A, RW 0x6CAC0F) inside a container whose contain module says so (vslot 0xB0, bit 29 of the answer) asks the CONTAINER's AI, drawable and
+// transform instead; the turret composition (RW 0x6CAD3F..0x6CB43B) runs when the slot's weapon is a turret weapon (WeaponTemplate + 0x16C) and the launcher's AI names a
+// turret for the slot (RW 0x66246B). This port's AI has no turrets (every slot answers TURRET_INVALID, so the composition is never reached) and the garrison branch is
+// not ported (counted: CombatState::Counters::garrisonLaunchUnported, stop S-360); both fall back to the launcher's own drawable and transform, the branch retail
+// takes when the status is clear.
+// The products and sums are retail's SSE order: W[r][c] = (T[r][2] * B[2][c] + T[r][1] * B[1][c]) + T[r][0] * B[0][c], the translation adding T[r][3] last.
+void BezierProjectileBehavior::calcLaunchTransform(const Object &launcher, int wslot, int barrel, Coord3D &pos, float basis[9])
+{
+	GameLogic &logic = getObject()->logic();
+	// lane GARRISON-1: RW 0x6CAC0F .. 0x6CAC8E, the garrison branch: an INSIDE_GARRISON launcher's container (its horde's container when the container is a HORDE,
+	// RW 0x6CAC25) whose contain's ObjectStatusOfContained has ENCLOSED (slot 0xB0, bit 29 of word 1) lends its drawable (the launch bone) and its transform
+	// (RW 0x6CACB8 onwards); its AI's turret for the slot (RW 0x66246B) is TURRET_INVALID in this port (no AI turrets, S-1103)
+	const Object *source = &launcher;
+	if (launcher.testStatus((unsigned)CombatNames::statuses().insideGarrison) && launcher.getContainedBy())
+	{
+		const Object *container = launcher.getContainedBy();
+		if (container->isKindOf((unsigned)CombatNames::kinds().horde))
+		{
+			container = container->getContainedBy();
+		}
+		if (container && container->getContain())
+		{
+			static const int enclosed = CombatNames::status("ENCLOSED");
+			const ObjectStatusMaskType *osoc = container->getContain()->getObjectStatusOfContained();
+			if (osoc && (((*osoc)[(size_t)enclosed >> 5] >> (enclosed & 31)) & 1u))
+			{
+				source = container;
+				++logic.combat().counters().garrisonLaunches;
+			}
+		}
+	}
+	float bone[12] = { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+	ProjectileLaunchOffsets *offsets = logic.combat().launchOffsets();
+	if (!offsets)
+	{
+		// no provider: a GameLogic run without the W3D assets (unit tests); retail always has the drawable's answer. Counted and reported (S-460)
+		++logic.combat().counters().launchesWithoutBones;
+	}
+	else if (offsets->launchOffset(*source, wslot, barrel, bone))
+	{
+		++logic.combat().counters().launchBonesFound;
+	}
+	const float *t = source->getBasis();
+	const Coord3D &p = *source->getPosition();
+	const float tt[3] = { p.x, p.y, p.z };
+	float world[12];
+	for (int r = 0; r < 3; ++r)
+	{
+		for (int c = 0; c < 4; ++c)
+		{
+			float v = SimMath::addf32(SimMath::mulf32(t[r * 3 + 2], bone[8 + c]), SimMath::mulf32(t[r * 3 + 1], bone[4 + c]));
+			v = SimMath::addf32(v, SimMath::mulf32(t[r * 3 + 0], bone[c]));
+			if (c == 3)
+			{
+				v = SimMath::addf32(v, tt[r]);
+			}
+			world[r * 4 + c] = v;
+		}
+	}
+	for (int r = 0; r < 3; ++r)
+	{
+		for (int c = 0; c < 3; ++c)
+		{
+			basis[r * 3 + c] = world[r * 4 + c];
+		}
+	}
+	pos.x = world[3];
+	pos.y = world[7];
+	pos.z = world[11];
+}
+
+// RW 0x6CB490 Weapon::positionProjectileForLaunch: no launcher destroys the projectile (RW 0x6CB49E); otherwise the projectile takes the transform and then the
+// position of RW 0x6CAB85 (RW 0x70BA76 setTransformMatrix, RW 0x70C201 setPosition; the drawable call between them is client side)
+void BezierProjectileBehavior::positionForLaunch(Object *launcher, int wslot, int barrel)
+{
+	Object *obj = getObject();
+	if (!launcher)
+	{
+		obj->logic().destroyObject(obj); // RW 0x6CB49E
+		return;
+	}
+	Coord3D pos;
+	float basis[9];
+	calcLaunchTransform(*launcher, wslot, barrel, pos, basis);
+	obj->setTransform(&pos, basis);
+}
+
+// RW 0x6CB85A (BFME2 0x2CAB3A WeaponTemplate::adjustTargetPositionOnVictim, decomp WeaponTemplateTargetPositions.cpp:90-110, tier A):
+// first the weapon's PreferredTargetBone (RW 0x6CB81A, as ObjectWeaponDelivery::fireFXAimPosition asks it: the module's m_weapon,
+// +0x3C, is the firing weapon's template — RW 0x85EBEE reads it for the speeds the same way); a bone that answers is returned with
+// no random draw. Otherwise GameLogicRandomValue(0, 12345678) at Weapon.cpp:1749 (RW 0x6CB8C2..0x6CB8D3) is drawn and the victim's
+// worldspace best contact point answers; the contact point of the victim's geometry (RW 0xAD30E0, the aim points chosen by the
+// seed) is INFERENCE S-362: the geometry centre
+Coord3D BezierProjectileBehavior::aimPosition(const Object &victim)
+{
+	Object *obj = getObject();
+	Coord3D bone;
+	if (m_weapon && preferredBoneAim(obj->logic(), *m_weapon, victim, bone))
+	{
+		return bone;
+	}
+	obj->logic().random().getValue(0, 12345678, kWeaponCpp, 1749);
+	Coord3D p = *victim.getPosition();
+	p.z = SimMath::addf32(p.z, SimMath::mulf32(CombatQueries::geometry(victim).height, 0.5f));
+	return p;
+}
+
+// RW 0x85EBEE
+void BezierProjectileBehavior::projectileFireAtObjectOrPosition(const Object *victim, const Coord3D *victimPos)
+{
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	const WeaponTemplate *weapon = m_weapon;
+	float weaponSpeed = weapon ? weapon->m_weaponSpeed : 0.0f;
+	const float minWeaponSpeed = weapon ? weapon->m_minWeaponSpeed : 0.0f;
+	setWakeFrame(obj, UPDATE_SLEEP_NONE);
+	if (!d)
+	{
+		return;
+	}
+	Coord3D victimPosToUse;
+	if (victim)
+	{
+		victimPosToUse = aimPosition(*victim);
+	}
+	else
+	{
+		victimPosToUse = *victimPos;
+	}
+	if (d->m_crushStyle)
+	{
+		// RW 0x85EC66: a destination on the ground layer (this port has only the ground layer, S-362) lands on the terrain
+		victimPosToUse.z = obj->logic().getGroundHeight(victimPosToUse.x, victimPosToUse.y);
+	}
+	if (weapon && weapon->m_isScaleWeaponSpeed)
+	{
+		weaponSpeed = weaponSpeed > minWeaponSpeed ? weaponSpeed : minWeaponSpeed;
+		const float minRange = minimumAttackRange(*weapon);
+		const float maxRange = weapon->m_attackRange;
+		const Coord3D &op = *obj->getPosition();
+		const float dx = SimMath::subf32(op.x, victimPosToUse.x);
+		const float dy = SimMath::subf32(op.y, victimPosToUse.y);
+		const float distSq = SimMath::addf32(SimMath::mulf32(dy, dy), SimMath::mulf32(dx, dx));
+		// the binary subtracts the minimum RANGE from the SQUARED distance (RW 0x85ED16 subss on the sum of squares): kept
+		float speed = SimMath::divf32(SimMath::subf32(distSq, minRange), SimMath::subf32(maxRange, minRange));
+		speed = SimMath::addf32(SimMath::mulf32(speed, SimMath::subf32(weaponSpeed, minWeaponSpeed)), minWeaponSpeed);
+		m_flightPathSpeed = speed;
+		if (speed > weapon->m_maxWeaponSpeed)
+		{
+			m_flightPathSpeed = weapon->m_maxWeaponSpeed;
+		}
+	}
+	else
+	{
+		m_flightPathSpeed = weaponSpeed;
+	}
+	// RW 0x85ED52: the orientation reset of a KindOf'd projectile and the tumble rates need the physics module (not ported, S-363)
+	m_flightPathStart = *obj->getPosition();
+	m_flightPathEnd = victimPosToUse;
+	if (!calcFlightPath(true))
+	{
+		obj->logic().destroyObject(obj);
+		return;
+	}
+	m_currentFlightPathStep = 0;
+	m_fireFrame = obj->logic().getFrame();
+	// lane FLANK-1: an object without KindOf NO_COLLIDE is in RotWK's collision manager (RW 0x68E31F): its contacts reach the collide interface while it flies
+	static const unsigned kNoCollide = (unsigned)CombatNames::kindOf("NO_COLLIDE");
+	if (!obj->isKindOf(kNoCollide))
+	{
+		obj->logic().combat().noteFlyingProjectile(obj->getID());
+	}
+	// RW 0x85EE00 .. 0x85EF31: the drawable's fade (InvisibleFrames / FadeInTime, or a fade over the flight when the launcher or the target is fogged for the
+	// local player) is client state: the client snapshot carries m_fireFrame (projectileClientInfo) and GameClient/DrawableFade starts it (lane PROJ-2).
+	// RW 0x85EF34 .. 0x85EF5E (lane PROJ-2): the projectile takes its first two steps at once: update, the partition refresh (RW 0x68C7E9: this port's
+	// partition reads the current position), Object::recordTransform(now) (RW 0x6260E1), update, the partition refresh. So at the end of the launch frame the
+	// projectile stands on path point 1 with path point 0 recorded, and its scheduled update (woken at now + 1 above) takes point 2 in the next frame
+	update();
+	obj->recordTransform(obj->logic().getFrame());
+	update();
+}
+
+// RW 0x85E658
+bool BezierProjectileBehavior::calcFlightPath(bool recalcNumSegments)
+{
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	const bool alt = m_altCurve != 0;
+	const float firstPct = alt ? d->m_bounceFirstPercentIndent : d->m_firstPercentIndent;
+	const float secondPct = alt ? d->m_bounceSecondPercentIndent : d->m_secondPercentIndent;
+	m_heightScale = 1.0f;
+	Coord3D cp[4];
+	cp[0] = m_flightPathStart;
+	cp[3] = m_flightPathEnd;
+	const float dx = SimMath::subf32(cp[3].x, cp[0].x);
+	cp[1].x = SimMath::addf32(SimMath::mulf32(dx, firstPct), cp[0].x);
+	cp[2].x = SimMath::addf32(SimMath::mulf32(dx, secondPct), cp[0].x);
+	const float dy = SimMath::subf32(cp[3].y, cp[0].y);
+	cp[1].y = SimMath::addf32(SimMath::mulf32(dy, firstPct), cp[0].y);
+	cp[2].y = SimMath::addf32(SimMath::mulf32(dy, secondPct), cp[0].y);
+	const float dz = SimMath::subf32(cp[3].z, cp[0].z);
+	if (d->m_ignoreTerrainHeight)
+	{
+		cp[1].z = SimMath::addf32(SimMath::mulf32(d->m_firstPercentHeight, dz), cp[0].z);
+		cp[2].z = SimMath::addf32(SimMath::mulf32(d->m_secondPercentHeight, dz), cp[0].z);
+	}
+	else
+	{
+		float highest = highestAlongLine(obj->logic(), cp[0], cp[3]);
+		const float firstHeight = alt ? d->m_bounceFirstHeight : d->m_firstHeight;
+		const float secondHeight = alt ? d->m_bounceSecondHeight : d->m_secondHeight;
+		if (d->m_curveFlattenMinDist > 0.0f)
+		{
+			const float thresh = SimMath::mulf32(d->m_curveFlattenMinDist, 0.5f);
+			// RW 0x85E7E8: (z^2 + y^2) + x^2, the root of the x87 (24 bits), stored as a float
+			const float sum = SimMath::addf32(SimMath::addf32(SimMath::mulf32(dz, dz), SimMath::mulf32(dy, dy)), SimMath::mulf32(dx, dx));
+			const float len = SimMath::fstpDword(SimMath::sqrtPC24((double)sum));
+			if (thresh > len)
+			{
+				m_heightScale = 0.0f;
+			}
+			else if (d->m_curveFlattenMinDist > len)
+			{
+				m_heightScale = SimMath::divf32(SimMath::subf32(len, thresh), thresh);
+			}
+			float z1 = SimMath::addf32(SimMath::mulf32(dz, firstPct), cp[0].z);
+			float z2 = SimMath::addf32(SimMath::mulf32(dz, secondPct), cp[0].z);
+			if (highest > z1)
+			{
+				z1 = highest;
+			}
+			if (highest > z2)
+			{
+				z2 = highest;
+			}
+			cp[1].z = SimMath::addf32(SimMath::mulf32(m_heightScale, firstHeight), z1);
+			cp[2].z = SimMath::addf32(SimMath::mulf32(m_heightScale, secondHeight), z2);
+		}
+		else
+		{
+			highest = highest > cp[0].z ? highest : cp[0].z;
+			highest = highest > cp[3].z ? highest : cp[3].z;
+			cp[1].z = SimMath::addf32(firstHeight, highest);
+			cp[2].z = SimMath::addf32(secondHeight, highest);
+		}
+	}
+	BezierSegment curve(cp);
+	if (recalcNumSegments)
+	{
+		const float speed = alt ? SimMath::mulf32(m_flightPathSpeed, 0.5f) : m_flightPathSpeed;
+		const double flightDistance = curve.getApproximateLength(1.0f);
+		const double quotient = SimMath::pc24DivW(flightDistance, (double)speed);
+		m_flightPathSegments = SimMath::ftol2(SimMath::ceilD(quotient));
+	}
+	if (m_flightPathSegments < 2)
+	{
+		m_flightPathSegments = 2;
+	}
+	curve.getSegmentPoints(m_flightPathSegments, &m_flightPath);
+	return true;
+}
+
+// RW 0x85F28A
+UpdateSleepTime BezierProjectileBehavior::update()
+{
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	GameLogic &logic = obj->logic();
+	if (!d || !obj)
+	{
+		return UPDATE_SLEEP_FOREVER;
+	}
+	const int n = (int)m_flightPath.size();
+	if (m_currentFlightPathStep >= n)
+	{
+		projectileHandleCollision(nullptr);
+		return sleepTime();
+	}
+	// RW 0x85F2DD: PreLandingStateTime frames before the end the model state changes (and the units near the landing spot are scared: not ported, S-363)
+	if (d->m_preLandingStateTime != 0 && m_currentFlightPathStep == n - (int)d->m_preLandingStateTime)
+	{
+		obj->setModelConditionState(kModelConditionAboutToHit, true);
+		if (d->m_preLandingEmotion != -1)
+		{
+			// RW 0x85F31A .. 0x85F3F0 (lane FLANK-1; BFME2 decomp BezierProjectileBehavior.cpp (update) has a relationship byte at + 0xB4 that RotWK does not read: RotWK
+			// passes the constant 7): ThePartitionManager within PreLandingEmotionRadius (+ 0xB0) of the path's end (+ 0x5C), distance type 1 (FROM_CENTER_3D), sorted near to far,
+			// through the filters RW 0xC11DC0 (the projectile's relationship to the object in mask 7 = allies, enemies, neutral: every object), RW 0xC10E20 (alive) and
+			// RW 0xC0F374 (the projectile's off-map flag, Object + 0x458 bit 3: never set in the port, S-920); every hit but the projectile asks its emotion tracker for
+			// PreLandingEmotion (+ 0xAC) with the projectile as the source and delay 1 (RW 0x68F383)
+			PartitionFilterFn alive([](Object &o) { return !o.isEffectivelyDead(); });
+			const PartitionHits hits =
+				logic.partition().iterateObjectsInRange(m_flightPathEnd, d->m_preLandingEmotionRadius, FROM_CENTER_3D, { &alive }, ITER_SORTED_NEAR_TO_FAR);
+			const int relationships = d->preLandingRelationshipMask(logic.edition()); // lane BFME2MODE-0: 7 in RotWK (every object)
+			for (const PartitionHit &hit : hits)
+			{
+				if (hit.object != obj && (relationships & (1 << (int)obj->getRelationship(*hit.object))) != 0)
+				{
+					EmotionTrackerUpdate::requestEmotion(*hit.object, d->m_preLandingEmotion, obj, 1);
+					++logic.combat().counters().projectilePreLandingEmotions;
+				}
+			}
+		}
+	}
+	// RW 0x85F42B: FlightPathAdjustDistPerSecond: the end of the path follows the victim, at most that far per frame
+	if (m_victimID != INVALID_ID && d->m_flightPathAdjustDistPerFrame > 0.0f)
+	{
+		Object *victim = logic.findObjectByID(m_victimID);
+		if (victim)
+		{
+			const Coord3D now = aimPosition(*victim);
+			Coord3D delta{ SimMath::subf32(now.x, m_flightPathEnd.x), SimMath::subf32(now.y, m_flightPathEnd.y), SimMath::subf32(now.z, m_flightPathEnd.z) };
+			const float distSq = SimMath::addf32(SimMath::addf32(SimMath::mulf32(delta.z, delta.z), SimMath::mulf32(delta.y, delta.y)), SimMath::mulf32(delta.x, delta.x));
+			if (distSq > 0.1f)
+			{
+				float dist = SimMath::fstpDword(SimMath::sqrtPC24((double)distSq));
+				if (dist > d->m_flightPathAdjustDistPerFrame)
+				{
+					dist = d->m_flightPathAdjustDistPerFrame;
+				}
+				delta = normalizeCoord(delta);
+				m_flightPathEnd.x = SimMath::addf32(SimMath::mulf32(dist, delta.x), m_flightPathEnd.x);
+				m_flightPathEnd.y = SimMath::addf32(SimMath::mulf32(dist, delta.y), m_flightPathEnd.y);
+				m_flightPathEnd.z = SimMath::addf32(SimMath::mulf32(dist, delta.z), m_flightPathEnd.z);
+				if (!calcFlightPath(false))
+				{
+					detonate();
+					return sleepTime();
+				}
+			}
+		}
+	}
+	// RW 0x85F565: the step of the path
+	const Coord3D step = m_flightPath[(size_t)m_currentFlightPathStep];
+	if (d->m_orientToFlightPath && !d->m_tumbleRandomly)
+	{
+		const float lower = SimMath::mulf32(m_heightScale, 20.0f);
+		const int cur = m_currentFlightPathStep;
+		Coord3D a, b;
+		float azFixed, bzFixed;
+		if (cur > 0)
+		{
+			a = m_flightPath[(size_t)cur - 1];
+			azFixed = a.z;
+		}
+		else
+		{
+			a = m_flightPath[(size_t)cur];
+			azFixed = SimMath::subf32(a.z, lower);
+		}
+		if (cur < n - 1)
+		{
+			b = m_flightPath[(size_t)cur + 1];
+			bzFixed = b.z;
+		}
+		else
+		{
+			b = m_flightPath[(size_t)cur];
+			bzFixed = SimMath::subf32(b.z, lower);
+		}
+		Coord3D dir{ SimMath::subf32(b.x, a.x), SimMath::subf32(b.y, a.y), SimMath::subf32(bzFixed, azFixed) };
+		const float lenSq = SimMath::addf32(SimMath::addf32(SimMath::mulf32(dir.x, dir.x), SimMath::mulf32(dir.z, dir.z)), SimMath::mulf32(dir.y, dir.y));
+		if (lenSq != 0.0f)
+		{
+			const float inv = ProjectileInvSqrt(lenSq);
+			dir.x = SimMath::mulf32(dir.x, inv);
+			dir.y = SimMath::mulf32(dir.y, inv);
+			dir.z = SimMath::mulf32(dir.z, inv);
+		}
+		// Matrix3D::buildTransformMatrix (RW 0xB26610): yaw about Z by (dir.x, dir.y) / len2, then the pitch about Y; the columns are the object's X, Y, Z axes
+		const float len2 = SimMath::fstpDword(SimMath::sqrtPC24(SimMath::pc24AddW(SimMath::pc24MulW(dir.x, dir.x), SimMath::pc24MulW(dir.y, dir.y))));
+		float siny = 0.0f, cosy = 1.0f;
+		if (len2 != 0.0f)
+		{
+			const float inv2 = SimMath::divf32(1.0f, len2);
+			siny = SimMath::mulf32(inv2, dir.y);
+			cosy = SimMath::mulf32(inv2, dir.x);
+		}
+		const float sinp = dir.z, cosp = len2;
+		// rows of the rotation: X axis (cosy cosp, siny cosp, sinp), Y axis (-siny, cosy, 0), Z axis (-cosy sinp, -siny sinp, cosp)
+		const float basis[9] = { SimMath::mulf32(cosy, cosp), SimMath::subf32(0.0f, siny), SimMath::subf32(0.0f, SimMath::mulf32(cosy, sinp)),
+			SimMath::mulf32(siny, cosp), cosy, SimMath::subf32(0.0f, SimMath::mulf32(siny, sinp)), sinp, 0.0f, cosp };
+		obj->setTransform(&step, basis);
+	}
+	else
+	{
+		obj->setPosition(&step);
+	}
+	// RW 0x85F6E7 .. 0x85F71E (lane PROJ-2): the drawable's look-ahead point, the next path point; at the last point 2 * point - position (DAT 0xBD889C =
+	// 2.0, scalar SSE), i.e. the point itself. The client's Catmull-Rom (RW 0x6765B9, GameClient/RenderInterpolation) draws through it.
+	{
+		const int cur = m_currentFlightPathStep;
+		if (cur < n - 1)
+		{
+			m_pendingPosition = m_flightPath[(size_t)cur + 1];
+		}
+		else
+		{
+			const Coord3D &p = m_flightPath[(size_t)cur];
+			const Coord3D &o = *obj->getPosition();
+			m_pendingPosition = Coord3D{ SimMath::subf32(SimMath::mulf32(p.x, 2.0f), o.x), SimMath::subf32(SimMath::mulf32(p.y, 2.0f), o.y),
+				SimMath::subf32(SimMath::mulf32(p.z, 2.0f), o.z) };
+		}
+		m_pendingFrame = logic.getFrame();
+		m_pendingValid = true;
+	}
+	// RW 0x85F78E..0x85F83A the bridge layers: ground only (S-362)
+	if (m_victimID != INVALID_ID)
+	{
+		Object *victim = logic.findObjectByID(m_victimID);
+		if (victim)
+		{
+			// RW 0x85F737..0x85F783. The vector tested is the victim's centre in WORLD coordinates (nothing is subtracted): the length is the distance from the map origin. The binary
+			// does this; the projectile only meets its victim early when the victim stands within radius + speed of (0, 0, 0)
+			const float geomHeight = CombatQueries::geometry(*victim).height;
+			Coord3D c = *victim->getPosition();
+			c.z = SimMath::fstpDword(SimMath::pc24AddW(SimMath::pc24MulW(geomHeight, 0.5), (double)c.z));
+			const double length = SimMath::sqrtPC24((double)SimMath::sumSquares3(c.x, c.y, c.z));
+			const float radius = CombatQueries::boundingCircleRadius(*victim);
+			if (SimMath::pc24AddW((double)radius, (double)m_flightPathSpeed) > length)
+			{
+				projectileHandleCollision(victim);
+			}
+		}
+	}
+	++m_currentFlightPathStep;
+	return sleepTime();
+}
+
+// RW 0x6CC79C WeaponTemplate::shouldProjectileCollideWith (lane FLANK-1; BFME2 decomp WeaponPrivateFireWeapon.cpp:829, ZH Weapon.cpp), `warhead` is `this`: the intended
+// victim always; never the launcher or the launcher's container; a FLAME warhead (RW 0x6CB6EA(6, the launcher's current weapon)) never hits a BURNED object (status 0xB);
+// an object whose AI has a sneaky targeting offset (AI vslot 0x200(0)) never; else the projectile's relationship to it (RW 0x68D7AB: ALLIES 1, ENEMIES 2, NEUTRAL 4), a
+// STRUCTURE (template + 0x108 bit 7) of the projectile's controlling player 0x200 (CONTROLLED_STRUCTURES) or else 8 (STRUCTURES), SHRUBBERY (bit 6) 0x10, PROJECTILE
+// (bit 25) 0x20, a FenceWidth above 0 (+ 0x4B0) 0x40 (WALLS), SMALL_MISSILE (bit 52) 0x80, BALLISTIC_MISSILE (bit 75) 0x100, MONSTER (bit 10) 0x400 against the
+// warhead's ProjectileCollidesWith (+ 0x118); a WALK_ON_TOP_OF_WALL object (bit 60) is passed over when the intended victim stands on a layer above the ground (RW 0x68BBE0 > 1)
+bool ProjectileModules::shouldProjectileCollideWith(GameLogic &logic, const WeaponTemplate &warhead, const Object *launcher, const Object *projectile, const Object *other,
+	ObjectID intendedVictim)
+{
+	if (!projectile || !other)
+	{
+		return false;
+	}
+	if (intendedVictim == other->getID())
+	{
+		return true;
+	}
+	static const unsigned kBurned = (unsigned)CombatNames::status("BURNED");
+	if (launcher)
+	{
+		if (launcher == other || launcher->getContainedBy() == other)
+		{
+			return false;
+		}
+		// RW 0x6CC7E2 .. 0x6CC802: RW 0x6CB6EA(6, the launcher's current weapon) on the warhead, then the BURNED status (0xB) of the other: the order does not matter
+		// (no side effect). No port module sets BURNED yet
+		if (other->testStatus(kBurned))
+		{
+			if (warhead.m_damageType == DAMAGE_FLAME)
+			{
+				return false; // RW 0x6CB6EA's first test: the template's DamageType (+ 0x58) is FLAME
+			}
+			logic.noteStop("[S-363] shouldProjectileCollideWith: a BURNED object met a warhead whose own DamageType is not FLAME: RW 0x6CB6EA's nugget walk is not "
+			               "ported (lane FLANK-1), the contact goes on as if no nugget were FLAME");
+		}
+	}
+	// RW 0x6CC808: AI vslot 0x200(0), the sneaky targeting offset: the port's AI has none (S-325), so no object is passed over here
+	unsigned required = 0;
+	switch (projectile->getRelationship(*other)) // RW 0x68D7AB
+	{
+	case ALLIES:
+		required = WEAPON_COLLIDE_ALLIES;
+		break;
+	case ENEMIES:
+		required = WEAPON_COLLIDE_ENEMIES;
+		break;
+	case NEUTRAL:
+		required = WEAPON_COLLIDE_NEUTRALS;
+		break;
+	default:
+		break;
+	}
+	static const unsigned kStructure = (unsigned)CombatNames::kindOf("STRUCTURE"), kShrubbery = (unsigned)CombatNames::kindOf("SHRUBBERY"),
+	                      kProjectile = (unsigned)CombatNames::kindOf("PROJECTILE"), kSmallMissile = (unsigned)CombatNames::kindOf("SMALL_MISSILE"),
+	                      kBallistic = (unsigned)CombatNames::kindOf("BALLISTIC_MISSILE"), kMonster = (unsigned)CombatNames::kindOf("MONSTER");
+	if (other->isKindOf(kStructure))
+	{
+		required |= other->getControllingPlayer() == projectile->getControllingPlayer() ? WEAPON_COLLIDE_CONTROLLED_STRUCTURES : WEAPON_COLLIDE_STRUCTURES; // RW 0x68B678 twice
+	}
+	if (other->isKindOf(kShrubbery))
+	{
+		required |= WEAPON_COLLIDE_SHRUBBERY;
+	}
+	if (other->isKindOf(kProjectile))
+	{
+		required |= WEAPON_COLLIDE_PROJECTILES;
+	}
+	if (logic.aiWorld() && logic.aiWorld()->movementInfo(*other->getTemplate()).fenceWidth > 0.0f) // comiss against 0.0 (RW 0xC1B594)
+	{
+		required |= WEAPON_COLLIDE_WALLS;
+	}
+	if (other->isKindOf(kSmallMissile))
+	{
+		required |= WEAPON_COLLIDE_SMALL_MISSILES;
+	}
+	if (other->isKindOf(kBallistic))
+	{
+		required |= WEAPON_COLLIDE_BALLISTIC_MISSILES;
+	}
+	if (other->isKindOf(kMonster))
+	{
+		required |= WEAPON_COLLIDE_MONSTERS;
+	}
+	if ((warhead.m_collideMask & required) == 0)
+	{
+		return false;
+	}
+	// RW 0x6CC8DD .. 0x6CC907: a WALK_ON_TOP_OF_WALL object (bit 60) when the intended victim's layer (RW 0x68BBE0) is above 1: the port has the ground layer only
+	// (S-362), so this never passes an object over
+	return true;
+}
+
+// RW 0x85EF6A (lane FLANK-1; BFME2 decomp BezierProjectileBehavior.cpp rva0045BF06): a path and a warhead; an object of KindOf HORDE (template + 0x115 bit 5) or
+// dead (Object + 0x458 bit 0) never; else the warhead's RW 0x6CC79C with the launcher found by id, the projectile and the intended victim's id (+ 0x38)
+bool BezierProjectileBehavior::projectileCanCollideWith(const Object *other) const
+{
+	if (m_flightPath.empty() || !m_warhead)
+	{
+		return false;
+	}
+	static const unsigned kHorde = (unsigned)CombatNames::kindOf("HORDE");
+	if (other && (other->isKindOf(kHorde) || other->isEffectivelyDead()))
+	{
+		return false;
+	}
+	const Object *obj = getObject();
+	GameLogic &logic = obj->logic();
+	const Object *launcher = m_launcherID != INVALID_ID ? logic.findObjectByID(m_launcherID) : nullptr;
+	return ProjectileModules::shouldProjectileCollideWith(logic, *m_warhead, launcher, obj, other, m_victimID);
+}
+
+// RW 0x85EA5F (lane FLANK-1; BFME2 decomp BezierProjectileBehavior.cpp rva0045B9FB): k = min(path size - 1, the step) (an unsigned compare), the step toward
+// path point max(k - 1, 0) is 0.1 of (that point - the position) (SSE, x, y, z each); while the projectile's shapes at the stepped position still overlap `other`'s
+// (GeometryInfo::CollidesWith = RW 0xAD2CE0 with the projectile's angle and the other's position and angle), at most 13 times, take another step; then one step back
+// and setPosition (RW 0x70C201)
+void BezierProjectileBehavior::backOff(const Object &other)
+{
+	if (m_flightPath.empty())
+	{
+		return;
+	}
+	Object *obj = getObject();
+	const size_t last = m_flightPath.size() - 1;
+	const int k = last < (size_t)(unsigned)m_currentFlightPathStep ? (int)last : m_currentFlightPathStep;
+	const Coord3D &target = m_flightPath[(size_t)(k - 1 < 0 ? 0 : k - 1)];
+	Coord3D cur = *obj->getPosition();
+	Coord3D delta{ SimMath::subf32(target.x, cur.x), SimMath::subf32(target.y, cur.y), SimMath::subf32(target.z, cur.z) };
+	delta.x = SimMath::mulf32(delta.x, 0.1f); // RW 0xBD83D4
+	delta.y = SimMath::mulf32(delta.y, 0.1f);
+	delta.z = SimMath::mulf32(delta.z, 0.1f);
+	const float angle = obj->getOrientation();
+	const std::vector<ObjectGeometry::Shape> &own = obj->geometryShapes(); // lane MODCOMPAT-MOD1: the objects' own GeometryInfo (Object + 0xA8)
+	const std::vector<ObjectGeometry::Shape> &theirs = other.geometryShapes();
+	int i = 0;
+	bool collision = true;
+	while (collision && i++ <= 12)
+	{
+		cur.x = SimMath::addf32(cur.x, delta.x);
+		cur.y = SimMath::addf32(cur.y, delta.y);
+		cur.z = SimMath::addf32(cur.z, delta.z);
+		collision = NotifyCrushModules::geometriesOverlap(own, cur, angle, theirs, *other.getPosition(), other.getOrientation());
+	}
+	cur.x = SimMath::subf32(cur.x, delta.x);
+	cur.y = SimMath::subf32(cur.y, delta.y);
+	cur.z = SimMath::subf32(cur.z, delta.z);
+	obj->setPosition(&cur);
+}
+
+bool BezierProjectileBehavior::alreadyHit(ObjectID id) const
+{
+	for (ObjectID h : m_hitList)
+	{
+		if (h == id)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// RW 0x85FDB7
+bool BezierProjectileBehavior::projectileHandleCollision(Object *other)
+{
+	if (m_flightPath.empty())
+	{
+		return false;
+	}
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	GameLogic &logic = obj->logic();
+	CombatState::Counters &counters = logic.combat().counters();
+	if (other)
+	{
+		// RW 0x85FDCE (BFME2 decomp BezierProjectileBehavior.cpp rva0045CD6E): the back-off first (RW 0x85EA5F, lane FLANK-1), then a non-CrushStyle projectile detonates
+		backOff(*other);
+		if (!d->m_crushStyle)
+		{
+			detonate();
+			return true;
+		}
+		if (!alreadyHit(other->getID()))
+		{
+			// RW 0x85F85B (BFME2 decomp BezierProjectileBehavior.cpp rva0045C812): handleProjectileDetonation(warhead, &origin + 0x2C, the PROJECTILE object (+ 0x08), &other's
+			// position, bonus + 0x74), then the thing is remembered (+ 0x7C). lane FLANK-1: the source was the producer; retail's is the projectile
+			if (m_warhead)
+			{
+				Coord3D pos = *other->getPosition();
+				DeliverNuggets(logic, obj->getID(), *m_warhead, WeaponBonus(), nullptr, &pos, true, &counters.unportedNuggets);
+			}
+			m_hitList.push_back(other->getID());
+		}
+		return true;
+	}
+	// the ground or the end of the path: the hit (or bounce) FX and weapon
+	const bool bouncing = m_altCurve != 0;
+	const std::string &fx = bouncing ? d->m_groundBounceFX : d->m_groundHitFX;
+	const std::string &weaponName = bouncing ? d->m_groundBounceWeapon : d->m_groundHitWeapon;
+	if (!fx.empty() && fx != "None")
+	{
+		++counters.projectileFxUnplayed; // hashed run counter, kept (lane FX-2 changes no hash)
+	}
+	// lane FX-2: RW 0x85FDB7 plays GroundBounceFX (+0xA0) while bouncing, else GroundHitFX (+0x9C) through RW 0x494615 doFXPos(fx, object position, null, 0, null)
+	{
+		FXEvent e = FXEventLog::objectEvent(FXEvent::POSITION_FX, bouncing ? "GroundBounceFX" : "GroundHitFX", logic.getFrame(), fx, *obj);
+		e.hasTransform = false;
+		logic.fxEvents().emit(e);
+	}
+	++counters.projectileGroundHits;
+	if (!weaponName.empty() && TheWeaponStore)
+	{
+		if (const WeaponTemplate *w = TheWeaponStore->findWeaponTemplate(weaponName))
+		{
+			// RW 0x85FE49 .. 0x85FE63: TheWeaponStore->createAndFireTempWeapon(weapon, projectile, projectile position) (RW 0x6CF530; lane DECOMP-1)
+			ObjectWeapons::createAndFireTempWeapon(w, obj, *obj->getPosition());
+		}
+	}
+	if (m_altCurve < d->m_bounceCount)
+	{
+		bounce(false);
+	}
+	else if (!d->m_crushStyle)
+	{
+		detonate();
+	}
+	else
+	{
+		landed();
+	}
+	return true;
+}
+
+// RW 0x85FCBB
+void BezierProjectileBehavior::bounce(bool flag)
+{
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	if (!d->m_dieOnImpact && !flag)
+	{
+		setWakeFrame(obj, UPDATE_SLEEP_NONE);
+	}
+	++m_altCurve;
+	++obj->logic().combat().counters().projectileBounces;
+	const int n = (int)m_flightPath.size();
+	if (n < 2)
+	{
+		landed();
+		return;
+	}
+	const Coord3D &last = m_flightPath[(size_t)n - 1];
+	const Coord3D &prev = m_flightPath[(size_t)n - 2];
+	float dx = SimMath::subf32(last.x, prev.x);
+	float dy = SimMath::subf32(last.y, prev.y);
+	const float lenSq = SimMath::addf32(SimMath::mulf32(dy, dy), SimMath::mulf32(dx, dx));
+	if (lenSq != 0.0f)
+	{
+		const float inv = ProjectileInvSqrt(lenSq);
+		dx = SimMath::mulf32(dx, inv);
+		dy = SimMath::mulf32(dy, inv);
+	}
+	Coord3D end;
+	end.x = SimMath::addf32(SimMath::mulf32(dx, d->m_bounceDistance), obj->getPosition()->x);
+	end.y = SimMath::addf32(SimMath::mulf32(dy, d->m_bounceDistance), obj->getPosition()->y);
+	end.z = obj->logic().getGroundHeight(end.x, end.y);
+	projectileFireAtObjectOrPosition(nullptr, &end);
+}
+
+// RW 0x85F9BE: the projectile has come to rest (a CrushStyle one after its last bounce)
+void BezierProjectileBehavior::landed()
+{
+	Object *obj = getObject();
+	const BezierProjectileBehaviorModuleData *d = m_data;
+	GameLogic &logic = obj->logic();
+	Coord3D pos = *obj->getPosition();
+	pos.z = logic.getGroundHeight(pos.x, pos.y);
+	obj->setPosition(&pos);
+	m_flightPath.clear();
+	m_currentFlightPathStep = 0;
+	m_altCurve = 0;
+	m_launcherID = INVALID_ID;
+	m_hitList.clear();
+	obj->setModelConditionState(kModelConditionThrownProjectile, false);
+	obj->setModelConditionState(kModelConditionAboutToHit, false);
+	if (d->m_dieOnImpact)
+	{
+		obj->setModelConditionState(kModelConditionSplatted, true);
+		obj->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL); // RW 0x85FA95: kill(8, 0)
+	}
+	obj->setStatus((unsigned)CombatNames::statuses().noAttack, false);
+	++logic.combat().counters().projectilesLanded;
+	// RW 0x85FAA4 .. 0x85FACB (lane FLANK-1): an object with an AI (+ 0x260) gets, from the AI (source 2), FinalStuckTime (+ 0x38) > 0: command 0x31 with that many frames
+	// (RW 0x852E2A -> 0x66498A: the busy state 0x2A as a temporary state, RW 0x74168E: a leaping hero stands still after it lands); 0: command 5, idle (RW 0x5E821A).
+	// A landed object without an AI leaves through its own modules (a LifetimeUpdate started at creation)
+	if (AIUpdateInterface *ai = obj->getAIUpdateInterface())
+	{
+		if (d->m_finalStuckTime > 0)
+		{
+			ai->aiBusyFor(d->m_finalStuckTime, CMD_FROM_AI);
+		}
+		else
+		{
+			ai->aiIdle(CMD_FROM_AI);
+		}
+	}
+}
+
+// RW 0x85F08A
+void BezierProjectileBehavior::detonate()
+{
+	if (m_hasDetonated)
+	{
+		return;
+	}
+	Object *obj = getObject();
+	GameLogic &logic = obj->logic();
+	CombatState::Counters &counters = logic.combat().counters();
+	Object *victim = m_victimID != INVALID_ID ? logic.findObjectByID(m_victimID) : nullptr;
+	if (m_data && m_data->m_postLandingEmotion != -1 && m_data->m_postLandingStateTime != 0 && victim)
+	{
+		++counters.projectileEmotionsUnported; // the units near the landing spot react (RW 0x85F0C7..0x85F19D): not ported, S-363
+	}
+	if (m_warhead)
+	{
+		Object *producer = logic.findObjectByID(obj->getProducerID());
+		const ObjectID source = producer ? producer->getID() : obj->getID();
+		if (victim && m_warhead->m_hitStoredTarget)
+		{
+			// RW 0x85F1E0 .. 0x85F1F7: RW 0x6CF590 createAndFireTempWeapon(warhead, source, victim): the full temporary weapon at the victim (lane DECOMP-1)
+			ObjectWeapons::createAndFireTempWeaponAt(m_warhead, producer ? producer : obj, *victim);
+		}
+		else
+		{
+			// RW 0x6CF4D6 handleProjectileDetonation(warhead, &origin, source, &position, bonus)
+			Coord3D pos = *obj->getPosition();
+			DeliverNuggets(logic, source, *m_warhead, WeaponBonus(), nullptr, &pos, true, &counters.unportedNuggets);
+		}
+		if (m_data && m_data->m_detonateCallsKill)
+		{
+			obj->kill(DAMAGE_UNRESISTABLE, DEATH_DETONATED); // RW 0x85F227: kill(8, DETONATED)
+		}
+		else
+		{
+			logic.destroyObject(obj);
+		}
+	}
+	else
+	{
+		obj->kill(DAMAGE_UNRESISTABLE, DEATH_DETONATED); // RW 0x85F249: kill(8, DETONATED)
+	}
+	m_hasDetonated = true;
+	obj->setStatus(OBJECT_STATUS_NO_COLLISIONS, true);
+	++counters.projectilesDetonated;
+}
+
+bool BezierProjectileBehavior::projectilePendingPositionOfFrame(unsigned frame, Coord3D &out) const
+{
+	if (!m_pendingValid || m_pendingFrame != frame)
+	{
+		return false;
+	}
+	out = m_pendingPosition;
+	return true;
+}
+
+ProjectileUpdateInterface::ClientInfo BezierProjectileBehavior::projectileClientInfo() const
+{
+	ClientInfo c;
+	c.fireFrame = m_fireFrame;
+	c.launcher = m_launcherID;
+	c.end = m_flightPathEnd;
+	c.segments = m_flightPathSegments;
+	return c;
+}
+
+// RW 0x85E54D (slot 5): kill, damage type 8 (UNRESISTABLE), death 0
+void BezierProjectileBehavior::projectileNowJammed()
+{
+	getObject()->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL); // RW 0x85E554: kill(8, 0)
+}
+
+void BezierProjectileBehavior::crc(StateHasher &h) const
+{
+	UpdateModule::crc(h);
+	h.addU32(m_launcherID);
+	h.addFloat(m_originPos.x);
+	h.addFloat(m_originPos.y);
+	h.addFloat(m_originPos.z);
+	h.addU32(m_victimID);
+	h.addString(m_weapon ? m_weapon->getName() : std::string());
+	h.addString(m_warhead ? m_warhead->getName() : std::string());
+	h.addU32((std::uint32_t)m_flightPath.size());
+	for (const Coord3D &p : m_flightPath)
+	{
+		h.addFloat(p.x);
+		h.addFloat(p.y);
+		h.addFloat(p.z);
+	}
+	h.addFloat(m_flightPathStart.x);
+	h.addFloat(m_flightPathStart.y);
+	h.addFloat(m_flightPathStart.z);
+	h.addFloat(m_flightPathEnd.x);
+	h.addFloat(m_flightPathEnd.y);
+	h.addFloat(m_flightPathEnd.z);
+	h.addFloat(m_flightPathSpeed);
+	h.addI32(m_flightPathSegments);
+	h.addI32(m_currentFlightPathStep);
+	h.addU32(m_bonusFlags);
+	h.addI32(m_altCurve);
+	h.addU32((std::uint32_t)m_hitList.size());
+	for (ObjectID id : m_hitList)
+	{
+		h.addU32(id);
+	}
+	h.addBool(m_hasDetonated);
+	h.addFloat(m_heightScale);
+	h.addFloat(m_pendingPosition.x); // lane PROJ-2
+	h.addFloat(m_pendingPosition.y);
+	h.addFloat(m_pendingPosition.z);
+	h.addU32(m_pendingFrame);
+	h.addBool(m_pendingValid);
+	h.addU32(m_fireFrame);
+}
+
+std::vector<std::string> ProjectileModules::stops()
+{
+	return {
+		"[S-360] projectile launch: RW 0x6CB490 -> 0x6CAB85 is ported (lane RENDER-2): the launch bone of the launcher's drawable (RW 0x6756A1 -> 0x4C34A2, a pristine pose of the "
+		"model condition state's data, never the shown animation frame, computed from logic state and template data without a drawable) composed with the launcher's transform (RW 0x70BCE7); "
+		"without a ProjectileLaunchOffsets provider the bone is the identity, counted as `launches without bones` (a GameLogic run without the W3D assets has no provider: stop S-460); the garrison branch (status INSIDE_GARRISON: the container's drawable and transform) and the turret composition (no AI turrets) are not ported; a ProjectileNugget "
+		"with ProjectileFilterInContainer, WeaponLaunchBoneSlotOverride beyond the slot and ProjectileStreamName (RW 0x74094C / 0x7408A8) are not ported",
+		"[S-361] flight path numerics: BezierSegment, BezFwdIterator and the length approximation follow RW 0x960E8D .. 0x9612A3 / 0x9D6A35 operation by operation; D3DXVec4Transform is an import of the D3DX DLL "
+		"(not in game.dat), evaluated left to right as float32 products and sums",
+		"[S-362] aim and terrain: the aim point of a victim is its geometry centre (RW 0x6CB85A -> 0x690BD2 -> 0xAD30E0 picks aim points of the victim's geometry by a seed; the weapon's aim bone is a "
+		"drawable query) and the seed is drawn from the logic random (Weapon.cpp:1749) like retail; the highest terrain along the line is sampled over partition cells of 40 on a 3x3 lattice (ZH "
+		"estimateTerrainExtremesAlongLine; RW's own routine, slot 0x40 of the terrain object RW 0xDE4690, was not read); only the ground layer exists (no bridges)",
+		"[S-363] projectile behaviour: the victim proximity test of RW 0x85F737 is ported as the binary has it (the length of the victim's WORLD position against radius + speed: it only fires near the map "
+		"origin); lane FLANK-1: a flying projectile without KindOf NO_COLLIDE meets the objects its shapes overlap (CombatState::processProjectileContacts, the collision manager row; INFERENCE S-780: "
+		"the candidates are ThePartitionManager's within its bounding sphere, tested with RW 0xAD2CE0 from the pair's lower ObjectID's side with each object's own shapes (lane SIEGE-1: RW 0xB6D730 / 0xB6D060), in id order, the projectile's collide interface only) through canCollideWith RW 0x85EF6A with the warhead's "
+		"ProjectileCollidesWith RW 0x6CC79C (no sneaky targeting offset, the ground layer only, a BURNED object's nugget walk of RW 0x6CB6EA not ported), the back-off RW 0x85EA5F and the CrushStyle hit "
+		"RW 0x85F85B with the projectile as the source; PreLandingEmotion runs (RW 0x85F31A -> RW 0x68F383); GarrisonHitKill (no 2.01 data), the PostLanding emotion (no 2.01 data) and TumbleRandomly "
+		"(the physics orientation) are parsed and counted, not executed (InvisibleFrames / FadeInTime and the drawable look-ahead point: lane PROJ-2, S-1001); "
+		"FinalStuckTime > 0 makes a landed object's AI busy for that many frames (RW 0x852E2A -> 0x66498A: the temporary state 0x2A) and FinalStuckTime 0 sends it idle (RW 0x5E821A, lane FLANK-1); the hit and bounce FX lists are counted, not played",
+		"[S-364] warhead: the detonation delivers the warhead's nuggets through DeliverNuggets (RW 0x6CF590 / 0x6CF4D6 create a temporary Weapon: its own HitPercentage / scatter / dodge rolls are not applied; "
+		"lane FLANK-1 found the fire body RW 0x6CC915 never reads the WeaponBonus, and no 2.01 warhead has a HitPercentage below 1, a scatter or a dodge, so 2.01 data delivers the same damage)",
+		"[S-1000] siege launch (lane PROJ-2): the WeaponStatusHelper runs RW 0x68E197 every frame in the FINAL update phase (RW 0x68D19A, 0x8311B1) and the fire state sets the "
+		"current slot's FIRING conditions right before the shot (RW 0x74C4A7 -> 0x69036C), so the launch bone is the attack state's pose at FrameForPristineBonePositions; the "
+		"launch takes the first two path points at once (RW 0x85EF34). Not ported: RW 0x68E197 / 0x69036C change the conditions only for an object with a drawable (this "
+		"port: every object that has weapons), the drawable's clip hint RW 0x671913, the partition refresh RW 0x68C7E9 between the two launch steps (this port's partition reads "
+		"the current position)",
+		"[S-365] projectile drawing: an arrow object draws through W3DStreakDraw (lane RENDER-1: the trail of RW 0x4CF884 with the template's Length / Width / NumSegments / Color / "
+		"Texture, drawn by the client's GameWorld; the ribbon geometry and the weather textures are stop S-391); stones and bolts are drawn by their own model draw",
+	};
+}
+
+// ---- lane SAVE-4b: the snapshot (OpenBFME native, S-4190: the crc's fields; retail's BezierProjectileBehavior::xfer RW 0x85FAD7 (1, 2) holds a
+// similar set: launcher, victim, flight path, hit list) ---------------------------------------------------------------------------------------------------
+void BezierProjectileBehavior::xfer(Xfer &x)
+{
+	SnapshotXfer::version(x, 1, 1);
+	xferUpdateModule(x);
+	x.xferObjectID(&m_launcherID);
+	SnapshotXfer::coord3D(x, m_originPos);
+	x.xferObjectID(&m_victimID);
+	SnapshotXfer::weaponTemplate(x, m_weapon);
+	SnapshotXfer::weaponTemplate(x, m_warhead);
+	SnapshotXfer::coords(x, m_flightPath);
+	SnapshotXfer::coord3D(x, m_flightPathStart);
+	SnapshotXfer::coord3D(x, m_flightPathEnd);
+	x.xferReal(&m_flightPathSpeed);
+	x.xferInt(&m_flightPathSegments);
+	x.xferInt(&m_currentFlightPathStep);
+	SnapshotXfer::checkRange(m_currentFlightPathStep, 0, m_flightPath.size(), "a projectile's flight path step"); // the path's end: the impact
+	SnapshotXfer::maskWithin(x, m_bonusFlags, SnapshotXfer::lowBits(WEAPONBONUS_CONDITION_COUNT), "a projectile's weapon bonus conditions", "the 22 conditions");
+	x.xferInt(&m_altCurve);
+	SnapshotXfer::ids(x, m_hitList);
+	x.xferBool(&m_hasDetonated);
+	x.xferReal(&m_heightScale);
+	SnapshotXfer::coord3D(x, m_pendingPosition);
+	x.xferUnsignedInt(&m_pendingFrame);
+	x.xferBool(&m_pendingValid);
+	x.xferUnsignedInt(&m_fireFrame);
+}

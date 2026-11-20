@@ -1,0 +1,1594 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0 (GameLogic/ScriptEngine/ScriptActions.cpp).
+//
+// ScriptActions, lane SCRIPT-2: the unit, team, relationship and counter-math actions (RW 0x7CAFA5's cases), by retail use. See ScriptActions.h.
+//
+// TARGET FACTS (RotWK game.dat, caveat S-001; the case's push order read from the jump-table target):
+//   * UNIT_AFFECT_OBJECT_PANEL_FLAGS (unit, flag, value) RW 0x7C6703 -> RW 0x7C569E; TEAM_AFFECT_OBJECT_PANEL_FLAGS RW 0x7C672D: every member ->
+//     RW 0x7C569E. "Enabled": script status 1 = !value; "Powered": status 2 = !value; "Indestructible": the body's setIndestructible (vslot 0x88,
+//     RW 0x8C3326), then every object the contain (+ 600, count vslot 0x7C, list vslot 0x118) holds, recursively; "Unsellable": status 4 = value;
+//     "Selectable": RW 0x68BE3C when isSelectable (RW 0x68DE58) differs; "AI_Recruitable": AI + 0x3BE; "Player_Targetable": status 0x10 = value;
+//     anything else nothing. The status byte: Object::setScriptStatus (RW 0x69317D).
+//   * TEAM_SET_OVERRIDE_RELATION_TO_TEAM (team, team, relation) RW 0x7C1416 -> RW 0x7A58FB(team 2's id, relation); _TO_PLAYER (team, player NAME,
+//     relation) RW 0x7C4E89 -> RW 0x7A5963(the player's index, relation); TEAM_REMOVE_ALL_OVERRIDE_RELATIONS RW 0x7C14C1 -> RW 0x7A54BC + RW 0x7A5512.
+//   * NAMED_TRANSFER_OWNERSHIP_PLAYER (unit, player) RW 0x7BC11C: the first player of the mask with a default team (+ 0x30C): Object::setTeam
+//     (RW 0x69954A), then RW 0x7BB2A9(obj, 0) (the client's selection / radar refresh of the changed object: not logic).
+//   * TEAM_MERGE_INTO_TEAM (team, team) RW 0x7C0C75: two different teams; the second's controlling player is given to ... (RW 0x7A00DA when the
+//     players differ); every member of the first (but a rider whose mount's template has KindOf + 0x115 bit 5) -> setTeam(second); up to 3 passes while
+//     the first still has members (RW 0x7A11FF); then the second team's + 0x5D / + 0x5E (its active / created flags).
+//   * UNIT_TELEPORT_TO_WAYPOINT (unit, waypoint) RW 0x7BDBF9 -> Object::setPosition (RW 0x696E63(pos, 0): the position, the drawable, the contain's
+//     passengers, then the AI idles (RW 0x5E821A) and resets its path (RW 0x66276B)).
+//   * IDLE_ALL_UNITS RW 0x7BC631: the players of the parameter (an empty mask: every player whose + 0x5C is 0, a human) -> RW 0x6AFBBC(1): every member
+//     of the player's teams that is not a STRUCTURE and has an AI moves to its own position (aiMoveToPosition(pos, CMD_FROM_SCRIPT), RW 0x66C4CA).
+//   * NAMED_STOP_FLUSH RW 0x7C9CA2: an AI object: RW 0x756C87(3, id), RW 0x68DF11(1), aiIdle(CMD_FROM_SCRIPT).
+//   * NAMED_ATTACK_NAMED RW 0x7C8D86: aiAttackObject(victim, 0x7FFFFFFF shots, CMD_FROM_SCRIPT) (RW 0x66C536; a GiantBirdAIUpdate, AI vslot 0x168: command 0x39 RW 0x77131B).
+//     TEAM_ATTACK_NAMED RW 0x7C4613: an AI group of the team (RW 0x70042A / 0x7A3D3D) attacks the object (RW 0x77208A).
+//   * ATTACK_MOVE_NAMED_UNIT_TO RW 0x7C858F / ATTACK_MOVE_TEAM_TO RW 0x7BF594: the waypoint by name (TheTerrainLogic vslot 0x88); the attack move.
+//   * NAMED_FOLLOW_WAYPOINTS RW 0x7C9196 / _EXACT RW 0x7C928D / NAMED_ATTACK_FOLLOW_WAYPOINTS RW 0x7C920F: the waypoint of the path label closest to
+//     the unit (TheTerrainLogic vslot 0x90, ZH getClosestWaypointOnPath), then the AI's waypoint path command (RW 0x770FA8 / 0x77100D / 0x754A3C).
+//   * NAMED_FACE_NAMED RW 0x7CA4A6 / TEAM_FACE_NAMED RW 0x7CA565: the AI's face-object command (AI command 0x26, RW 0x7C81B9).
+//   * TEAM_CHANGE_OBJECT_STATUS (team, status, value) RW 0x7C4385: every member: RW 0x62684D -> Object::setStatus(the status bit, value).
+//   * UNIT_SET_MAX_LEVEL RW 0x7BD450: the experience tracker's + 0x28 (the level cap) = the value.
+//   * UNIT_GIVE_EXPERIENCE_POINTS RW 0x7BD3E4 / TEAM_GIVE_EXPERIENCE_POINTS RW 0x7C291F (every member, RW 0x688DF0):
+//     ExperienceTracker::addExperiencePoints((float)value, 1, 1, 1, 0) (RW 0x79D833).
+//   * TEAM_UPGRADE (team, upgrade) RW 0x7C2BB6 -> RW 0x7A03E8: every member: no contain -> giveUpgrade (RW 0x69388B); else the contain's vslot 0xB8.
+//   * COUNTER_MATH_COUNTER RW 0x7C33E5 / COUNTER_MATH_VALUE RW 0x7C3465: counter (get or create) = counter op (the other counter found, else 0 / the
+//     value), op 0 +, 1 -, 2 *, 3 / (anything else: unchanged).
+//   * lane AUTOCAST-1: NAME_SET_AUTO_ABILITY (unit, button, on) RW 0x7C3C88 and TEAM_SET_AUTO_ABILITY (team, button, on) RW 0x7C3D61 (every member, RW
+//     0x66362D / 0x6632C9): the object's first AutoAbilityBehavior (RW 0x68BDA5, key cached at RW 0x7C3CD3 / 0x7C3DAD), the button by name (RW 0x71D6EA) with
+//     AutoAbility (+ 0x10C), the object's command set (RW 0x69156B / 0x71EFA2): for each of its 33 slots holding that button (RW 0x80C837, bound 0x21),
+//     AutoAbilityBehavior::setAutoAbility(button, on) (RW 0x85D7B6). The campaign maps use them; the skirmish AI's hero library (lib_hero_behaviors) asks it only for
+//     buttons with AutoAbility No (Captain of Gondor, King's Favor), which this ignores: retail's skirmish AI never switches autocast on.
+//   * lane CASTLE-UNPACK: NAMED_BASE_UNPACK (unit, reference) RW 0x7CE925 and NAMED_BASE_UNPACK_FREE RW 0x7CE928 -> RW 0x7BED64(param 0, param 1's
+//     string, free = 0 / 1): the unit by name (RW 0x75A3D8), controlled by the script engine's current player (RW 0x68B678 == RW 0x6057EE), its CastleBehavior
+//     (RW 0x68BDA5, RW 0x797AC1's key): canUnpack(true) (RW 0x7983E3), isPlayerAllowedToPackOrUnpack(the controller) (RW 0x79A472), and unless free
+//     canAffordUnpack(the controller) (RW 0x79969F): initiateUnpack(free, no template) (RW 0x79C17D: a free unpack is the instant one, nothing paid); then a
+//     non-empty reference (RW 0x401E64) names the castle in the script engine's object references (RW 0x608397, ScriptEngine::setReference). Any failed
+//     step does nothing.
+//   * NAMED_ / TEAM_USE_COMMANDBUTTON_ABILITY[_ON_NAMED / _AT_WAYPOINT]: SCRIPT-4's port in ScriptActionsOrders.cpp (merge queue q26 kept it over lane
+//     WALL-1's copy of three of them: the same RW 0x7C6243 / 0x7C62BF / 0x7C11EE, with more command types; S-4841 closed into S-1190).
+//
+// INFERENCE / NOT PORTED (stops): the AI states without a port (hunt, attitude, attack-team, the waypoint path states with their per-waypoint link
+// choice, face-object) -> S-1186 (docs/STOPS.md); the noted stand-ins below each report themselves.
+
+#include "GameLogic/ScriptEngine/ScriptActions.h"
+#include "GameLogic/ScriptEngine/AttackPriority.h"
+
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
+#include "Common/Science.h"
+#include "Common/Dict.h"
+#include "Common/Team.h"
+#include "GameLogic/AI/AIWorld.h"
+#include "Common/Thing/ThingFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/AI/AICommandSink.h"
+#include "GameLogic/AI/AIGroupFormations.h"
+#include "GameLogic/AI/AIGuard.h"
+#include "GameLogic/Damage.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Map/TerrainLogic.h"
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/CastleModules.h"
+#include "GameLogic/Module/DozerAIUpdate.h"
+#include "GameLogic/Module/GiantBirdAIUpdate.h"
+#include "GameLogic/AI/AIGarrisonStates.h"
+#include "GameLogic/Module/EmotionModules.h"
+#include "GameLogic/Module/HeroAbilityModules.h"
+#include "GameLogic/Module/SpecialPowerModules.h"
+#include "GameLogic/Module/StancesBehavior.h"
+#include "GameLogic/WeaponSetToggle.h"
+#include "Common/SpecialPower.h"
+#include "GameClient/ControlBarCommands.h"
+#include "Common/CommandPoints.h"
+#include "Common/BuildAssistant.h"
+#include "Common/Upgrade.h"
+#include "GameLogic/Module/ProductionUpdate.h"
+#include "GameLogic/Object/PartitionManager.h"
+#include "GameLogic/Module/BehaviorModule.h"
+#include "GameLogic/Object/ExperienceTracker.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/ObjectTemplateInfo.h"
+#include "GameLogic/ScriptEngine/ScriptConditions.h"
+#include "GameLogic/ScriptEngine/ScriptEngine.h"
+#include "GameLogic/ScriptEngine/ScriptTemplates.h"
+#include "GameLogic/SimMath.h"
+
+#include <algorithm>
+#include <cctype>
+#include <set>
+
+namespace
+{
+
+const ScriptParameter &param(const ScriptActionRec &a, size_t i)
+{
+	static const ScriptParameter kEmpty;
+	return i < a.params.size() ? a.params[i] : kEmpty;
+}
+
+bool isKindOfName(const Object &o, const char *name)
+{
+	const int b = ObjectTemplateInfoBuilder::kindOfIndex(name);
+	return b >= 0 && o.isKindOf((unsigned)b);
+}
+
+// RW 0x7C569E
+void affectObjectPanelFlag(ScriptEngine &engine, Object &obj, const std::string &flag, bool value, int depth)
+{
+	if (flag == "Enabled")
+	{
+		obj.setScriptStatus(1, !value);
+	}
+	else if (flag == "Powered")
+	{
+		obj.setScriptStatus(2, !value);
+	}
+	else if (flag == "Indestructible")
+	{
+		if (BodyModuleInterface *body = obj.getBodyModule())
+		{
+			body->setIndestructible(value);
+		}
+		ContainModuleInterface *contain = obj.getContain();
+		if (!contain || contain->getContainCount() == 0 || depth > 16)
+		{
+			return;
+		}
+		if (const ContainModuleInterface::ContainedItemsList *items = contain->getContainedItemsList())
+		{
+			const std::vector<Object *> copy(items->begin(), items->end());
+			for (Object *o : copy)
+			{
+				if (o)
+				{
+					affectObjectPanelFlag(engine, *o, flag, value, depth + 1);
+				}
+			}
+		}
+	}
+	else if (flag == "Unsellable")
+	{
+		obj.setScriptStatus(4, value);
+	}
+	else if (flag == "Selectable")
+	{
+		// RW 0x68DE58 / 0x68BE3C: + 0x454. INFERENCE: isSelectable is read as the stored flag (the template's SELECTABLE / NO_SELECT stay the client's)
+		if (obj.isScriptSelectable() != value)
+		{
+			obj.setScriptSelectable(value);
+		}
+	}
+	else if (flag == "AI_Recruitable")
+	{
+		engine.note("[S-1186] UNIT_AFFECT_OBJECT_PANEL_FLAGS AI_Recruitable: the AI's + 0x3BE (the skirmish AI's recruiting) has no port");
+	}
+	else if (flag == "Player_Targetable")
+	{
+		obj.setScriptStatus(0x10, value);
+	}
+}
+
+// ZH TerrainLogic::getClosestWaypointOnPath (TheTerrainLogic vslot 0x90): the waypoint carrying the label (any of its three) closest in x / y, the first of
+// equals. INFERENCE: the map's waypoint order (ZH walks its linked list) and SSE single precision
+const Waypoint *closestWaypointOnPath(const TerrainLogic &terrain, const Coord3D &pos, const std::string &label)
+{
+	if (label.empty())
+	{
+		return nullptr;
+	}
+	const Waypoint *best = nullptr;
+	float bestDist = 0.0f;
+	for (const Waypoint &w : terrain.waypoints())
+	{
+		if (w.label1 != label && w.label2 != label && w.label3 != label)
+		{
+			continue;
+		}
+		const float dx = SimMath::sseSub(pos.x, w.location.x);
+		const float dy = SimMath::sseSub(pos.y, w.location.y);
+		const float d = SimMath::sseAdd(SimMath::sseMul(dx, dx), SimMath::sseMul(dy, dy));
+		if (!best || d < bestDist)
+		{
+			best = &w;
+			bestDist = d;
+		}
+	}
+	return best;
+}
+
+// lane SCRIPT-3: RW 0x7A3D3D, a team's AI group (TheAI's new group RW 0x70042A): every member (the team's list order) but one in a horde (RW 0x6939DF:
+// HORDE_MEMBER with a container, or a HORDE container, + 0x78) and one UNDER_CONSTRUCTION (status 2)
+std::vector<Object *> aiGroupOf(Team &t)
+{
+	static const int underConstruction = ObjectTemplateInfoBuilder::objectStatusIndex("UNDER_CONSTRUCTION");
+	static const int hordeMember = ObjectTemplateInfoBuilder::objectStatusIndex("HORDE_MEMBER");
+	std::vector<Object *> out;
+	for (Object *o : ScriptConditions::members(t))
+	{
+		const Object *c = o->getContainedBy();
+		if (c && ((hordeMember >= 0 && o->testStatus((unsigned)hordeMember)) || isKindOfName(*c, "HORDE")))
+		{
+			continue;
+		}
+		if (underConstruction >= 0 && o->testStatus((unsigned)underConstruction))
+		{
+			continue;
+		}
+		out.push_back(o);
+	}
+	return out;
+}
+
+// lane SCRIPT-3: RW 0x77208A AIGroup::groupAttackObject(force, victim, shots, source): the group's members but DISABLED_HELD ones (+ 0x1C8 bit 3), by
+// the squared 2D distance to the victim (the list RW 0x95204E sorted ascending, RW 0x952EE1(1): MSVC's std::sort, an insertion sort, stable, up to 32
+// members; INFERENCE beyond), each: the passengers of a contain that lets them fire (contain vslot 0xB4, RW 0x772157) attack too (not ported: S-1186);
+// then a member with an AI that is not the victim attacks it: a GiantBirdAIUpdate (AI vslot 0x168, RW 0x68BA5C) through command 0x39 (RW 0x7721EF ..
+// 0x772212: only when ActionManager::getCanAttackObject RW 0x82CFD4(member, victim, source, 0) says POSSIBLE or POSSIBLE_AFTER_MOVING, then RW 0x77131B;
+// lane STEALTHFLY1), else force ? RW 0x771380 : aiAttackObject (RW 0x66C536)
+void groupAttackObject(ScriptEngine &engine, Team &team, Object &victim, bool force, CommandSourceType source)
+{
+	std::vector<std::pair<Object *, float>> order;
+	for (Object *o : aiGroupOf(team))
+	{
+		if (o->getDisabledMask() & (1u << 3))
+		{
+			continue;
+		}
+		const float dx = SimMath::subf32(o->getPosition()->x, victim.getPosition()->x);
+		const float dy = SimMath::subf32(o->getPosition()->y, victim.getPosition()->y);
+		order.emplace_back(o, SimMath::addf32(SimMath::mulf32(dy, dy), SimMath::mulf32(dx, dx)));
+	}
+	std::stable_sort(order.begin(), order.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+	for (const auto &entry : order)
+	{
+		Object *o = entry.first;
+		if (ContainModuleInterface *c = o->getContain())
+		{
+			if (c->getContainCount() > 0 && !c->getHordeContainInterface())
+			{
+				engine.note("[S-1186] TEAM_ATTACK_NAMED: a member's passengers that may fire (contain vslot 0xB4) do not join the group attack");
+			}
+		}
+		AIUpdateInterface *ai = o->getAIUpdateInterface();
+		if (!ai || o == &victim)
+		{
+			continue;
+		}
+		if (GiantBirdAIUpdate *bird = dynamic_cast<GiantBirdAIUpdate *>(ai))
+		{
+			if (GarrisonRules::canAttackAsNewTarget(*o, victim, source))
+			{
+				bird->aiSwoopAttackObject(&victim, source);
+			}
+			continue;
+		}
+		if (force)
+		{
+			ai->aiForceAttackObject(&victim, source);
+		}
+		else
+		{
+			ai->aiAttackObject(&victim, source);
+		}
+	}
+}
+
+std::vector<Object *> unitOrTeam(ScriptEngine &engine, const std::string &name, bool isTeam)
+{
+	std::vector<Object *> out;
+	if (!isTeam)
+	{
+		if (Object *o = engine.getUnitNamed(name))
+		{
+			out.push_back(o);
+		}
+	}
+	else if (Team *t = ScriptConditions::team(engine, name))
+	{
+		out = ScriptConditions::members(*t);
+	}
+	return out;
+}
+
+void faceObject(Object &o, const Object &target)
+{
+	// S-1186: the AI's face-object command (0x26) is not a state here; the object turns at once
+	const Coord3D *p = o.getPosition();
+	const Coord3D *q = target.getPosition();
+	const double angle = SimMath::atan2d(SimMath::sseSub(q->y, p->y), SimMath::sseSub(q->x, p->x));
+	o.setOrientation(SimMath::fstpDword(angle));
+}
+
+std::int32_t counterMath(std::int32_t lhs, int op, std::int32_t rhs, ScriptEngine &engine)
+{
+	switch (op)
+	{
+	case 0: return (std::int32_t)((std::uint32_t)lhs + (std::uint32_t)rhs);
+	case 1: return (std::int32_t)((std::uint32_t)lhs - (std::uint32_t)rhs);
+	case 2: return (std::int32_t)((std::uint32_t)lhs * (std::uint32_t)rhs);
+	case 3:
+		if (rhs == 0 || (lhs == INT32_MIN && rhs == -1))
+		{
+			engine.note("COUNTER_MATH: division by zero (retail's idiv faults; the counter is left unchanged)");
+			return lhs;
+		}
+		return lhs / rhs;
+	default: return lhs;
+	}
+}
+
+// RW 0x7C8657(team, waypoint, false): the prototype of that (side-qualified) name (RW 0x758C10 -> 0x7A2C47) and the waypoint; a new team of the
+// prototype (RW 0x7A6E8E: a singleton's existing one); per unit entry of the team's template (the dict's teamUnitType / MaxCount / ExperienceLevel /
+// UpgradeList N for MaxCount > 0, RW 0x7A2D1C), MaxCount objects in a row: x = spawn.x + radius * k * 2.25 (x87 under PC24, the object's bounding circle
+// radius + 0xB8), the row's y, then the next row 2 * radius further (SSE); each object placed (RW 0x70C201, angle 0), its create modules told the
+// build is complete (RW 0x6902F5 -> 0x68D252), its upgrades given (RW 0x693A9A) and its level raised (RW 0x694FB4). INFERENCE / NOT PORTED (S-1186):
+// the transport (+ 0x22C) and its loading, the auto-transport (+ 0x234), the origin waypoint (+ 0x230: the units start at the waypoint here, so
+// no group move follows), a horde's own upgrade / level slots (RW 0x68C866 0xB4 / 0xB8,
+// 0x694BF8 0xC4: the object's own paths run)
+void createReinforcements(ScriptEngine &engine, const std::string &teamName, const std::string &waypointName)
+{
+	GameLogic &logic = engine.logic();
+	const TerrainLogic *terrain = logic.terrain();
+	const Waypoint *w = terrain ? terrain->findWaypointByName(waypointName) : nullptr;
+	const std::pair<std::string, std::string> q = engine.qualify(teamName);
+	TeamFactory &teams = logic.players().teams();
+	TeamPrototype *proto = teams.findTeamPrototype(q.first, q.second);
+	if (!w || !proto)
+	{
+		return;
+	}
+	if (!engine.host() || !logic.aiWorld())
+	{
+		engine.note("[S-1186] CREATE_REINFORCEMENT_TEAM: no object creation host / AI world");
+		return;
+	}
+	Team *team = teams.createTeam(proto); // RW 0x7C8770 -> 0x7A6E8E (a singleton's existing team; lane TEAMEVENTS-1: both run the create actions)
+	const Dict &d = proto->getDict();
+	if (!d.getAsciiString("teamTransport").empty())
+	{
+		engine.note("[S-1186] CREATE_REINFORCEMENT_TEAM: a team with a transport (the units start on the ground)");
+	}
+	const Coord3D spawn = w->location;
+	float rowY = spawn.y;
+	for (int i = 1; i <= 7; ++i)
+	{
+		const std::string n = std::to_string(i);
+		bool hasType = false;
+		const std::string typeName = d.getAsciiString("teamUnitType" + n, &hasType);
+		const std::int32_t maxCount = d.getInt("teamUnitMaxCount" + n);
+		if (maxCount <= 0 || !hasType)
+		{
+			continue; // RW 0x7A2DD1: no entry
+		}
+		const ThingTemplate *tt = logic.things().findTemplate(typeName);
+		if (!tt)
+		{
+			continue;
+		}
+		const float radius = logic.aiWorld()->movementInfo(*tt).geometry.boundingCircleRadius();
+		const std::int32_t level = d.getInt("teamUnitExperienceLevel" + n);
+		const std::string upgrades = d.getAsciiString("teamUnitUpgradeList" + n);
+		for (std::int32_t k = 0; k < maxCount; ++k)
+		{
+			Coord3D pos;
+			// fimul k, fmul qword 2.25, fadd dword spawn.x, fstp dword: under the logic's PC24 x87 state each step rounds to 24 bits (binary32 here)
+			pos.x = SimMath::sseAdd(SimMath::sseMul(SimMath::sseMul(radius, SimMath::sseFromInt32(k)), 2.25f), spawn.x);
+			pos.y = rowY;
+			pos.z = spawn.z;
+			Object *obj = engine.host()->createObject(*tt, *team, pos, 0.0f);
+			if (!obj)
+			{
+				continue;
+			}
+			obj->friend_onBuildComplete();
+			size_t at = 0;
+			while (at < upgrades.size())
+			{
+				while (at < upgrades.size() && std::isspace((unsigned char)upgrades[at]))
+				{
+					++at;
+				}
+				size_t end = at;
+				while (end < upgrades.size() && !std::isspace((unsigned char)upgrades[end]))
+				{
+					++end;
+				}
+				if (end > at)
+				{
+					if (const UpgradeTemplate *u = Player::resolveUpgrade(upgrades.substr(at, end - at), false))
+					{
+						obj->giveUpgrade(u);
+					}
+				}
+				at = end;
+			}
+			if (ExperienceTracker *xp = obj->getExperienceTracker())
+			{
+				if (xp->getRank() != level)
+				{
+					xp->gainExpForLevel(level - xp->getRank(), false, false);
+				}
+			}
+		}
+		rowY = SimMath::sseAdd(SimMath::sseMul(radius, 2.0f), rowY);
+	}
+	team->setActive(); // lane CAMP-1H: RW 0x7C8CFA .. 0x7C8D0E: the new team (made inactive, RW 0x7A6E8E) is activated after its units are placed
+}
+
+// lane MODCOMPAT-AI: RW 0x8F7599 AIPlayer::buildUpgrade (ZH AIPlayer::buildUpgrade, the same shape): the upgrade by name (RW 0x66F5E5); none, an OBJECT
+// upgrade (+ 4 == 1), one the player has in production (RW 0x6AB2E1) or completed (RW 0x6AC2AF), or one it cannot afford (UpgradeCenter::canAffordUpgrade
+// RW 0x66F492(player, upgrade, 0, 0)) is ignored with a script debug message (RW 0x604D85, not kept here). Else over the object list (RW 0x97338F, next
+// + 0x8C): an object of the player (RW 0x68B678) that is neither UNDER_CONSTRUCTION (status 2) nor SOLD (0x13), whose command set (RW 0x69156B -> 0x71EFA2)
+// has in its 33 slots (RW 0x80C837) a named button (+ 0x10) whose upgrade (+ 0x24) is this one (the names compared, + 8): its ProductionUpdate (RW
+// 0x68C327(0)) queues the upgrade (vslot 0xC, RW 0x8A0FDA); the first that accepts ends the search. INFERENCE: the AIPlayer exists for a computer player
+// (setPlayerType RW 0x6AA450: type 1, or a skirmish slot with the global flag [0xDE4938] + 0x96C, read as clear)
+void aiBuildUpgrade(GameLogic &logic, Player &player, const std::string &upgradeName)
+{
+	if (player.getPlayerType() != PLAYER_COMPUTER)
+	{
+		return; // RW 0x6AA80E: no AIPlayer
+	}
+	const UpgradeTemplate *upgrade = Player::resolveUpgrade(upgradeName, false);
+	if (!upgrade || upgrade->getUpgradeType() == UPGRADE_TYPE_OBJECT || player.hasUpgradeInProduction(upgrade) || player.hasUpgradeComplete(upgrade) ||
+		!UpgradeCenter::canAffordUpgrade(&player, upgrade, nullptr))
+	{
+		return;
+	}
+	static const int underConstruction = ObjectTemplateInfoBuilder::objectStatusIndex("UNDER_CONSTRUCTION");
+	static const int sold = ObjectTemplateInfoBuilder::objectStatusIndex("SOLD");
+	for (Object *o = logic.getFirstObject(); o; o = o->getNextObject())
+	{
+		if (o->getControllingPlayer() != &player || o->testStatus((unsigned)underConstruction) || o->testStatus((unsigned)sold))
+		{
+			continue;
+		}
+		const CommandSet *set = TheCommandStore ? TheCommandStore->findCommandSet(o->getCommandSetName()) : nullptr;
+		if (!set)
+		{
+			continue;
+		}
+		bool found = false;
+		for (int i = 0; i < CommandSet::MAX_BUTTONS; ++i)
+		{
+			const CommandButton *b = set->getCommandButton(i);
+			if (b && !b->m_name.empty() && !b->m_upgradeName.empty() && Player::resolveUpgrade(b->m_upgradeName, false) == upgrade)
+			{
+				found = true;
+			}
+		}
+		if (!found)
+		{
+			continue;
+		}
+		ProductionUpdateInterface *pu = o->getProductionUpdate();
+		if (pu && pu->queueUpgrade(upgrade))
+		{
+			return;
+		}
+	}
+}
+
+} // namespace
+
+bool ScriptActions::teamAttackNamedAsPlayerFirst(const ScriptActionRec &a)
+{
+	return param(a, 0).stringValue == "Aragorn 2";
+}
+
+std::vector<Object *> ScriptActions::teamAIGroup(Team &t)
+{
+	return aiGroupOf(t);
+}
+
+bool ScriptActions::executeUnitAction(ScriptEngine &engine, const ScriptActionRec &a, const std::string &name)
+{
+	GameLogic &logic = engine.logic();
+	const TerrainLogic *terrain = logic.terrain();
+	if (name == "UNIT_AFFECT_OBJECT_PANEL_FLAGS" || name == "TEAM_AFFECT_OBJECT_PANEL_FLAGS")
+	{
+		const bool value = param(a, 2).intValue != 0;
+		for (Object *o : unitOrTeam(engine, param(a, 0).stringValue, name[0] == 'T'))
+		{
+			affectObjectPanelFlag(engine, *o, param(a, 1).stringValue, value, 0);
+		}
+		return true;
+	}
+	if (name == "TEAM_SET_OVERRIDE_RELATION_TO_TEAM" || name == "TEAM_SET_OVERRIDE_RELATION_TO_PLAYER")
+	{
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		const int r = param(a, 2).intValue;
+		if (!t || r < ENEMIES || r > ALLIES)
+		{
+			return true;
+		}
+		if (name == "TEAM_SET_OVERRIDE_RELATION_TO_TEAM")
+		{
+			if (Team *t2 = ScriptConditions::team(engine, param(a, 1).stringValue))
+			{
+				t->setTeamRelationship(t2, (Relationship)r);
+			}
+		}
+		else if (Player *p = logic.players().findPlayerWithName(param(a, 1).stringValue)) // RW 0x6A8466: by name, not a mask
+		{
+			t->setPlayerRelationship(p, (Relationship)r);
+		}
+		return true;
+	}
+	if (name == "TEAM_REMOVE_ALL_OVERRIDE_RELATIONS")
+	{
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			t->removeAllRelationshipOverrides();
+		}
+		return true;
+	}
+	if (name == "NAMED_TRANSFER_OWNERSHIP_PLAYER")
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		Player *p = ScriptConditions::firstPlayer(engine, param(a, 1).stringValue);
+		if (o && p && p->getDefaultTeam())
+		{
+			o->setTeam(p->getDefaultTeam());
+		}
+		return true;
+	}
+	if (name == "TEAM_MERGE_INTO_TEAM")
+	{
+		Team *from = ScriptConditions::team(engine, param(a, 0).stringValue);
+		Team *to = ScriptConditions::team(engine, param(a, 1).stringValue, true); // lane CAMP-1H: RW 0x7C0C75 passes 1 for the target
+		if (!from || !to || from == to)
+		{
+			return true;
+		}
+		if (from->getControllingPlayer() != to->getControllingPlayer())
+		{
+			engine.note("[S-1180] TEAM_MERGE_INTO_TEAM between players: the team's player change (RW 0x7A00DA) is not ported; the members change team");
+		}
+		for (int pass = 0; pass < 3; ++pass)
+		{
+			for (Object *o : ScriptConditions::members(*from))
+			{
+				o->setTeam(to); // a mounted rider stays with its mount (S-1180: the rider form is not read here)
+			}
+			if (!from->getFirstMember())
+			{
+				break;
+			}
+		}
+		to->setActive(); // lane CAMP-1H: RW 0x7C0D8C .. 0x7C0D90
+		return true;
+	}
+	if (name == "UNIT_TELEPORT_TO_WAYPOINT")
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		const Waypoint *w = terrain ? terrain->findWaypointByName(param(a, 1).stringValue) : nullptr;
+		if (o && w)
+		{
+			o->teleportTo(&w->location, false); // RW 0x7BDC2D: RW 0x696E63(pos, 0) (lane BACKLOG4: the status 0x5A source and the path reset run)
+		}
+		return true;
+	}
+	if (name == "IDLE_ALL_UNITS")
+	{
+		std::vector<Player *> ps;
+		if (param(a, 0).stringValue.empty())
+		{
+			for (int i = 0; i < logic.players().getPlayerCount(); ++i)
+			{
+				Player *p = logic.players().getNthPlayer(i);
+				if (p && p->getPlayerType() == PLAYER_HUMAN)
+				{
+					ps.push_back(p);
+				}
+			}
+		}
+		else
+		{
+			ps = ScriptConditions::players(engine, param(a, 0).stringValue);
+		}
+		for (Player *p : ps)
+		{
+			for (const auto &proto : logic.players().teams().prototypes())
+			{
+				if (proto->getControllingPlayer() != p)
+				{
+					continue;
+				}
+				for (Team *t : proto->teams())
+				{
+					for (Object *o : ScriptConditions::members(*t))
+					{
+						AIUpdateInterface *ai = o->getAIUpdateInterface();
+						if (ai && !isKindOfName(*o, "STRUCTURE"))
+						{
+							ai->aiMoveToPosition(*o->getPosition(), CMD_FROM_SCRIPT);
+						}
+					}
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_STOP_FLUSH")
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		if (o && o->getAIUpdateInterface())
+		{
+			o->getAIUpdateInterface()->aiIdle(CMD_FROM_SCRIPT);
+		}
+		return true;
+	}
+	if (name == "NAMED_ATTACK_NAMED")
+	{
+		Object *victim = engine.getUnitNamed(param(a, 1).stringValue);
+		if (!victim)
+		{
+			return true;
+		}
+		for (Object *o : unitOrTeam(engine, param(a, 0).stringValue, false))
+		{
+			if (GiantBirdAIUpdate *bird = dynamic_cast<GiantBirdAIUpdate *>(o->getAIUpdateInterface()))
+			{
+				bird->aiSwoopAttackObject(victim, CMD_FROM_SCRIPT); // RW 0x7C8DC6 .. 0x7C8DD5 (lane STEALTHFLY1): AI vslot 0x168 -> RW 0x77131B(victim, 1)
+			}
+			else if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				ai->aiAttackObject(victim, CMD_FROM_SCRIPT);
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_ATTACK_NAMED")
+	{
+		// RW 0x7C4613 (team, unit): the team (RW 0x759FDA), the unit, the team's AI group (RW 0x7A3D3D); a TEAM parameter named "Aragorn 2" (RW 0x7C4668:
+		// the team name against RW 0xC361B8, strcmp) first gives the group's attack as a player command (source 0); then always the attack from the
+		// script (RW 0x77208A(0, unit, 0x7FFFFFFF, 1))
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		Object *victim = engine.getUnitNamed(param(a, 1).stringValue);
+		if (!t || !victim)
+		{
+			return true;
+		}
+		if (teamAttackNamedAsPlayerFirst(a))
+		{
+			groupAttackObject(engine, *t, *victim, false, CMD_FROM_PLAYER);
+		}
+		groupAttackObject(engine, *t, *victim, false, CMD_FROM_SCRIPT);
+		return true;
+	}
+	if (name == "ATTACK_MOVE_NAMED_UNIT_TO" || name == "ATTACK_MOVE_TEAM_TO")
+	{
+		const Waypoint *w = terrain ? terrain->findWaypointByName(param(a, 1).stringValue) : nullptr;
+		if (!w)
+		{
+			return true;
+		}
+		for (Object *o : unitOrTeam(engine, param(a, 0).stringValue, name == "ATTACK_MOVE_TEAM_TO"))
+		{
+			if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				ai->aiMoveToPosition(w->location, CMD_FROM_SCRIPT); // lane SCRIPT-3: the march starts at once, as the players' attack-move (AICommands.cpp)
+				ai->armAttackMove(w->location, CMD_FROM_SCRIPT);
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_FOLLOW_WAYPOINTS" || name == "NAMED_FOLLOW_WAYPOINTS_EXACT" || name == "NAMED_ATTACK_FOLLOW_WAYPOINTS")
+	{
+		// RW 0x7C9196 / 0x7C928D / 0x7C920F: the waypoint of the label closest to the unit, then AI command 6 / 0x32 / 0x10 (lane WARG-1: RW 0x754A3C with
+		// 0x7FFFFFFF shots; AIWaypointPath.cpp)
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr;
+		const Waypoint *start = (ai && terrain) ? closestWaypointOnPath(*terrain, *o->getPosition(), param(a, 1).stringValue) : nullptr;
+		if (start && name == "NAMED_ATTACK_FOLLOW_WAYPOINTS")
+		{
+			ai->aiAttackFollowWaypointPath(start->id, 0x7FFFFFFF, CMD_FROM_SCRIPT, false);
+		}
+		else if (start)
+		{
+			ai->aiFollowWaypointPath(start->id, CMD_FROM_SCRIPT, false, name == "NAMED_FOLLOW_WAYPOINTS_EXACT");
+		}
+		return true;
+	}
+	if (name == "TEAM_FOLLOW_WAYPOINTS" || name == "TEAM_FOLLOW_WAYPOINTS_EXACT" || name == "TEAM_ATTACK_MOVE_FOLLOW_WAYPOINTS")
+	{
+		// RW 0x7BFE32 / 0x7C0091 (team, label, asTeam[, formation]): the team's AI group; the waypoint of the label closest to the average position of
+		// the team's members (summed in order, times 1 / count); every group member gets command 6 / 7 (exact 0x32 / 0x33); the formation (RW 0x771E7D)
+		// moves as a team (its offsets: S-1189). Lane WARG-1: TEAM_ATTACK_MOVE_FOLLOW_WAYPOINTS RW 0x7CB239 -> RW 0x7BFF62 is RW 0x7BFE32 with the group
+		// commands' mode 1: the attack-follow commands 0x10 / 0x11 (RW 0x754A3C / 0x754AAA, 0x7FFFFFFF shots) for 6 / 7
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		if (!t || !terrain)
+		{
+			return true;
+		}
+		Coord3D sum{ 0.0f, 0.0f, 0.0f };
+		int count = 0;
+		for (Object *o : ScriptConditions::members(*t))
+		{
+			sum.x = SimMath::addf32(o->getPosition()->x, sum.x);
+			sum.y = SimMath::addf32(o->getPosition()->y, sum.y);
+			sum.z = SimMath::addf32(o->getPosition()->z, sum.z);
+			++count;
+		}
+		if (count == 0)
+		{
+			return true;
+		}
+		const float scale = SimMath::divf32(1.0f, (float)count);
+		const Coord3D centre{ SimMath::mulf32(scale, sum.x), SimMath::mulf32(scale, sum.y), SimMath::mulf32(scale, sum.z) };
+		const Waypoint *start = closestWaypointOnPath(*terrain, centre, param(a, 1).stringValue);
+		if (!start)
+		{
+			return true;
+		}
+		const bool exact = name == "TEAM_FOLLOW_WAYPOINTS_EXACT";
+		const bool attack = name == "TEAM_ATTACK_MOVE_FOLLOW_WAYPOINTS";
+		const bool formation = !exact && param(a, 3).intValue != 0;
+		const bool asTeam = formation || param(a, 2).intValue != 0;
+		std::vector<Object *> group = aiGroupOf(*t);
+		if (formation)
+		{
+			// lane BACKLOG-8, RW 0x771E7D: the members RW 0x76FFF0 keeps (a lone member it refuses ends the command), AIGroup::createFormation (RW 0x94FCBA)
+			// over the group's path ends (a new group's: RW 0x7707ED leaves the start 0, 0, 0 and the end 10, 0, 0), then command 7 for every member
+			std::vector<Object *> valid = AIGroupFormations::validMembers(group);
+			if (valid.empty())
+			{
+				return true;
+			}
+			group = valid;
+			AIGroupFormations::createFormation(engine.logic(), group, Coord3D{ 0.0f, 0.0f, 0.0f }, Coord3D{ 10.0f, 0.0f, 0.0f });
+		}
+		for (Object *o : group)
+		{
+			if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				if (asTeam && !formation)
+				{
+					ai->setFormationId(0); // RW 0x771E31
+				}
+				if (attack)
+				{
+					ai->aiAttackFollowWaypointPath(start->id, 0x7FFFFFFF, CMD_FROM_SCRIPT, asTeam);
+				}
+				else
+				{
+					ai->aiFollowWaypointPath(start->id, CMD_FROM_SCRIPT, asTeam, exact);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_FACE_NAMED" || name == "TEAM_FACE_NAMED")
+	{
+		const Object *target = engine.getUnitNamed(param(a, 1).stringValue);
+		if (!target)
+		{
+			return true;
+		}
+		engine.note("[S-1186] " + name + " turns the object at once (retail: the AI's face-object command)");
+		for (Object *o : unitOrTeam(engine, param(a, 0).stringValue, name[0] == 'T'))
+		{
+			if (o->getAIUpdateInterface())
+			{
+				faceObject(*o, *target);
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_CHANGE_OBJECT_STATUS")
+	{
+		const int bit = param(a, 1).intValue;
+		if (bit < 0 || bit >= 128)
+		{
+			engine.note("TEAM_CHANGE_OBJECT_STATUS: an unknown status name (retail's mask write RW 0x6267C7 goes out of bounds; nothing here)");
+			return true;
+		}
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			for (Object *o : ScriptConditions::members(*t))
+			{
+				o->setStatus((unsigned)bit, param(a, 2).intValue != 0);
+			}
+		}
+		return true;
+	}
+	if (name == "UNIT_SET_MAX_LEVEL")
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		if (o && o->getExperienceTracker())
+		{
+			o->getExperienceTracker()->setLevelCap(param(a, 1).intValue);
+		}
+		return true;
+	}
+	if (name == "UNIT_GIVE_EXPERIENCE_POINTS" || name == "TEAM_GIVE_EXPERIENCE_POINTS")
+	{
+		const float xp = (float)param(a, 1).intValue; // cvtsi2ss
+		for (Object *o : unitOrTeam(engine, param(a, 0).stringValue, name[0] == 'T'))
+		{
+			if (ExperienceTracker *t = o->getExperienceTracker())
+			{
+				t->addExperiencePoints(xp, true, true, true, false);
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_UPGRADE")
+	{
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		const UpgradeTemplate *u = Player::resolveUpgrade(param(a, 1).stringValue, false); // RW 0x66F5E5
+		if (!t || !u)
+		{
+			return true;
+		}
+		for (Object *o : ScriptConditions::members(*t))
+		{
+			if (o->getContain())
+			{
+				engine.note("[S-1180] TEAM_UPGRADE on a container: the contain's vslot 0xB8 runs as Object::giveUpgrade");
+			}
+			o->giveUpgrade(u);
+		}
+		return true;
+	}
+	if (name == "COUNTER_MATH_COUNTER" || name == "COUNTER_MATH_VALUE")
+	{
+		ScriptEngine::Counter &c = engine.counter(param(a, 0).stringValue);
+		std::int32_t rhs = param(a, 2).intValue;
+		if (name == "COUNTER_MATH_COUNTER")
+		{
+			const ScriptEngine::Counter *other = engine.findCounter(param(a, 2).stringValue);
+			rhs = other ? other->value : 0;
+		}
+		c.value = counterMath(c.value, param(a, 1).intValue, rhs, engine);
+		return true;
+	}
+	if (name == "UNIT_EXECUTE_SEQUENTIAL_SCRIPT" || name == "UNIT_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING" || name == "TEAM_EXECUTE_SEQUENTIAL_SCRIPT" ||
+		name == "TEAM_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING")
+	{
+		// RW 0x7C14FE (unit) / 0x7C15D7 (team: its AI group stops first, RW 0x771F49): the script by its (qualified) name (RW 0x758C6F -> 0x604A5D)
+		// with the side it was found in, the loops (the _LOOPING forms' third parameter, else 0); RW 0x606FDA appends the record
+		ScriptEngine::RScript *script = engine.findScript(param(a, 1).stringValue);
+		if (!script)
+		{
+			return true;
+		}
+		ScriptEngine::SequentialScript r;
+		if (name[0] == 'U')
+		{
+			Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+			if (!o)
+			{
+				return true;
+			}
+			r.object = o->getID();
+		}
+		else
+		{
+			Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+			if (!t)
+			{
+				return true;
+			}
+			for (Object *o : ScriptConditions::members(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiIdle(CMD_FROM_SCRIPT);
+				}
+			}
+			r.team = t->getID();
+		}
+		r.side = script->sideName;
+		r.scriptName = param(a, 1).stringValue;
+		r.script = script->def;
+		r.loopCount = name.find("LOOPING") != std::string::npos ? param(a, 2).intValue : 0;
+		engine.appendSequentialScript(r);
+		return true;
+	}
+	if (name == "UNIT_STOP_SEQUENTIAL_SCRIPT") // RW 0x7BCD1A -> RW 0x604C9F
+	{
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			engine.removeSequentialScriptsOf(o->getID(), 0);
+		}
+		return true;
+	}
+	if (name == "TEAM_STOP_SEQUENTIAL_SCRIPT") // RW 0x7C16D1 -> RW 0x604CD9
+	{
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			engine.removeSequentialScriptsOf(INVALID_ID, t->getID());
+		}
+		return true;
+	}
+	if (name == "UNIT_FORCE_EMOTION" || name == "TEAM_FORCE_EMOTION" || name == "PLAYER_FORCE_EMOTION")
+	{
+		// RW 0x7BDDD8 / 0x7C41F0 / 0x7C4256 (unit / team / player, emotion type 0 .. 11, seconds): each object (a player's: every member of its teams)
+		// -> RW 0x68F3CB -> EmotionTrackerUpdate::force
+		const int type = param(a, 1).intValue;
+		const float seconds = param(a, 2).realValue;
+		if (type < 0 || type >= 0xC)
+		{
+			return true;
+		}
+		std::vector<Object *> objs;
+		if (name[0] == 'P')
+		{
+			for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+			{
+				for (const auto &proto : logic.players().teams().prototypes())
+				{
+					if (proto->getControllingPlayer() != p)
+					{
+						continue;
+					}
+					for (Team *t : proto->teams())
+					{
+						for (Object *o : ScriptConditions::members(*t))
+						{
+							objs.push_back(o);
+						}
+					}
+				}
+			}
+		}
+		else
+		{
+			objs = unitOrTeam(engine, param(a, 0).stringValue, name[0] == 'T');
+		}
+		for (Object *o : objs)
+		{
+			EmotionTrackerUpdate::forceEmotion(*o, type, seconds, nullptr);
+		}
+		return true;
+	}
+	if (name == "OVERRIDE_PLAYER_COMMAND_POINTS")
+	{
+		// RW 0x7BDC36 (players, base, cap): every player's command points -> RW 0x6A7ACD (both replaced, the script byte raised)
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			p->commandPoints().setFromScript(param(a, 1).intValue, param(a, 2).intValue);
+		}
+		return true;
+	}
+	if (name == "CREATE_REINFORCEMENT_TEAM")
+	{
+		createReinforcements(engine, param(a, 0).stringValue, param(a, 1).stringValue);
+		return true;
+	}
+	if (name == "NAMED_BUILD_STRUCTURE_AT_WAYPOINT")
+	{
+		// RW 0x7BCBD6 (unit, template, angle, waypoint): the unit's AI vslot 0x1F8 (DozerAIUpdate::construct, RW 0x88C2A5) with the waypoint's
+		// position, the angle and the unit's controlling player; an AI that is not a builder's does nothing
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		const ThingTemplate *tt = logic.things().findTemplate(param(a, 1).stringValue);
+		const Waypoint *w = terrain ? terrain->findWaypointByName(param(a, 3).stringValue) : nullptr;
+		if (o && tt && w && o->getControllingPlayer())
+		{
+			if (DozerAIUpdate *dozer = dynamic_cast<DozerAIUpdate *>(o->getAIUpdateInterface()))
+			{
+				dozer->construct(*tt, w->location, param(a, 2).realValue, *o->getControllingPlayer());
+			}
+		}
+		return true;
+	}
+	if (name == "SET_REF_TO_NEREST_TEAM_OF_TYPE_OWNED_BY_PLAYER" || name == "SET_REF_TO_NEREST_TEAM_OF_UNNAMED_TYPE_OWNED_BY_PLAYER")
+	{
+		// lane CAMP-1: the UNNAMED form (RW 0x7CF1E7) is the same call with its flag set: one more filter (RW 0xC36060 -> RW 0x6611DD) keeps only the objects
+		// that are not in the script engine's named cache (RW 0x759601), on both the type and the object list path (RW 0x7C2F85)
+		const bool unnamedOnly = name == "SET_REF_TO_NEREST_TEAM_OF_UNNAMED_TYPE_OWNED_BY_PLAYER";
+		// RW 0x7C3E5E (types, player, team, reference name): the first player of the mask, the team's centre (RW 0x7A02E1: the mean of the live members'
+		// positions), the closest object of the player of the type (TheParitionManager RW 0xA39090, FROM_CENTER_2D, within 1e6; an object list: the
+		// closest per type by 3D distance, RW 0x7C2F85); the reference names it (RW 0x608397, lane CASTLE-UNPACK: the side's object references)
+		Player *p = ScriptConditions::firstPlayer(engine, param(a, 1).stringValue);
+		Team *t = ScriptConditions::team(engine, param(a, 2).stringValue);
+		if (!p || !t)
+		{
+			return true;
+		}
+		Coord3D centre{ 0.0f, 0.0f, 0.0f };
+		int n = 0;
+		for (Object *o : ScriptConditions::members(*t))
+		{
+			if (!o->isEffectivelyDead() && !o->isDestroyed())
+			{
+				centre.x = SimMath::sseAdd(centre.x, o->getPosition()->x);
+				centre.y = SimMath::sseAdd(o->getPosition()->y, centre.y);
+				centre.z = SimMath::sseAdd(o->getPosition()->z, centre.z);
+				++n;
+			}
+		}
+		if (n > 0)
+		{
+			const float inv = SimMath::sseDiv(1.0f, SimMath::sseFromInt32(n));
+			centre.x = SimMath::sseMul(inv, centre.x);
+			centre.y = SimMath::sseMul(inv, centre.y);
+			centre.z = SimMath::sseMul(inv, centre.z);
+		}
+		const auto closestOf = [&](const ThingTemplate *tt) -> Object * {
+			auto owned = [p](Object &o) { return o.getControllingPlayer() == p; };
+			auto typed = [tt, unnamedOnly, &engine](Object &o) {
+				return ScriptConditions::equivalentTemplates(o.getTemplate(), tt) && !(unnamedOnly && engine.isInNamedCache(o));
+			};
+			PartitionFilterFn<decltype(owned)> fOwned(owned);
+			PartitionFilterFn<decltype(typed)> fTyped(typed);
+			return logic.partition().getClosestObject(centre, 1000000.0f, FROM_CENTER_2D, { &fOwned, &fTyped });
+		};
+		Object *found = nullptr;
+		if (const std::vector<std::string> *list = engine.findObjectList(param(a, 0).stringValue))
+		{
+			float best = 3.4028235e38f;
+			for (const std::string &typeName : *list)
+			{
+				const ThingTemplate *tt = logic.things().findTemplate(typeName);
+				Object *c = tt ? closestOf(tt) : nullptr;
+				if (!c)
+				{
+					continue;
+				}
+				const float dx = SimMath::sseSub(centre.x, c->getPosition()->x);
+				const float dz = SimMath::sseSub(centre.z, c->getPosition()->z);
+				const float dy = SimMath::sseSub(centre.y, c->getPosition()->y);
+				const float d = SimMath::sseAdd(SimMath::sseAdd(SimMath::sseMul(dz, dz), SimMath::sseMul(dy, dy)), SimMath::sseMul(dx, dx));
+				if (d < best)
+				{
+					best = d;
+					found = c;
+				}
+			}
+		}
+		else if (const ThingTemplate *tt = logic.things().findTemplate(param(a, 0).stringValue))
+		{
+			found = closestOf(tt);
+		}
+		if (found)
+		{
+			engine.setReference(param(a, 3).stringValue, *found); // RW 0x7C3FAD
+			engine.nameInCache(param(a, 3).stringValue, *found);  // RW 0x7C3FBB -> RW 0x60A1D5: also the named cache entry (the UNNAMED form skips it next time)
+		}
+		return true;
+	}
+	if (name == "NAMED_DAMAGE")
+	{
+		// lane MODS-3: RW 0x7CC387 -> RW 0x7C050A(param 0, param 1's int): the unit by name (RW 0x75A3D8); a fresh DamageInfo (RW 0x66365E) with no source
+		// (D+0x08 = 0), DAMAGE_UNRESISTABLE (D+0x10 = 8), DEATH_NORMAL (D+0x1C = 0) and the amount (float) param 1 (cvtsi2ss, D+0x20); Object::attemptDamage
+		// (RW 0x698E7D). Edain's player libraries kill their 1-health fortress placeholders with it (the real flag spawns from their CreateObjectDie)
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			DamageInfo d;
+			d.m_input.m_sourceID = 0;
+			d.m_input.m_damageType = DAMAGE_UNRESISTABLE;
+			d.m_input.m_deathType = DEATH_NORMAL;
+			d.m_input.m_amount = (float)param(a, 1).intValue;
+			o->attemptDamage(d);
+		}
+		return true;
+	}
+	if (name == "NAMED_BASE_UNPACK" || name == "NAMED_BASE_UNPACK_FREE")
+	{
+		// lane CASTLE-UNPACK: RW 0x7BED64 (see the file comment); the push order (RW 0x7CE925 / 0x7CE928): the flag, param 1's string, param 0
+		const bool free = name == "NAMED_BASE_UNPACK_FREE";
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		if (!o || o->getControllingPlayer() != engine.currentPlayer()) // RW 0x7BED95
+		{
+			return true;
+		}
+		CastleBehavior *castle = dynamic_cast<CastleBehavior *>(o->findModule("CastleBehavior"));
+		if (!castle || !castle->canUnpack(true) || !castle->isPlayerAllowedToPackOrUnpack(o->getControllingPlayer()))
+		{
+			return true;
+		}
+		if (!free && !castle->canAffordUnpack(o->getControllingPlayer())) // RW 0x7BEDCE
+		{
+			return true;
+		}
+		castle->initiateUnpack(free, nullptr); // RW 0x7BEDEE
+		if (!param(a, 1).stringValue.empty()) // RW 0x7BEDF6 (RW 0x401E64)
+		{
+			engine.setReference(param(a, 1).stringValue, *o); // RW 0x7BEE09 -> RW 0x608397
+		}
+		return true;
+	}
+	if (name == "NAME_SET_AUTO_ABILITY" || name == "TEAM_SET_AUTO_ABILITY") // lane AUTOCAST-1: RW 0x7C3C88 / RW 0x7C3D61
+	{
+		const bool team = name == "TEAM_SET_AUTO_ABILITY";
+		std::vector<Object *> objects;
+		if (team)
+		{
+			if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue)) // RW 0x759FDA
+			{
+				objects = ScriptConditions::members(*t);
+			}
+		}
+		else if (Object *o = engine.getUnitNamed(param(a, 0).stringValue)) // RW 0x75A243
+		{
+			objects.push_back(o);
+		}
+		const CommandButton *button = TheCommandStore ? TheCommandStore->findCommandButton(param(a, 1).stringValue) : nullptr;
+		if (!button || !button->m_autoAbility)
+		{
+			return true;
+		}
+		const bool on = param(a, 2).intValue != 0;
+		for (Object *o : objects)
+		{
+			AutoAbilityBehavior *aa = AutoAbilityBehavior::first(*o);
+			const CommandSet *set = aa ? TheCommandStore->findCommandSet(o->getCommandSetName()) : nullptr;
+			for (int i = 0; set && i < CommandSet::MAX_BUTTONS; ++i)
+			{
+				if (set->getCommandButton(i) == button)
+				{
+					aa->setAutoAbility(button, on);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_SET_STATE") // RW 0x7BF72E: team + 0x44
+	{
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			t->setState(param(a, 1).stringValue);
+		}
+		return true;
+	}
+	if (name == "TEAM_SET_CUSTOM_STATE") // RW 0x7CB19A -> RW 0x7BF760 -> RW 0x7A6BD3(state, value != 0)
+	{
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			t->setCustomState(param(a, 1).stringValue, param(a, 2).intValue != 0);
+		}
+		return true;
+	}
+	if (name == "TEAM_STOP" || name == "TEAM_STOP_AND_DISBAND")
+	{
+		// RW 0x7C135F(team, disband): the team's AI group stops (RW 0x771F49, the members idle from the script); disbanding sets every member's AI
+		// recruitable flag (AI + 0x3BE, not ported: S-1186) and merges the team into its controlling player's default team (RW 0x7C0C75)
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		if (!t)
+		{
+			return true;
+		}
+		for (Object *o : ScriptConditions::members(*t))
+		{
+			if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				ai->aiIdle(CMD_FROM_SCRIPT);
+			}
+		}
+		if (name == "TEAM_STOP_AND_DISBAND")
+		{
+			Player *owner = t->getControllingPlayer();
+			Team *to = owner ? owner->getDefaultTeam() : nullptr;
+			if (to && to != t)
+			{
+				for (Object *o : ScriptConditions::members(*t))
+				{
+					o->setTeam(to);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_FACE_WAYPOINT") // RW 0x7CA5FE: every AI member's face-position command (RW 0x7C821E)
+	{
+		const Waypoint *w = terrain ? terrain->findWaypointByName(param(a, 1).stringValue) : nullptr;
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		if (!w || !t)
+		{
+			return true;
+		}
+		engine.note("[S-1186] TEAM_FACE_WAYPOINT turns the members at once (retail: the AI's face-position command)");
+		for (Object *o : ScriptConditions::members(*t))
+		{
+			if (o->getAIUpdateInterface())
+			{
+				const Coord3D *p = o->getPosition();
+				const double angle = SimMath::atan2d(SimMath::sseSub(w->location.y, p->y), SimMath::sseSub(w->location.x, p->x));
+				o->setOrientation(SimMath::fstpDword(angle));
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_HUNT")
+	{
+		// RW 0x7C9531: the unit's AI (+ 0x260) -> AI command 0x12 (RW 0x6AF150, CMD_FROM_SCRIPT): the hunt state (AIHunt.cpp)
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				ai->aiHunt(CMD_FROM_SCRIPT);
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_HUNT")
+	{
+		// RW 0x7C0347: the team's AI group (RW 0x7A3D3D) -> RW 0x7723B4: every member with an AI -> RW 0x6AF150(CMD_FROM_SCRIPT)
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			for (Object *o : aiGroupOf(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiHunt(CMD_FROM_SCRIPT);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_APPLY_ATTACK_PRIORITY_SET")
+	{
+		// lane BFME2CAMP1: RW 0x7BBC5B: the unit (RW 0x75A3D8) with an AI: AI + 0x70 = the set of that name (RW 0x605938: the table's, else made from AIData,
+		// else the default info)
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		if (AIUpdateInterface *ai = o ? o->getAIUpdateInterface() : nullptr)
+		{
+			ai->setAttackInfo(engine.attackPriorities().getAttackInfo(param(a, 1).stringValue));
+		}
+		return true;
+	}
+	if (name == "TEAM_APPLY_ATTACK_PRIORITY_SET")
+	{
+		// lane BFME2CAMP1: RW 0x7BF864: the team (RW 0x759FDA); the set (RW 0x605938); a set with a name (not the default info) becomes the team prototype's
+		// (RW 0x7A1BCF: + 0x30 -> + 0x318), which a later member takes; then every member with an AI (RW 0x66362D's walk): AI + 0x70 = the set
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			const AttackPriorityInfo *info = engine.attackPriorities().getAttackInfo(param(a, 1).stringValue);
+			if (info && !info->getName().empty() && t->getPrototype())
+			{
+				t->getPrototype()->setAttackPriorityName(info->getName());
+			}
+			for (Object *o : ScriptConditions::members(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->setAttackInfo(info);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_ATTACK_AREA")
+	{
+		// lane BFME2CAMP1: RW 0x7BF9B3 (BFME2 decomp ScriptActions.cpp, tier A): the team (RW 0x759FDA), its AI group (RW 0x70042A /
+		// 0x7A3D3D), the area by name (RW 0x759194; none: nothing), then RW 0x77283D: every member with an AI (+ 0x260) -> aiAttackArea(area, CMD_FROM_SCRIPT)
+		// (RW 0x77145C: AI command 0x23, AIHunt.cpp)
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		const TriggerArea *area = t ? engine.findTrigger(param(a, 1).stringValue) : nullptr;
+		if (t && area)
+		{
+			for (Object *o : aiGroupOf(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiAttackArea(*area, CMD_FROM_SCRIPT);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_ATTACK_AREA")
+	{
+		// lane BFME2CAMP1: RW 0x7C8DED: the unit (RW 0x75A3D8), the area by name (RW 0x759194), the unit's AI: it leaves its AI group (RW 0x68C6EE: the port keeps
+		// no group) and gets aiAttackArea(area, CMD_FROM_SCRIPT) (RW 0x77145C)
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		const TriggerArea *area = o ? engine.findTrigger(param(a, 1).stringValue) : nullptr;
+		if (area && o->getAIUpdateInterface())
+		{
+			o->getAIUpdateInterface()->aiAttackArea(*area, CMD_FROM_SCRIPT);
+		}
+		return true;
+	}
+	if (name == "TEAM_ATTACK_TEAM")
+	{
+		// lane BFME2CAMP1: RW 0x7BF7EC (BFME2 decomp ScriptActions.cpp, tier A): both teams (RW 0x759FDA; either missing: nothing), the first
+		// team's AI group (RW 0x70042A / 0x7A3D3D), then RW 0x772259: every member with an AI (+ 0x260) -> aiAttackTeam(the second team, 0x7FFFFFFF shots,
+		// CMD_FROM_SCRIPT) (RW 0x7713EE: AI command 0xD, AIHunt.cpp)
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		Team *victims = ScriptConditions::team(engine, param(a, 1).stringValue);
+		if (t && victims)
+		{
+			for (Object *o : aiGroupOf(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiAttackTeam(*victims, 0x7FFFFFFF, CMD_FROM_SCRIPT);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_GUARD_TEAM")
+	{
+		// lane BFME2CAMP1: RW 0x7C34BE: both teams (RW 0x759FDA; either missing: nothing), the first team's AI group (RW 0x70042A / 0x7A3D3D), then RW
+		// 0x772777: every member with an AI (+ 0x260) -> aiGuardTeam(the second team, mode 0, CMD_FROM_SCRIPT) (RW 0x771873: AI command 0x20, AIGuardCommands.cpp)
+		Team *t = ScriptConditions::team(engine, param(a, 0).stringValue);
+		Team *guarded = ScriptConditions::team(engine, param(a, 1).stringValue);
+		if (t && guarded)
+		{
+			for (Object *o : aiGroupOf(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiGuardTeam(*guarded, GUARDMODE_NORMAL, CMD_FROM_SCRIPT);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_ATTACK_TEAM")
+	{
+		// lane BFME2CAMP1: RW 0x7C8EBB: the unit (RW 0x75A3D8), the team (RW 0x759FDA), the unit's AI: it leaves its AI group (RW 0x68C6EE: the port keeps no
+		// group) and gets aiAttackTeam(team, 0x7FFFFFFF shots, CMD_FROM_SCRIPT) (RW 0x7713EE)
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		Team *victims = o ? ScriptConditions::team(engine, param(a, 1).stringValue) : nullptr;
+		if (victims && o->getAIUpdateInterface())
+		{
+			o->getAIUpdateInterface()->aiAttackTeam(*victims, 0x7FFFFFFF, CMD_FROM_SCRIPT);
+		}
+		return true;
+	}
+	if (name == "PLAYER_HUNT")
+	{
+		// RW 0x7BBCF9 (lane DECOMP-2, BFME2 decomp ScriptActions.cpp tier A): every player of the mask (RW 0x758F7C) -> Player::setUnitsShouldHunt(true,
+		// CMD_FROM_SCRIPT) RW 0x6AF4B1: + 0x35D = true, then each member of each team of the player's prototypes that has none of DOZER, HARVESTER,
+		// IGNORES_SELECT_ALL (RW 0x6AF50E / 0x6AF515) and is no HORDE_MEMBER (status 0x26) leaves its AI group (RW 0x68C6EE: the port keeps no group) and its AI
+		// hunts (RW 0x6AF150). INFERENCE: the members are the player's objects in object list order (RW: prototype, team, member order)
+		static const int dozer = ObjectTemplateInfoBuilder::kindOfIndex("DOZER"), harvester = ObjectTemplateInfoBuilder::kindOfIndex("HARVESTER"),
+						 ignoresSelectAll = ObjectTemplateInfoBuilder::kindOfIndex("IGNORES_SELECT_ALL"),
+						 hordeMember = ObjectTemplateInfoBuilder::objectStatusIndex("HORDE_MEMBER");
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			p->setUnitsShouldHuntFlag(true);
+			std::vector<Object *> mine;
+			for (Object *o = engine.logic().getFirstObject(); o; o = o->getNextObject())
+			{
+				if (o->getControllingPlayer() == p)
+				{
+					mine.push_back(o);
+				}
+			}
+			for (Object *o : mine)
+			{
+				if ((dozer >= 0 && o->isKindOf((unsigned)dozer)) || (harvester >= 0 && o->isKindOf((unsigned)harvester)) ||
+					(ignoresSelectAll >= 0 && o->isKindOf((unsigned)ignoresSelectAll)) || (hordeMember >= 0 && o->testStatus((unsigned)hordeMember)))
+				{
+					continue;
+				}
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->aiHunt(CMD_FROM_SCRIPT);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "NAMED_SET_ATTITUDE")
+	{
+		// RW 0x7BBCD0 (unit, mood): the unit's AI (+ 0x260) -> RW 0x66E12A
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+			{
+				ai->setAttitude(param(a, 1).intValue);
+			}
+		}
+		return true;
+	}
+	if (name == "TEAM_SET_ATTITUDE")
+	{
+		// RW 0x7BF8F1 (team, mood): the team's AI group (RW 0x7A3D3D) -> RW 0x76FA88: every member with an AI -> RW 0x66E12A
+		if (Team *t = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			for (Object *o : aiGroupOf(*t))
+			{
+				if (AIUpdateInterface *ai = o->getAIUpdateInterface())
+				{
+					ai->setAttitude(param(a, 1).intValue);
+				}
+			}
+		}
+		return true;
+	}
+	if (name == "ALLOW_DISALLOW_ONE_BUILDING")
+	{
+		// RW 0x7BDB45 (players, type, allow): the template by name (RW 0x6D1305; none: nothing), then every player of the parameter: allow -> RW 0x6AC9D6
+		// (every entry of the template id, + 0x5E8, erased from the forbidden list + 0x720, RW 0x6AC516), else RW 0x6ADA1B (appended, RW 0x6ACA85).
+		// Player::allowedToBuild (RW 0x6AC856) reads the list
+		const ThingTemplate *tt = logic.things().findTemplate(param(a, 1).stringValue);
+		if (!tt)
+		{
+			return true;
+		}
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			p->setTemplateBuildable(tt->getTemplateID(), param(a, 2).intValue != 0);
+		}
+		return true;
+	}
+	if (name == "NAMED_SET_STEALTH_ENABLED")
+	{
+		// lane BFME2CAMP1, RW 0x7CC85B -> RW 0x7BC7EC (unit, enabled): the unit by name (RW 0x75A3D8; none: nothing), then Object::setScriptStatus (RW
+		// 0x69317D) of bit 8 (SCRIPT_UNSTEALTHED) to !enabled; StealthUpdate (RW 0x7764C7) and the InvisibilityManager (RW 0x81BAC3) read it
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			o->setScriptStatus(8, param(a, 1).intValue == 0);
+		}
+		return true;
+	}
+	if (name == "CREATE_DELAYED_CARRYOVER_UNIT_AT_WAYPOINT")
+	{
+		// lane BFME2CAMP1: RW 0x7CF6CB -> RW 0x7CAA30(param 0 .. 3: types, player, waypoint, name): the object type list of param 0 (RW 0x759158; none or
+		// empty: the one name, RW 0x778F6C); the waypoint (TheTerrainLogic vslot 0x88; none: nothing, no record moves); the player (RW 0x758F7C ->
+		// RW 0x6A85EE; none: nothing); a current campaign: the delayed spawn RW 0x5EC0D4 -> RW 0x5EBF92 (CampaignCarryover::spawnDelayed); the object
+		// made is put at the waypoint (setPosition RW 0x70C201: no terrain snap, no pathfinder move) and, with a name, named (+ 0x88, then the script
+		// engine's cache: RW 0x759467 replaces an entry of that name, RW 0x60A1D5 adds one). Without a campaign the War of the Ring branch (RW 0x7CAAFA,
+		// [0xDE4950]) does not apply here (no Living World game)
+		CampaignCarryover::State *carry = logic.campaignCarryover();
+		const Waypoint *wp = logic.terrain() ? logic.terrain()->findWaypointByName(param(a, 2).stringValue) : nullptr;
+		if (!carry || !wp)
+		{
+			return true;
+		}
+		Player *p = ScriptConditions::firstPlayer(engine, param(a, 1).stringValue);
+		if (!p)
+		{
+			return true;
+		}
+		Object *obj = CampaignCarryover::spawnDelayed(logic, *carry, ScriptConditions::typeNames(engine, param(a, 0).stringValue), *p);
+		if (obj)
+		{
+			Coord3D pos = wp->location;
+			obj->setPosition(&pos);
+			if (!param(a, 3).stringValue.empty())
+			{
+				obj->setName(param(a, 3).stringValue);
+			}
+		}
+		return true;
+	}
+	if (name == "TECHTREE_MODIFY_BUILDABILITY_OBJECT")
+	{
+		// lane BFME2CAMP1, RW 0x7CDC0F -> RW 0x7BCF6C (type, buildability): the template by name (TheThingFactory RW 0x6D1305; none: nothing), then
+		// TheGameLogic RW 0x62FEE6 (GameLogic::setBuildableStatusOverride) with the parameter's int as is (0 Yes, 1 Ignore_Prerequisites, 2 No, 3 Only_By_AI)
+		if (const ThingTemplate *tt = logic.things().findTemplate(param(a, 0).stringValue))
+		{
+			logic.setBuildableStatusOverride(tt, param(a, 1).intValue);
+		}
+		return true;
+	}
+	if (name == "PLAYER_SCIENCE_AVAILABILITY")
+	{
+		// RW 0x7BD266 (players, science, availability): every player of the parameter: the availability's index among { "Available", "Disabled",
+		// "Hidden" } (RW 0x6AC8FF over RW 0xC13E74, _memicmp of the whole name; none: nothing), the science by name (RW 0x5FEF8F; none: nothing),
+		// then Player RW 0x6AE412
+		static const char *const kNames[] = { "Available", "Disabled", "Hidden" };
+		const std::string &availName = param(a, 2).stringValue;
+		int avail = -1;
+		for (int i = 0; i < 3 && avail < 0; ++i)
+		{
+			const std::string n = kNames[i];
+			if (n.size() == availName.size() && std::equal(n.begin(), n.end(), availName.begin(), [](char x, char y) {
+					return std::tolower((unsigned char)x) == std::tolower((unsigned char)y);
+				}))
+			{
+				avail = i;
+			}
+		}
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			if (avail < 0)
+			{
+				continue;
+			}
+			const ScienceType st = TheScienceStore ? TheScienceStore->getScienceFromInternalName(param(a, 1).stringValue) : SCIENCE_INVALID;
+			if (st != SCIENCE_INVALID)
+			{
+				p->setScienceAvailability(st, avail);
+			}
+		}
+		return true;
+	}
+	if (name == "SET_PLAYER_OWNERSHIP_OF_TYPE_COUNTER")
+	{
+		// RW 0x7C69B5(types, players, counter, 1): the count of PLAYER_HAS_OBJECT_COMPARISON (alive, not under construction) summed over the players
+		// goes to the counter (made when absent). INFERENCE: the record's cache (+ 0x44 against the engine's object-change frame + 0x1A25C) is not
+		// kept: counted every time
+		std::vector<const ThingTemplate *> types;
+		for (const std::string &n : ScriptConditions::typeNames(engine, param(a, 0).stringValue))
+		{
+			if (const ThingTemplate *tt = logic.things().findTemplate(n))
+			{
+				types.push_back(tt);
+			}
+		}
+		if (types.empty())
+		{
+			return true;
+		}
+		std::int32_t count = 0;
+		for (Player *p : ScriptConditions::players(engine, param(a, 1).stringValue))
+		{
+			count += ScriptConditions::countPlayerObjects(logic, *p, types);
+		}
+		engine.counter(param(a, 2).stringValue).value = count;
+		return true;
+	}
+	// ---- lane MODCOMPAT-AI: the actions the mods' AI scripts run (logs/mod-gap-census.md), each read from the RotWK body ----
+	if (name == "SET_UNIT_REFERENCE_TO_REFERENCE")
+	{
+		// RW 0x7CAFA5 case 0x17A -> RW 0x7C2AAC(ref, source ref, 1) -> ScriptEngine RW 0x608504(ref, a copy of the source's name): an empty source does
+		// nothing (RW 0x60851B); the source's key (RW 0x604043 -> RW 0x72C43C: "Side/name" or the current side) is found in the reference map (+ 0x191B8,
+		// RW 0x606EA0); found, the reference (the current side + 0x1A20C, the name) gets its object id (node + 0x18, insert-or-find RW 0x60741E). The named
+		// cache is not touched
+		engine.copyReference(param(a, 0).stringValue, param(a, 1).stringValue);
+		return true;
+	}
+	if (name == "BUILD_BASE_BUILDING")
+	{
+		// RW 0x7CAFA5 case 0x17F -> RW 0x7BEE14(template, unit, reference): the unit (RW 0x75A3D8), its controlling player (RW 0x68B678) allowed to build
+		// structures (+ 0x359) and the script's own player (RW 0x6057EE); the template (RW 0x6D1305); the unit's CastleBehavior (RW 0x68BDA5, key RW 0x797AC1)
+		// with a free pad for the template (RW 0x7996D3); Player::canBuild (RW 0x6AAA2E(template, 0): calcCostToBuild(player, no producer, -1) RW 0x73C25F at
+		// most the money + 0x94, signed); then RW 0x79A5EC(template, -2, 0) builds it on the first pad that takes it; a non-empty reference (RW 0x401E64)
+		// names the new structure in the reference map (RW 0x608397) and the named cache (RW 0x60A1D5(object, name, 0))
+		Object *unit = engine.getUnitNamed(param(a, 1).stringValue);
+		Player *owner = unit ? unit->getControllingPlayer() : nullptr;
+		if (!owner || !owner->canBuildBase() || owner != engine.currentPlayer())
+		{
+			return true;
+		}
+		const ThingTemplate *tt = logic.things().findTemplate(param(a, 0).stringValue);
+		CastleBehavior *castle = tt ? dynamic_cast<CastleBehavior *>(unit->findModule("CastleBehavior")) : nullptr;
+		if (!castle || !castle->canBuildAtBase(tt))
+		{
+			return true;
+		}
+		const std::int32_t cost = (std::int32_t)BuildAssistant::calcCostToBuild(*tt, owner, nullptr, -1);
+		if (cost > (std::int32_t)owner->getMoney()->countMoney())
+		{
+			return true;
+		}
+		Object *built = castle->buildAtBase(*tt);
+		if (built && !param(a, 2).stringValue.empty())
+		{
+			engine.setReference(param(a, 2).stringValue, *built); // RW 0x7BEECC
+			engine.nameInCache(param(a, 2).stringValue, *built);  // RW 0x7BEEDD
+		}
+		return true;
+	}
+	if (name == "SET_PLAYER_COMMAND_POINTS_AVAILABLE_TO_COUNTER")
+	{
+		// RW 0x7CAFA5 case 0x198 -> RW 0x7C37C9(player, counter): the mask (RW 0x758F7C(name, 0); 0: nothing), its player (RW 0x6A85B6: only a mask of
+		// exactly one player; none: nothing); the command point record + 0x60's RW 0x6A7F6A(1): the limit (RW 0x6A7B9F) minus the usage (+ 8), 32-bit;
+		// into the counter (get or create, RW 0x60817A)
+		if (const Player *p = ScriptConditions::playerOfMask(engine, param(a, 0).stringValue))
+		{
+			engine.counter(param(a, 1).stringValue).value = (std::int32_t)p->commandPointsAvailable();
+		}
+		return true;
+	}
+	if (name == "AI_PLAYER_BUILD_UPGRADE")
+	{
+		// RW 0x7CAFA5 case 0x122 -> RW 0x7BBBBF(player, upgrade): every player of the mask (RW 0x758F7C(name, 0), RW 0x6A85EE) with an AIPlayer (Player
+		// + 0x2FC, RW 0x6AA80E) runs AIPlayer::buildUpgrade (RW 0x8F7599)
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			aiBuildUpgrade(logic, *p, param(a, 1).stringValue);
+		}
+		return true;
+	}
+	if (name == "PLAYER_AFFECT_RECEIVING_EXPERIENCE")
+	{
+		// RW 0x7CAFA5 case 0x13A -> RW 0x7BD6A8(player, real): every player of the mask (RW 0x758F7C(name, 0), RW 0x6A85EE): Player + 0x18 = the value
+		// (movss), the rank record's (+ 8) skill points modifier (+ 0x10; 1.0 from its constructor RW 0x782A28), which addSkillPoints multiplies by (RW 0x782AA4)
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			p->science().setSkillPointsModifier(param(a, 1).realValue);
+		}
+		return true;
+	}
+	return false;
+}

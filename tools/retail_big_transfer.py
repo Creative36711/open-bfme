@@ -49,6 +49,9 @@ PART_PREFIX = "retail-bigs.part-"
 PART_SUFFIX = ".bin"
 MANIFEST_NAME = "manifest.json"
 CHECKSUMS_NAME = "SHA256SUMS.txt"
+INGEST_STATE_NAME = ".retail-big-transfer-state.json"
+INGEST_STATE_SCHEMA = "openbfme.retail-big-transfer.ingest-state"
+INGEST_STATE_VERSION = 1
 IO_CHUNK = 8 * 1024 * 1024
 LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 BIG_SIGNATURES = (b"BIGF", b"BIG4")
@@ -99,11 +102,24 @@ def collect_big_files(label: str, root: Path) -> list[tuple[str, Path]]:
     return found
 
 
-@dataclass
+@dataclass(frozen=True)
 class PartRecord:
     name: str
     size: int
     sha256: str
+
+
+@dataclass(frozen=True)
+class ArchiveRecord:
+    path: PurePosixPath
+    offset: int
+    size: int
+    md5: str
+    sha256: str
+
+    @property
+    def end(self) -> int:
+        return self.offset + self.size
 
 
 class VolumeWriter:
@@ -301,6 +317,9 @@ def prepare_empty_output(output: Path) -> None:
 
 def write_json_atomic(path: Path, value: object) -> None:
     temporary = path.with_name(path.name + ".tmp")
+    # A killed process can leave only the temporary file behind.  It was never
+    # committed, so replacing it is safe and keeps retries idempotent.
+    temporary.unlink(missing_ok=True)
     text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
     with temporary.open("x", encoding="utf-8", newline="\n") as stream:
         stream.write(text)
@@ -407,6 +426,91 @@ def load_manifest(path: Path) -> dict[str, object]:
     return value
 
 
+def validate_manifest_layout(
+    manifest: dict[str, object],
+) -> tuple[list[ArchiveRecord], list[PartRecord], int]:
+    """Validate the complete byte layout before any destination is changed."""
+    raw_files = manifest["files"]
+    raw_parts = manifest["parts"]
+    assert isinstance(raw_files, list)
+    assert isinstance(raw_parts, list)
+
+    expected_count = checked_nonnegative_int(manifest.get("fileCount"), "file count")
+    expected_total = checked_nonnegative_int(manifest.get("totalSize"), "total size")
+    part_size = checked_nonnegative_int(manifest.get("partSize"), "part size")
+    if expected_count != len(raw_files):
+        raise TransferError(
+            f"manifest file count is {expected_count}, but files[] has "
+            f"{len(raw_files)} entries"
+        )
+    if expected_total and not raw_parts:
+        raise TransferError("manifest declares data but has no volumes")
+    if expected_total and part_size == 0:
+        raise TransferError("manifest declares data but has a zero part size")
+    if part_size > 100 * 1024 * 1024:
+        raise TransferError("manifest part size exceeds the 100 MiB transfer limit")
+
+    archives: list[ArchiveRecord] = []
+    seen_paths: set[str] = set()
+    expected_offset = 0
+    for index, value in enumerate(raw_files):
+        if not isinstance(value, dict):
+            raise TransferError(f"invalid files[{index}] record")
+        logical = checked_archive_path(value.get("path"))
+        key = str(logical).casefold()
+        if key in seen_paths:
+            raise TransferError(f"case-insensitive duplicate archive path: {logical}")
+        seen_paths.add(key)
+        offset = checked_nonnegative_int(value.get("offset"), f"offset of {logical}")
+        size = checked_nonnegative_int(value.get("size"), f"size of {logical}")
+        if size == 0:
+            raise TransferError(f"empty BIG archive in manifest: {logical}")
+        md5 = checked_hex(value.get("md5"), 32, f"MD5 of {logical}")
+        sha256 = checked_hex(value.get("sha256"), 64, f"SHA-256 of {logical}")
+        if offset != expected_offset:
+            raise TransferError(
+                f"non-contiguous stream at {logical}: expected offset "
+                f"{expected_offset}, got {offset}"
+            )
+        archives.append(ArchiveRecord(logical, offset, size, md5, sha256))
+        expected_offset += size
+    if expected_offset != expected_total:
+        raise TransferError(
+            f"total size mismatch: manifest {expected_total}, file table {expected_offset}"
+        )
+
+    parts: list[PartRecord] = []
+    part_total = 0
+    for index, value in enumerate(raw_parts):
+        if not isinstance(value, dict):
+            raise TransferError(f"invalid parts[{index}] record")
+        name = checked_part_name(value.get("name"))
+        expected_name = f"{PART_PREFIX}{index + 1:04d}{PART_SUFFIX}"
+        if name != expected_name:
+            raise TransferError(
+                f"out-of-order volume: expected {expected_name}, found {name}"
+            )
+        size = checked_nonnegative_int(value.get("size"), f"size of {name}")
+        sha256 = checked_hex(value.get("sha256"), 64, f"SHA-256 of {name}")
+        if index + 1 < len(raw_parts) and size != part_size:
+            raise TransferError(
+                f"wrong size for {name}: expected full part size {part_size}, got {size}"
+            )
+        if size > part_size:
+            raise TransferError(
+                f"wrong size for {name}: maximum {part_size}, got {size}"
+            )
+        if expected_total and size == 0:
+            raise TransferError(f"empty transfer volume: {name}")
+        parts.append(PartRecord(name, size, sha256))
+        part_total += size
+    if part_total != expected_total:
+        raise TransferError(
+            f"total size mismatch: manifest {expected_total}, volumes {part_total}"
+        )
+    return archives, parts, expected_total
+
+
 def existing_matches(path: Path, expected_size: int, md5: str, sha256: str) -> bool:
     if not path.is_file() or path.stat().st_size != expected_size:
         return False
@@ -420,50 +524,25 @@ def existing_matches(path: Path, expected_size: int, md5: str, sha256: str) -> b
 
 def unpack(manifest_path: Path, output: Path, force: bool, delete_parts: bool) -> None:
     manifest = load_manifest(manifest_path)
-    files = manifest["files"]
-    parts = manifest["parts"]
-    assert isinstance(files, list)
-    assert isinstance(parts, list)
-
-    expected_count = checked_nonnegative_int(manifest.get("fileCount"), "file count")
-    expected_total = checked_nonnegative_int(manifest.get("totalSize"), "total size")
-    if expected_count != len(files):
-        raise TransferError(
-            f"manifest file count is {expected_count}, but files[] has {len(files)} entries"
-        )
-    if not parts and expected_total:
-        raise TransferError("manifest declares data but has no volumes")
+    archives, validated_parts, expected_total = validate_manifest_layout(manifest)
+    raw_parts = manifest["parts"]
+    assert isinstance(raw_parts, list)
 
     output.mkdir(parents=True, exist_ok=True)
-    reader = VolumeReader(manifest_path.parent, parts)
-    seen: set[str] = set()
+    reader = VolumeReader(manifest_path.parent, raw_parts)
     expected_offset = 0
 
     print(
-        f"Restoring {len(files)} BIG archives, "
-        f"{expected_total / (1024 ** 3):.2f} GiB, from {len(parts)} volumes"
+        f"Restoring {len(archives)} BIG archives, "
+        f"{expected_total / (1024 ** 3):.2f} GiB, "
+        f"from {len(validated_parts)} volumes"
     )
 
-    for index, record in enumerate(files, 1):
-        if not isinstance(record, dict):
-            raise TransferError(f"invalid files[{index - 1}] record")
-        logical = checked_archive_path(record.get("path"))
-        key = str(logical).casefold()
-        if key in seen:
-            raise TransferError(f"case-insensitive duplicate archive path: {logical}")
-        seen.add(key)
-
-        offset = checked_nonnegative_int(record.get("offset"), f"offset of {logical}")
-        size = checked_nonnegative_int(record.get("size"), f"size of {logical}")
-        expected_md5 = checked_hex(record.get("md5"), 32, f"MD5 of {logical}")
-        expected_sha256 = checked_hex(
-            record.get("sha256"), 64, f"SHA-256 of {logical}"
-        )
-        if offset != expected_offset:
-            raise TransferError(
-                f"non-contiguous stream at {logical}: expected offset "
-                f"{expected_offset}, got {offset}"
-            )
+    for index, record in enumerate(archives, 1):
+        logical = record.path
+        size = record.size
+        expected_md5 = record.md5
+        expected_sha256 = record.sha256
 
         target = output.joinpath(*logical.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -519,7 +598,7 @@ def unpack(manifest_path: Path, output: Path, force: bool, delete_parts: bool) -
             os.replace(temporary, target)
         expected_offset += size
         action = "already valid" if already_valid else "restored"
-        print(f"[{index:3d}/{len(files)}] {logical} ({action})")
+        print(f"[{index:3d}/{len(archives)}] {logical} ({action})")
 
     reader.finish()
     if expected_offset != expected_total or reader.total != expected_total:
@@ -529,9 +608,8 @@ def unpack(manifest_path: Path, output: Path, force: bool, delete_parts: bool) -
         )
 
     if delete_parts:
-        for record in parts:
-            name = checked_part_name(record.get("name"))
-            (manifest_path.parent / name).unlink()
+        for record in validated_parts:
+            (manifest_path.parent / record.name).unlink()
         checksum_path = manifest_path.parent / CHECKSUMS_NAME
         checksum_path.unlink(missing_ok=True)
         print("Transfer volumes deleted after successful restoration")
@@ -541,6 +619,326 @@ def unpack(manifest_path: Path, output: Path, force: bool, delete_parts: bool) -
         f"  BFME2_INSTALL={output / 'BFME2'}\n"
         f"  ROTWK_INSTALL={output / 'RotWK'}"
     )
+
+
+def archive_disk_paths(output: Path, record: ArchiveRecord) -> tuple[Path, Path]:
+    target = output.joinpath(*record.path.parts)
+    temporary = target.with_name(target.name + ".transfer-tmp")
+    return target, temporary
+
+
+def finalize_ingested_archive(
+    output: Path, record: ArchiveRecord, force: bool
+) -> None:
+    target, temporary = archive_disk_paths(output, record)
+    if not temporary.is_file() or temporary.stat().st_size != record.size:
+        actual = temporary.stat().st_size if temporary.is_file() else "missing"
+        raise TransferError(
+            f"incomplete temporary archive {temporary}: expected {record.size}, "
+            f"found {actual}"
+        )
+    actual_md5, actual_sha256, actual_size = digest_file(temporary)
+    if (
+        actual_size != record.size
+        or actual_md5 != record.md5
+        or actual_sha256 != record.sha256
+    ):
+        raise TransferError(
+            f"archive checksum mismatch for {record.path}:\n"
+            f"  MD5 expected {record.md5}, got {actual_md5}\n"
+            f"  SHA-256 expected {record.sha256}, got {actual_sha256}"
+        )
+    ensure_real_big(temporary)
+    if target.exists():
+        if existing_matches(target, record.size, record.md5, record.sha256):
+            temporary.unlink()
+            return
+        if not force:
+            raise TransferError(
+                f"destination exists but does not match the transfer: {target}\n"
+                "Use a clean output folder, or pass --force after checking the path."
+            )
+        target.unlink()
+    os.replace(temporary, target)
+
+
+def load_ingest_state(
+    state_path: Path,
+    manifest_sha256: str,
+    parts: list[PartRecord],
+) -> dict[str, object]:
+    if not state_path.exists():
+        return {
+            "schema": INGEST_STATE_SCHEMA,
+            "schemaVersion": INGEST_STATE_VERSION,
+            "manifestSha256": manifest_sha256,
+            "nextPart": 0,
+            "streamOffset": 0,
+            "complete": False,
+        }
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise TransferError(f"cannot read ingest checkpoint {state_path}: {error}") from error
+    if not isinstance(state, dict):
+        raise TransferError(f"ingest checkpoint is not an object: {state_path}")
+    if (
+        state.get("schema") != INGEST_STATE_SCHEMA
+        or state.get("schemaVersion") != INGEST_STATE_VERSION
+    ):
+        raise TransferError(f"unsupported ingest checkpoint: {state_path}")
+    if state.get("manifestSha256") != manifest_sha256:
+        raise TransferError(
+            "ingest checkpoint belongs to a different manifest; use a clean output folder"
+        )
+    next_part = checked_nonnegative_int(state.get("nextPart"), "checkpoint nextPart")
+    stream_offset = checked_nonnegative_int(
+        state.get("streamOffset"), "checkpoint streamOffset"
+    )
+    if next_part > len(parts):
+        raise TransferError(
+            f"checkpoint nextPart {next_part} exceeds volume count {len(parts)}"
+        )
+    expected_offset = sum(part.size for part in parts[:next_part])
+    if stream_offset != expected_offset:
+        raise TransferError(
+            f"checkpoint offset mismatch: expected {expected_offset}, got {stream_offset}"
+        )
+    if not isinstance(state.get("complete"), bool):
+        raise TransferError("invalid checkpoint complete flag")
+    if state["complete"] and next_part != len(parts):
+        raise TransferError("checkpoint is complete before all volumes were consumed")
+    return state
+
+
+def normalize_ingest_output(
+    output: Path,
+    archives: list[ArchiveRecord],
+    committed_offset: int,
+    force: bool,
+) -> None:
+    """Roll temporary files back to the last atomically committed volume."""
+    for record in archives:
+        target, temporary = archive_disk_paths(output, record)
+        covered = min(record.size, max(0, committed_offset - record.offset))
+        if covered == record.size:
+            if target.is_file() and target.stat().st_size == record.size:
+                temporary.unlink(missing_ok=True)
+                continue
+            if temporary.is_file() and temporary.stat().st_size >= record.size:
+                with temporary.open("r+b") as stream:
+                    stream.truncate(record.size)
+                finalize_ingested_archive(output, record, force)
+                continue
+            raise TransferError(
+                f"checkpoint says {record.path} is complete, but its verified output "
+                "is missing; restart into a clean output folder"
+            )
+
+        if covered > 0:
+            if target.exists():
+                if existing_matches(target, record.size, record.md5, record.sha256):
+                    temporary.unlink(missing_ok=True)
+                    continue
+                if not force:
+                    raise TransferError(
+                        f"destination exists but does not match the transfer: {target}"
+                    )
+                target.unlink()
+            if not temporary.is_file() or temporary.stat().st_size < covered:
+                actual = temporary.stat().st_size if temporary.is_file() else "missing"
+                raise TransferError(
+                    f"checkpoint needs {covered} bytes in {temporary}, found {actual}; "
+                    "restart into a clean output folder"
+                )
+            if temporary.stat().st_size != covered:
+                with temporary.open("r+b") as stream:
+                    stream.truncate(covered)
+            continue
+
+        # Bytes beyond the checkpoint came from an interrupted, uncommitted
+        # volume.  They are replayed from that volume on the next invocation.
+        temporary.unlink(missing_ok=True)
+
+
+def consume_verified_part(
+    part_path: Path,
+    part: PartRecord,
+    start_offset: int,
+    archives: list[ArchiveRecord],
+    output: Path,
+    force: bool,
+) -> int:
+    actual_md5, actual_sha256, actual_size = digest_file(part_path)
+    del actual_md5  # Volumes are intentionally authenticated with SHA-256 only.
+    if actual_size != part.size:
+        raise TransferError(
+            f"wrong size for {part.name}: expected {part.size}, found {actual_size}"
+        )
+    if actual_sha256 != part.sha256:
+        raise TransferError(
+            f"SHA-256 mismatch for {part.name}: expected {part.sha256}, "
+            f"got {actual_sha256}"
+        )
+
+    archive_index = 0
+    while (
+        archive_index < len(archives)
+        and archives[archive_index].end <= start_offset
+    ):
+        archive_index += 1
+    position = start_offset
+    part_end = start_offset + part.size
+    validated_existing: set[PurePosixPath] = set()
+
+    with part_path.open("rb") as source:
+        while position < part_end:
+            if archive_index >= len(archives):
+                raise TransferError(
+                    f"volume {part.name} extends beyond the archive table"
+                )
+            record = archives[archive_index]
+            if not (record.offset <= position < record.end):
+                raise TransferError(
+                    f"archive table has a gap at stream offset {position}"
+                )
+            local_offset = position - record.offset
+            segment_size = min(record.end, part_end) - position
+            target, temporary = archive_disk_paths(output, record)
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            skip_write = False
+            if target.exists():
+                if record.path not in validated_existing:
+                    if not existing_matches(target, record.size, record.md5, record.sha256):
+                        if not force:
+                            raise TransferError(
+                                f"destination exists but does not match the transfer: {target}"
+                            )
+                        target.unlink()
+                    else:
+                        validated_existing.add(record.path)
+                skip_write = target.exists()
+
+            if not skip_write:
+                actual_temporary_size = (
+                    temporary.stat().st_size if temporary.exists() else 0
+                )
+                if actual_temporary_size != local_offset:
+                    raise TransferError(
+                        f"temporary offset mismatch for {record.path}: expected "
+                        f"{local_offset}, found {actual_temporary_size}"
+                    )
+                destination = temporary.open("ab")
+            else:
+                destination = None
+
+            remaining = segment_size
+            try:
+                while remaining:
+                    block = source.read(min(remaining, IO_CHUNK))
+                    if not block:
+                        raise TransferError(f"volume ended early: {part.name}")
+                    if destination is not None:
+                        destination.write(block)
+                    remaining -= len(block)
+                    position += len(block)
+                if destination is not None:
+                    destination.flush()
+                    os.fsync(destination.fileno())
+                    destination.close()
+                    destination = None
+            except BaseException:
+                if destination is not None:
+                    destination.close()
+                raise
+
+            if position == record.end:
+                if not skip_write:
+                    finalize_ingested_archive(output, record, force)
+                    print(f"    verified archive: {record.path}")
+                archive_index += 1
+
+        if source.read(1):
+            raise TransferError(f"volume has undeclared trailing bytes: {part.name}")
+    return position
+
+
+def ingest(
+    manifest_path: Path,
+    output: Path,
+    force: bool,
+    delete_parts: bool,
+) -> None:
+    """Consume available volumes sequentially with an atomic per-volume checkpoint."""
+    manifest = load_manifest(manifest_path)
+    archives, parts, expected_total = validate_manifest_layout(manifest)
+    manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    output.mkdir(parents=True, exist_ok=True)
+    state_path = output / INGEST_STATE_NAME
+    state = load_ingest_state(state_path, manifest_sha256, parts)
+    next_part = int(state["nextPart"])
+    committed_offset = int(state["streamOffset"])
+
+    if state["complete"]:
+        print(
+            f"Already complete: {len(archives)} archives, "
+            f"{expected_total / (1024 ** 3):.2f} GiB"
+        )
+        return
+
+    normalize_ingest_output(output, archives, committed_offset, force)
+    if delete_parts:
+        for completed in parts[:next_part]:
+            (manifest_path.parent / completed.name).unlink(missing_ok=True)
+
+    consumed = 0
+    while next_part < len(parts):
+        part = parts[next_part]
+        part_path = manifest_path.parent / part.name
+        if not part_path.is_file():
+            break
+        print(
+            f"Ingesting [{next_part + 1:02d}/{len(parts)}] {part.name} "
+            f"({part.size / (1024 ** 2):.1f} MiB)"
+        )
+        committed_offset = consume_verified_part(
+            part_path, part, committed_offset, archives, output, force
+        )
+        next_part += 1
+        state["nextPart"] = next_part
+        state["streamOffset"] = committed_offset
+        state["complete"] = next_part == len(parts)
+        write_json_atomic(state_path, state)
+        if delete_parts:
+            part_path.unlink()
+        consumed += 1
+
+    if next_part == len(parts):
+        if committed_offset != expected_total:
+            raise TransferError(
+                f"completed offset mismatch: expected {expected_total}, "
+                f"got {committed_offset}"
+            )
+        for record in archives:
+            target, _ = archive_disk_paths(output, record)
+            if not target.is_file() or target.stat().st_size != record.size:
+                raise TransferError(f"completed archive is missing: {target}")
+        print(
+            f"Done: {len(archives)} verified BIG archives ({expected_total / (1024 ** 3):.2f} GiB).\n"
+            f"  BFME2_INSTALL={output / 'BFME2'}\n"
+            f"  ROTWK_INSTALL={output / 'RotWK'}"
+        )
+        return
+
+    waiting = parts[next_part].name
+    print(
+        f"Checkpoint: {next_part}/{len(parts)} volumes, "
+        f"{committed_offset / (1024 ** 3):.2f} GiB committed.\n"
+        f"Waiting for {waiting} in {manifest_path.parent}."
+    )
+    if consumed == 0:
+        print("No data was changed.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -571,6 +969,21 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="delete volume files after every archive and checksum passed",
     )
+
+    ingest_parser = sub.add_parser(
+        "ingest",
+        help="resume restoration from whichever consecutive volumes are available",
+    )
+    ingest_parser.add_argument("--manifest", type=Path, required=True)
+    ingest_parser.add_argument("--out", type=Path, required=True, help="destination root")
+    ingest_parser.add_argument(
+        "--force", action="store_true", help="replace mismatching destination files"
+    )
+    ingest_parser.add_argument(
+        "--delete-parts",
+        action="store_true",
+        help="delete each local volume immediately after its checkpoint is committed",
+    )
     return parser
 
 
@@ -582,6 +995,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             pack(args.bfme2, args.rotwk, args.out, args.part_mib)
         elif args.command == "unpack":
             unpack(args.manifest, args.out, args.force, args.delete_parts)
+        elif args.command == "ingest":
+            ingest(args.manifest, args.out, args.force, args.delete_parts)
         else:
             parser.error(f"unknown command: {args.command}")
         return 0

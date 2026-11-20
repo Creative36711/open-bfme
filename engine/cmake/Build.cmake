@@ -1,0 +1,32 @@
+# Lane BUILD-1 (construction, the starting fortress, build plots, dozers, the castle base layouts of Bases.big): sources and tests of the openbfme_core library and the
+# test executable. Included from engine/CMakeLists.txt so the lane's file lists stay out of the shared list.
+
+# simulation sources (sim audit manifest): placement legality, the construction flow, the command handlers and the construction / castle / dozer modules
+list(APPEND OPENBFME_SIM_SOURCES
+    src/GameLogic/BuildPlacement.cpp
+    src/GameLogic/Construction.cpp
+    src/GameLogic/BuildCommands.cpp
+    src/GameLogic/BuildStops.cpp
+    src/GameLogic/Map/CastleTemplates.cpp
+    src/GameLogic/Module/ConstructionModules.cpp
+    src/GameLogic/Module/CastleModules.cpp
+    src/GameLogic/Module/DozerAIUpdate.cpp
+    src/GameLogic/WallSpan.cpp # lane BUILD-2
+    src/GameLogic/FindPositionAround.cpp # lane BUILD-3
+)
+set(OPENBFME_BUILD_TEST_SOURCES
+    tests/test_build_castle.cpp
+    tests/test_build_core.cpp
+    tests/test_wall_termination.cpp
+    tests/test_build_construct.cpp
+    tests/test_build_hud.cpp
+    tests/test_build_rate.cpp # lane BUILD-2
+    tests/test_build_heal.cpp # lane BUILD-2
+    tests/test_build3_builders.cpp # lane BUILD-3
+    tests/test_build4_walls.cpp # lane BUILD-4
+    tests/test_build5_placement.cpp # lane BUILD-5
+    tests/test_placement_text_style.cpp
+    tests/test_bfme1_isolation.cpp # community PR #36
+    tests/test_bfme1_fields.cpp # BFME1 field names against its parsers (#173, #177)
+    tests/test_bfme2mode0.cpp # lane BFME2MODE-0 (docs/EDITIONS.md)
+)

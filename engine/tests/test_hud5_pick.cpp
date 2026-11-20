@@ -1,0 +1,504 @@
+// OpenBFME retail tests, lane HUD-5 round 4 (Sol's r3 review): each pick caller's pick types driven through the HUD's real input events. GPL-3.0.
+// RW 0x71083F (the base types, SHRUBBERY / ROCK from the GUI command or the selection, RW 0x71077B), the point selection | OWN (RW 0x485CB8), the hover forced
+// (RW 0x83CC13), the order click (RW 0x81FBB3), the double click SELECTABLE only (RW 0x81F7C5), a GUI command's object target (RW 0x83D41A), the drag box unranked.
+// The tests SKIP loudly without the installs.
+
+#include "doctest.h"
+
+#include "HudTestUtil.h"
+#include "LogicTestUtil.h"
+#include "Common/ModelState.h"
+
+#include "Common/Player.h"
+#include "Common/Thing/ThingFactory.h"
+#include "GameClient/HudObjects.h"
+#include "GameClient/InGameHud.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/ObjectTemplateInfo.h"
+
+#include <algorithm>
+#include <variant>
+#include <string>
+#include <vector>
+
+using namespace hudtest;
+
+namespace
+{
+bool logHasLine(const HudInput &in, const std::string &line)
+{
+	const std::vector<std::string> &l = in.messageLog();
+	return std::find(l.begin(), l.end(), line) != l.end();
+}
+
+size_t logCountPrefix(const HudInput &in, const std::string &prefix)
+{
+	size_t n = 0;
+	for (const std::string &l : in.messageLog())
+	{
+		n += l.compare(0, prefix.size(), prefix) == 0 ? 1 : 0;
+	}
+	return n;
+}
+
+bool templateHas(const ThingTemplate &tt, const char *kind)
+{
+	const ObjectTemplateInfo info = ObjectTemplateInfoBuilder::build(*tt.getFinalOverride());
+	const int bit = ObjectTemplateInfoBuilder::kindOfIndex(kind);
+	return bit >= 0 && MaskTest(info.kindOf, (unsigned)bit);
+}
+
+// the first template with `kind` (SELECTABLE or not: RW 0x4B5894 gives a SHRUBBERY / ROCK its own type in either case) that the game makes at `at` and whose pick the ray at its foot meets; the object, null for none
+Object *placePickable(SharedWorld &s, Rig &r, const char *kind, const Coord3D &at, std::string &name)
+{
+	const HudContext &ctx = r.input->context();
+	int tried = 0;
+	for (const ThingTemplate *tt : s.world->things().templates())
+	{
+		if (!tt || tt->getFinalOverride() != tt || !templateHas(*tt, kind) || templateHas(*tt, "CLICK_THROUGH") || (std::string(kind) == "FORCEATTACKABLE" && templateHas(*tt, "SELECTABLE")))
+		{
+			continue;
+		}
+		if (++tried > 400)
+		{
+			break;
+		}
+		std::string err;
+		Object *o = r.game->createObject(tt->getName(), r.local->getPlayerIndex(), Coord3D{ at.x, at.y, r.logic().getGroundHeight(at.x, at.y) }, 0.0f, &err);
+		if (!o)
+		{
+			continue;
+		}
+		r.frame(1);
+		const ICoord2D px = r.screenOf({ at.x, at.y, r.logic().getGroundHeight(at.x, at.y) + 4.0f });
+		bool hit = false;
+		for (const HudObjects::PickHit &h : HudObjects::pickHits(ctx, px, 0xFFFFu))
+		{
+			hit = hit || h.obj == o;
+		}
+		if (hit && HudObjects::collisionTypeOf(ctx, *o) != 0)
+		{
+			name = tt->getName();
+			return o;
+		}
+		r.logic().destroyObject(o);
+		r.frame(1);
+	}
+	return nullptr;
+}
+
+const CommandButton *buttonWith(SharedWorld &s, std::uint32_t option)
+{
+	for (const std::string &n : s.world->commands().buttonNames())
+	{
+		const CommandButton *b = s.world->commands().findCommandButton(n);
+		if (b && b->hasOption(option))
+		{
+			return b;
+		}
+	}
+	return nullptr;
+}
+} // namespace
+
+TEST_CASE("rotwk-c pick retail: script targetable replaces collision type and context masks pick it")
+{
+	if (!haveWorld("rotwk-c script targetable"))
+	{
+		return;
+	}
+	Rig r(shared());
+	const HudContext &ctx = r.input->context();
+	const Coord3D c = r.freeSpot(2400, 1800, 300.0f);
+	r.lookAt({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) }, 300.0f, 40.0f);
+	Object *fighter = r.make("GondorFighter", c.x, c.y);
+	REQUIRE(fighter);
+	r.frame(1);
+	const ICoord2D px = r.screenOf({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) + 4.0f });
+	REQUIRE(HudObjects::pickForDoubleClick(ctx, px) == fighter);
+	fighter->setScriptStatus(0x10, true);
+	CHECK(HudObjects::collisionTypeOf(ctx, *fighter) == HudObjects::PICK_TYPE_SCRIPT_TARGETABLE);
+	CHECK(HudObjects::pickTypesForContext(ctx, false) == 0x44u);
+	CHECK(HudObjects::pickTypesForContext(ctx, true) == 0x64u);
+	CHECK(HudObjects::pickObject(ctx, px) == fighter);
+	CHECK(HudObjects::pickForHover(ctx, px) == fighter);
+	CHECK(HudObjects::pickForSelection(ctx, px) == fighter);
+	CHECK(HudObjects::pickForDoubleClick(ctx, px) != fighter);
+	CommandButton command;
+	CHECK(HudObjects::pickForGuiCommand(ctx, px, command) != fighter);
+	fighter->friend_setEffectivelyDead(true);
+	CHECK(HudObjects::collisionTypeOf(ctx, *fighter) == 0u); // death clearing runs after SCRIPT_TARGETABLE
+	fighter->friend_setEffectivelyDead(false);
+	fighter->setScriptStatus(0x10, false);
+	CHECK(HudObjects::collisionTypeOf(ctx, *fighter) == (HudObjects::PICK_TYPE_SELECTABLE | HudObjects::PICK_TYPE_OWN));
+}
+
+TEST_CASE("rotwk-c pick retail: KeepSelectableWhenDead preserves a dead structure's collision type")
+{
+	if (!haveWorld("rotwk-c keep selectable collision"))
+	{
+		return;
+	}
+	Rig r(shared());
+	const Coord3D c = r.freeSpot(2400, 1800, 300.0f);
+	Object *structure = r.make("RBHelmsDeepGateDoorBig", c.x, c.y);
+	REQUIRE(structure);
+	const auto *tt = static_cast<const ThingTemplate *>(structure->getTemplate());
+	const FieldValue *keep = tt->getFinalOverride()->findField("KeepSelectableWhenDead");
+	REQUIRE(keep);
+	REQUIRE(std::get<bool>(*keep));
+	REQUIRE(structure->isKindOfName("STRUCTURE"));
+	REQUIRE_FALSE(structure->isKindOfName("BRIDGE"));
+	REQUIRE_FALSE(structure->isKindOfName("BRIDGE_TOWER"));
+	const unsigned type = HudObjects::collisionTypeOf(r.input->context(), *structure);
+	REQUIRE(type != 0u);
+	structure->friend_setEffectivelyDead(true);
+	CHECK(HudObjects::collisionTypeOf(r.input->context(), *structure) == type);
+	structure->setScriptStatus(0x10, true);
+	CHECK(HudObjects::collisionTypeOf(r.input->context(), *structure) == HudObjects::PICK_TYPE_SCRIPT_TARGETABLE);
+}
+
+// the hover is forced (RW 0x83CC13), the selection and the order click are not: a FORCEATTACKABLE object is under the cursor for the hover only. SHRUBBERY and
+// ROCK join the pick types only through a GUI command's options or the selection (RW 0x71083F / 0x71077B), and a GUI command's object target takes RW 0x83D41A's
+TEST_CASE("hud5 pick retail: hover is forced; shrubbery / rock come from the GUI command or the selection; a GUI target picks by its button (real mouse moves)")
+{
+	if (!haveWorld("hud5 pick hover"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Rig r(s);
+	r.input->context().commands = &s.world->commands(); // as InGameHud installs it: the selection's command sets (RW 0x691F7F / 0x691FCE)
+	const HudContext &ctx = r.input->context();
+	const Coord3D c = r.freeSpot(2400, 1800, 300.0f);
+	r.lookAt({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) }, 300.0f, 40.0f);
+	r.frame(2);
+	const ICoord2D px = r.screenOf({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) + 4.0f });
+	auto hoverAt = [&](const ICoord2D &p) {
+		r.move(p.x + 3, p.y);
+		r.move(p.x, p.y);
+		return r.input->ui().mouseoverObject();
+	};
+
+	// FORCEATTACKABLE (RW 0x4B583C: type 0x20)
+	std::string name;
+	if (Object *fa = placePickable(s, r, "FORCEATTACKABLE", c, name))
+	{
+		MESSAGE("FORCEATTACKABLE: " << name);
+		CHECK(hoverAt(px) == fa->getID());                      // the hover always casts with 0x20
+		CHECK(HudObjects::pickObject(ctx, px) != fa);            // the order click without the force attack mode does not
+		CHECK(HudObjects::pickForSelection(ctx, px) != fa);
+		r.input->ui().deselectAll(true);
+		r.leftClick(px.x, px.y);
+		CHECK_FALSE(r.input->ui().isSelected(fa->getID()));
+		r.logic().destroyObject(fa);
+		r.frame(2);
+	}
+	else
+	{
+		MESSAGE("no RotWK 2.01 template has KindOf FORCEATTACKABLE (a mod may): the force-only hover target is pinned by the mask");
+		CHECK((HudObjects::pickTypesForContext(ctx, true) & HudObjects::PICK_TYPE_FORCEATTACKABLE) != 0);
+	}
+
+	// SHRUBBERY (type 8)
+	Object *shrub = placePickable(s, r, "SHRUBBERY", c, name);
+	REQUIRE_MESSAGE(shrub, "no pickable SHRUBBERY template");
+	MESSAGE("SHRUBBERY: " << name);
+	r.input->ui().deselectAll(true);
+	r.input->ui().setGUICommand(nullptr);
+	CHECK(hoverAt(px) != shrub->getID()); // nothing selected, no GUI command: 8 is not cast
+	// a GUI command that allows a shrubbery target: the hover and the button's object target meet it
+	const CommandButton *shrubButton = buttonWith(s, COMMAND_OPTION_ALLOW_SHRUBBERY_TARGET);
+	REQUIRE(shrubButton);
+	MESSAGE("shrubbery button: " << shrubButton->m_name);
+	r.input->ui().setGUICommand(shrubButton);
+	CHECK((HudObjects::pickTypesForContext(ctx) & HudObjects::PICK_TYPE_SHRUBBERY) != 0);
+	CHECK(hoverAt(px) == shrub->getID());
+	CHECK(HudObjects::pickForGuiCommand(ctx, px, *shrubButton) == shrub);
+	r.input->ui().setGUICommand(nullptr);
+	CHECK(hoverAt(px) != shrub->getID());
+	// a button without the option: its object target does not meet it
+	const CommandButton *plain = nullptr;
+	for (const std::string &n : s.world->commands().buttonNames())
+	{
+		const CommandButton *b = s.world->commands().findCommandButton(n);
+		if (b && b->hasOption(COMMAND_OPTION_NEED_TARGET_ENEMY_OBJECT) && !b->hasOption(COMMAND_OPTION_ALLOW_SHRUBBERY_TARGET) && !b->hasOption(COMMAND_OPTION_ALLOW_ROCK_TARGET))
+		{
+			plain = b;
+			break;
+		}
+	}
+	REQUIRE(plain);
+	CHECK(HudObjects::pickForGuiCommand(ctx, px, *plain) != shrub);
+	// the selection (RW 0x71077B): a controllable unit that deals FLAME damage or has such a button makes the hover meet the shrubbery
+	Object *flamer = nullptr;
+	// a unit template whose command set holds a button with ALLOW_SHRUBBERY_TARGET (RW 0x691F7F's second test)
+	std::vector<std::string> sets;
+		for (const std::string &n : s.world->commands().setNames())
+		{
+			const CommandSet *set = s.world->commands().findCommandSet(n);
+			for (int i = 0; set && i < (int)CommandSet::MAX_BUTTONS; ++i)
+			{
+				const CommandButton *b = set->getCommandButton(i);
+				if (b && b->hasOption(COMMAND_OPTION_ALLOW_SHRUBBERY_TARGET))
+				{
+					sets.push_back(n);
+					break;
+				}
+			}
+		}
+		for (const ThingTemplate *tt : s.world->things().templates())
+		{
+			if (flamer || !tt || tt->getFinalOverride() != tt || !templateHas(*tt, "SELECTABLE"))
+			{
+				continue;
+			}
+			const FieldValue *v = tt->findField("CommandSet");
+			const std::string *set = v ? std::get_if<std::string>(v) : nullptr;
+			if (!set || std::find(sets.begin(), sets.end(), *set) == sets.end())
+			{
+				continue;
+			}
+			std::string err;
+			Object *u = r.game->createObject(tt->getName(), r.local->getPlayerIndex(), Coord3D{ c.x + 200.0f, c.y + 200.0f, 0.0f }, 0.0f, &err);
+			if (!u)
+			{
+				continue;
+			}
+			r.input->ui().deselectAll(true);
+			r.input->ui().selectObject(u->getID());
+			if (HudObjects::pickTypesForContext(ctx) & HudObjects::PICK_TYPE_SHRUBBERY)
+			{
+				flamer = u;
+				MESSAGE("selection that adds SHRUBBERY: " << tt->getName() << " (command set " << *set << ")");
+			}
+			else
+			{
+				r.input->ui().deselectAll(true);
+				r.logic().destroyObject(u);
+			}
+		}
+	REQUIRE_MESSAGE(flamer, "no unit adds SHRUBBERY by its selection (RW 0x71077B)");
+	r.frame(1);
+	r.input->ui().deselectAll(true);
+	r.input->ui().selectObject(flamer->getID());
+	CHECK(hoverAt(px) == shrub->getID());
+	// nothing selected: no SHRUBBERY again
+	r.input->ui().deselectAll(true);
+	CHECK(hoverAt(px) != shrub->getID());
+	r.logic().destroyObject(shrub);
+	r.frame(2);
+
+	// ROCK / ROCK_VENDOR (type 0x200) through a GUI command that allows it
+	const CommandButton *rockButton = buttonWith(s, COMMAND_OPTION_ALLOW_ROCK_TARGET);
+	Object *rock = placePickable(s, r, "ROCK_VENDOR", c, name);
+	if (!rock)
+	{
+		rock = placePickable(s, r, "ROCK", c, name);
+	}
+	if (rock && rockButton)
+	{
+		MESSAGE("ROCK: " << name << ", button " << rockButton->m_name);
+		r.input->ui().deselectAll(true);
+		CHECK(hoverAt(px) != rock->getID());
+		r.input->ui().setGUICommand(rockButton);
+		CHECK(hoverAt(px) == rock->getID());
+		CHECK(HudObjects::pickForGuiCommand(ctx, px, *rockButton) == rock);
+		r.input->ui().setGUICommand(nullptr);
+		CHECK(HudObjects::pickForGuiCommand(ctx, px, *plain) != rock);
+	}
+	else
+	{
+		MESSAGE("rock target not testable: template " << (rock ? "found" : "missing") << ", button " << (rockButton ? "found" : "missing"));
+	}
+}
+
+// the order click (RW 0x81FBB3: no OWN) attacks the enemy behind an own unit; the double click (RW 0x81F7C5: SELECTABLE) meets that enemy too, so it selects no
+// matching units; a selection click takes the own unit; a drag box selects every own unit inside, unranked. All through the HUD's mouse events
+TEST_CASE("hud5 pick retail: order click, double click, selection click and drag box through real mouse events")
+{
+	if (!haveWorld("hud5 pick input"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Rig r(s);
+	Player *enemy = r.game->players().findPlayerWithName("Player_2");
+	REQUIRE(enemy);
+	const Coord3D c = r.freeSpot(2400, 1800, 300.0f);
+	const std::string soldier = templates(s).infantry.front();
+	// the camera looks north: the blocker stands south of the enemy on the same ray; the attacker and a second unit of the blocker's type stand aside
+	Object *blocker = r.make("MenPorter", c.x, c.y);
+	Object *foe = r.make("MenPorter", c.x, c.y + 60.0f, enemy);
+	Object *twin = r.make("MenPorter", c.x + 90.0f, c.y);
+	Object *attacker = r.make(soldier, c.x - 90.0f, c.y);
+	r.lookAt({ c.x, c.y + 30.0f, r.logic().getGroundHeight(c.x, c.y) }, 300.0f, 40.0f);
+	r.frame(2);
+	const ICoord2D px = r.screenOf({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) + 8.0f });
+	auto at = [&](Object *o) { return r.screenOf({ o->getPosition()->x, o->getPosition()->y, o->getPosition()->z + 6.0f }); };
+
+	// the selection click on the blocker: the own unit, not the enemy behind it
+	r.input->ui().deselectAll(true);
+	r.leftClick(px.x, px.y);
+	CHECK(r.input->ui().isSelected(blocker->getID()));
+	CHECK_FALSE(r.input->ui().isSelected(foe->getID()));
+
+	// the double click there: RotWK picks with SELECTABLE only, the enemy behind wins (0x14): no units of the blocker's type are added
+	r.leftClick(px.x, px.y, true);
+	CHECK_FALSE(r.input->ui().isSelected(twin->getID()));
+	CHECK_FALSE(r.input->ui().isSelected(foe->getID()));
+	// on the twin alone (nothing behind it) the double click does select the matching units on the screen
+	const ICoord2D pt = at(twin);
+	r.leftClick(pt.x, pt.y);
+	r.leftClick(pt.x, pt.y, true);
+	CHECK(r.input->ui().isSelected(twin->getID()));
+	CHECK(r.input->ui().isSelected(blocker->getID()));
+
+	// the order click (alternate setup: the right click orders) with the attacker selected: it attacks the enemy behind the own blocker
+	const ICoord2D pa = at(attacker);
+	r.input->ui().deselectAll(true);
+	r.leftClick(pa.x, pa.y);
+	r.frame(1);
+	REQUIRE(r.input->ui().isSelected(attacker->getID()));
+	REQUIRE(r.input->ui().getSelectCount() == 1);
+	r.input->commandTranslator().setUseAlternateMouse(true);
+	const size_t attacks = logCountPrefix(*r.input, "MSG_DO_ATTACK_OBJECT");
+	r.rightClick(px.x, px.y);
+	CHECK(logCountPrefix(*r.input, "MSG_DO_ATTACK_OBJECT") == attacks + 1);
+	CHECK(logHasLine(*r.input, "MSG_DO_ATTACK_OBJECT o" + std::to_string(foe->getID())));
+	CHECK(r.input->ui().isSelected(attacker->getID())); // the right click ordered, it did not select the blocker
+
+	// the drag box over the blocker, the twin and the enemy behind: every own unit inside is selected (no ranking, no single pick)
+	r.input->commandTranslator().setUseAlternateMouse(false);
+	r.input->ui().deselectAll(true);
+	const ICoord2D pb = at(blocker), pf = at(foe);
+	r.leftDrag(std::min(pb.x, pf.x) - 30, std::min(pf.y, pb.y) - 40, pt.x + 30, std::max(pf.y, pb.y) + 30);
+	CHECK(r.input->ui().isSelected(blocker->getID()));
+	CHECK(r.input->ui().isSelected(twin->getID()));
+	CHECK_FALSE(r.input->ui().isSelected(foe->getID()));
+}
+
+// lane PLAY-3 (the owner's play session: no box while dragging): the drag box W3DInGameUI::drawSelectionRegion (RW 0x48ECF4) draws, through the same
+// mouse events: none for a press that has not moved beyond Mouse.ini DragTolerance, then the region between the press and the pointer in 0xBBFFBB33 with
+// lines of width 2 (RW 0xBD889C), following the pointer, gone at the release
+TEST_CASE("play3 drag box retail: the selection box follows the pointer while the left button drags, in RotWK's colour and width")
+{
+	if (!haveWorld("play3 drag box"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Rig r(s);
+	const Coord3D c = r.freeSpot(2400, 1800, 300.0f);
+	r.lookAt({ c.x, c.y, r.logic().getGroundHeight(c.x, c.y) }, 300.0f, 40.0f);
+	r.frame(2);
+	const int tol = s.mouse.dragTolerance;
+	REQUIRE(tol > 0);
+	IconUIOp op;
+	r.input->ui().deselectAll(true);
+	r.move(400, 300);
+	r.button(HudInput::Button::Left, true, 400, 300);
+	CHECK_FALSE(InGameHud::selectionRegionOp(r.input->ui(), op));
+	r.move(400 + tol, 300 - tol); // not beyond the tolerance (RW 0x83CB7A: above it starts the drag)
+	CHECK_FALSE(InGameHud::selectionRegionOp(r.input->ui(), op));
+	r.move(520, 210);
+	REQUIRE(InGameHud::selectionRegionOp(r.input->ui(), op));
+	CHECK(op.kind == IconUIOp::OPEN_RECT);
+	CHECK(op.x == 400.0f);
+	CHECK(op.y == 210.0f);
+	CHECK(op.w == 120.0f);
+	CHECK(op.h == 90.0f);
+	CHECK(op.width == 2.0f);
+	CHECK(op.color == 0xBBFFBB33u);
+	CHECK(r.input->ui().isSelecting());
+	r.move(300, 380); // the other side of the press: the region is ordered (lo / hi)
+	REQUIRE(InGameHud::selectionRegionOp(r.input->ui(), op));
+	CHECK(op.x == 300.0f);
+	CHECK(op.y == 300.0f);
+	CHECK(op.w == 100.0f);
+	CHECK(op.h == 80.0f);
+	r.button(HudInput::Button::Left, false, 300, 380);
+	CHECK_FALSE(InGameHud::selectionRegionOp(r.input->ui(), op));
+	CHECK_FALSE(r.input->ui().isSelecting());
+}
+
+// lane HUD-5 (performance): collisionTypeOf's rules (RW 0x4B583C .. 0x4B59DE) for each KindOf combination as the owner, the local player, the script
+// status, death and rubble change, in two worlds, so the KindOf indices it keeps cannot carry an object's state. No retail files.
+TEST_CASE("hud5 pick: fixed kind indices preserve collision precedence and live state across owners and worlds")
+{
+	struct Case
+	{
+		const char *kinds;
+		unsigned base;
+		bool walkOnWall = false;
+		bool keep = false;
+		bool deathExempt = false;
+		bool structure = false;
+	};
+	const Case cases[] = {
+		{"NONE", 0},
+		{"SELECTABLE", 0x04},
+		{"WALK_ON_TOP_OF_WALL", 0x04, true},
+		{"SELECTABLE HERO", 0x84},
+		{"SELECTABLE MONSTER", 0x84},
+		{"SELECTABLE DEPLOYED_MINE", 0x84},
+		{"SHRUBBERY", 0x08},
+		{"ROCK", 0x200},
+		{"ROCK_VENDOR", 0x200},
+		{"SELECTABLE SHRUBBERY HERO", 0x08},
+		{"SELECTABLE ROCK", 0x200},
+		{"SELECTABLE ROCK_VENDOR", 0x200},
+		{"SHRUBBERY ROCK", 0x08},
+		{"SELECTABLE FORCEATTACKABLE", 0x20},
+		{"SELECTABLE FORCEATTACKABLE CLICK_THROUGH", 0},
+		{"SELECTABLE STRUCTURE", 0x04, false, false, false, true},
+		{"SELECTABLE STRUCTURE", 0x04, false, true, true, true},
+		{"SELECTABLE STRUCTURE BRIDGE", 0x04, false, false, true, true},
+		{"SELECTABLE STRUCTURE BRIDGE_TOWER", 0x04, false, false, true, true},
+		{"SELECTABLE WALK_ON_TOP_OF_WALL HERO", 0x84, true},
+	};
+	// A second independent world exercises the function-local cache without reusing player/template state.
+	for (int world = 0; world < 2; ++world)
+	{
+		logictest::LogicWorld w;
+		PinholeView view;
+		InGameUI ui;
+		MessageStream stream;
+		HudContext ctx{*w.logic, nullptr, view, ui, stream, nullptr, {}};
+		Player *alice = w.players.findPlayerWithName("Alice");
+		Player *bob = w.players.findPlayerWithName("Bob");
+		REQUIRE(alice);
+		REQUIRE(bob);
+		int index = 0;
+		for (const Case &c : cases)
+		{
+			CAPTURE(world);
+			CAPTURE(c.kinds);
+			const std::string name = "PickKinds" + std::to_string(index++);
+			REQUIRE(w.w.load("Object " + name + "\n KindOf = " + c.kinds +
+				"\n KeepSelectableWhenDead = " + (c.keep ? "Yes" : "No") + "\nEnd\n").empty());
+			w.players.setLocalPlayer(alice);
+			Object *o = w.make(name, w.teamOf("Alice"));
+			REQUIRE(o);
+			const unsigned own = c.base | ((c.base & 0x04u) ? 0x100u : 0u);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == own);
+			o->setTeam(w.teamOf("Bob"));
+			REQUIRE(HudObjects::relationshipToLocal(ctx, *o) == ENEMIES);
+			const unsigned enemy = c.base | (((c.base & 0x04u) && !c.walkOnWall) ? 0x10u : 0u);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == enemy);
+			w.players.setLocalPlayer(bob);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == own);
+			o->setTeam(nullptr);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == c.base);
+			o->setScriptStatus(0x10, true);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == 0x40u);
+			o->friend_setEffectivelyDead(true);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == (c.deathExempt ? 0x40u : 0u));
+			o->setScriptStatus(0x10, false);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == (c.deathExempt ? c.base : 0u));
+			o->friend_setEffectivelyDead(false);
+			o->setModelConditionState(ModelCondition::indexOf("RUBBLE"), true);
+			CHECK(HudObjects::collisionTypeOf(ctx, *o) == ((c.structure && !c.deathExempt) ? 0u : c.base));
+		}
+	}
+}

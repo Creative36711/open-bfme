@@ -1,0 +1,380 @@
+// OpenBFME. GPL-3.0.
+//
+// CastleBehavior and CastleMemberBehavior (lane BUILD-1): the starting fortress, the camps and the castles of the maps. A CastleBehavior object (the "castle centre":
+// MenFortress is one, with `Model = None`) unpacks a base layout from Bases.big around itself: the keep (the Citadel), the build plots, the walls and the gates; every
+// piece is a CastleMemberBehavior object owned by the castle's player.
+//
+// TARGET FACTS (RotWK game.dat, S-001 caveat; static disassembly):
+//   * registry: CastleBehavior create RW 0x64A74F, data RW 0x64A78A, mask 9 (UPDATE | CREATE), module size 0xAC, ctor RW 0x79A901 which derives from FoundationAIUpdate's
+//     constructor (RW 0x858217); CastleMemberBehavior create RW 0x64A7DB, data RW 0x64A813, mask 4 (DAMAGE), CastleUpgrade (RW 0x65036C, 0x655608, mask 0x84).
+//   * CastleBehaviorModuleData field table (RW 0xC312F8, offsets): CastleToUnpackForFaction (list of "<faction> <base>" pairs, parser RW 0x79BD2F, +0x68), FilterValidOwnedEntries
+//     (ObjectFilter +0x30), FilterCrew (+0x34), FactionDecal (+0x5C), PreBuiltList (list of "<template> <pad index>", RW 0x79CA18, +0x50), PreBuiltPlyr (string +0x10), DecalName
+//     (+0x14), DecalSize (real +0x18), FadeTime (real +0x1C), UnpackDelayTime (real +0x20), BuildTime (real +0x24), ScanDistance (real +0x28), MaxCastleRadius (real +0x2C),
+//     CrewPrepareTime (duration +0x38), InstantUnpack (bool +0x3C), KeepDeathKillsEverything (+0x3D), CrewReleaseFX / CrewPrepareFX (FXList +0x48 / +0x44), CrewPrepareInterval
+//     (duration +0x40), DisableStructureRotation (+0x74), EvaEnemyCastleSightedEvent (+0x4C), Summoned (+0x3E), TransferFoundationHealthToCastleUponUnpack (+0x75).
+//     CastleMemberBehaviorModuleData (RW 0xC30A68): CampDestroyedOwnerEvaEvent / AllyEvaEvent / AttackerEvaEvent (+8 / +0xC / +0x10), BeingBuiltSound (+0x14), StoreUpgradePrice
+//     (bool +0x18), CountsForEvaCastleBreached (bool +0x19).
+//   * onBuildComplete of the create interface (RW 0x798238): when InstantUnpack is set, m_needInstantBuild = 1 (module + 0x3C); the object gets the model condition
+//     INVULNERABLE and the status UNATTACKABLE (60). The update (RW 0x79CF2A, state at module + 0x34): state 0 calls RW 0x79C265 (below) and goes to state 4 when it
+//     returns true; the states 1 (RW 0x79BE6A, an unpack), 2, 3, 5, 6 are the timed unpack / pack of a castle a player captured.
+//   * RW 0x79C265 (instant unpack): when m_needInstantBuild: the owner is PreBuiltPlyr's player when the string is set, else the object's controlling player; with a team
+//     the object takes it (setTeam RW 0x69954A), leaves and re-enters the world (RW 0x68C18F / 0x68E31F); then unpack(true) (RW 0x79BE6A) and one prebuilt object per
+//     PreBuiltList entry (RW 0x79A5EC); the flag clears, the object gets the model condition JUST_BUILT (word + 0x124 bit 26) and the function returns true.
+//   * unpack (RW 0x79BE6A): the castle's own footprint leaves the pathfinder map (RW 0x6E85FB); the layout of the template named by CastleToUnpackForFaction for the owner's
+//     faction (RW 0x798F70) is read entry by entry from the CastleTemplates store (RW 0xDE77A0, RW 0x72D72F) and each entry makes an owned object (RW 0x7987EE):
+//       - the template is looked up by the entry's name; one with KindOf OPTIMIZED_PROP is skipped (RW 0x798850); WALK_ON_TOP_OF_WALL sets module + 0x44;
+//       - the team is the castle's when the template passes FilterValidOwnedEntries (RW 0x763543, no players), else the neutral player's default team (RW 0x798885);
+//       - the position is the castle's transform applied to the entry's position (rotation by the castle's orientation, translation), the angle is the entry's plus the
+//         castle's, normalised (RW 0x798899 ff); a template that is not a COMMANDCENTER must pass the placement legality with options 5 (RW 0x797A96
+//         adds 0x100: TERRAIN_RESTRICTIONS | NO_OBJECT_OVERLAP | CASTLE_MEMBERS, lane BUILDCLEAR-1; the port leaves the terrain bit out, S-303), else the entry
+//         is skipped;
+//       - the object is made by the creation interface at module + 0x20 (RW 0x859198) and recorded in the castle's owned list; the CastleMemberBehavior of every owned object
+//         learns its castle (RW 0x79BFC9: module + 0x14 / + 0x18);
+//     then the castle centre gets the status UNSELECTABLE (RW 0x79C07E), its drawable is hidden, the model flags / pathfinder footprint are updated, and the state is 4.
+// lane BACKLOG2: the creation interface RW 0x859198 (the castle's + 0x20 vtable RW 0xC30DE8 slot 4) clears the site (RW 0x858C41) and pushes the units out (RW 0x858CFC)
+// around each member and each pre-built structure (GameLogic/ConstructionSite.h).
+// INFERENCE (stop S-303): the creation interface's construct (slot 7, RW 0x858701 with the castle as the plot) beyond placing the object (position, angle, team, the structure notifications of the starting base),
+// the faction decal, the damage evacuation of the member (EvacuateDamage is its own module) and WallUpgradeUpdate are not ported (CastleUpgrade is FACT-B's). The castle after its unpack is lane
+// CASTLE-1's (below; stops S-950 .. S-952).
+//
+// Lane CASTLE-1 (TARGET FACTS, RotWK game.dat, S-001 caveat; static disassembly; the module's fields are offsets of the CastleBehavior module, `this` of RW 0x79CF2A is module + 0x10):
+//   * the data constructor RW 0x79C543: DecalSize 1.0, FadeTime 2.0, UnpackDelayTime 2.0, BuildTime 5.0, ScanDistance 100.0, MaxCastleRadius 0, CrewPrepareTime 18 frames, CrewPrepareInterval
+//     10 frames, TransferFoundationHealthToCastleUponUnpack true, FilterCrew NONE (RW 0x763D11), FilterValidOwnedEntries ANY +STRUCTURE +WALK_ON_TOP_OF_WALL +BASE_FOUNDATION
+//     +BASE_DEFENSE_FOUNDATION +TACTICAL_MARKER (RW 0x79C643 ff).
+//   * registerOwnedObject RW 0x79AC19 (after every object the unpack makes, RW 0x79B903, and the structures built on the castle itself, RW 0x79B98B): the member learns its castle
+//     (+ 0x18); KindOf DO_NOT_PICK_ME_WHEN_BUILDING sets the status DO_NOT_PICK_ME; then by KindOf: CASTLE_KEEP: the first is the keep (+ 0x38, the castle's own foundation occupant
+//     RW 0x8582DE, its member's + 0x14 / + 0x24), a second one is destroyed; BASE_DEFENSE_FOUNDATION: list + 0x74; BASE_FOUNDATION or WALL_UPGRADE: list + 0x50 (a WALL_UPGRADE loses the
+//     status NO_ATTACK); else FilterCrew and FilterValidOwnedEntries both accept (with the castle's player): the crew list + 0x68 (RW 0x798397 prepares it); else list + 0x5C.
+//   * update RW 0x79CF2A: the timer (+ 0x40, seconds) first loses 1 / LOGICFRAMES_PER_SECOND (SSE, single precision) while above 0; at or below 0 it is set to 0 and `expired` is
+//     set. State 0: the instant unpack (RW 0x79C265, then state 4) and the capture scan RW 0x79B3C4; the module sleeps 5 frames. State 4: RW 0x799ACB decides; true -> abandon
+//     RW 0x79CB47, false -> the crew (RW 0x79B0F1, a no-op with no crew). State 5 on `expired`: state 0, pack RW 0x79CCF2, timer = UnpackDelayTime. States 1 .. 3 are the timed
+//     unpack a player starts (initiateUnpack RW 0x79C17D from the dispatcher RW 0x77C32E: lane BACKLOG2, GameLogic/CastleCommands.h). Every state but 0
+//     sleeps 1 frame.
+//   * RW 0x799ACB: false before frame ftol(5 * SecondsBeforeBaseCheckActive) (the VictoryConditions delay). The keep is gone (+ 0x3D) when it no longer exists, or is effectively dead,
+//     or has the model condition AWAITING_CONSTRUCTION or POST_COLLAPSE, or PARTIALLY_CONSTRUCTED with its builder (+ 0x7C) gone or dead and a DOZER. A keep that no longer exists or
+//     is dead with KeepDeathKillsEverything kills everything instead (RW 0x7999E2 twice: RW 0x797F16 kills (UNRESISTABLE, NORMAL) every member that is not a BASE_FOUNDATION and the
+//     occupant of every one that is, in the order: the castle, its occupant, lists + 0x74, + 0x50, + 0x68, + 0x5C; RW 0x797F49 destroys every BASE_FOUNDATION of the same walk, the
+//     castle included), sets + 0x3D and destroys the castle: the castle then counts for nothing (VictoryConditions sees no object). Otherwise, with the keep gone, the castle is
+//     abandoned when no foundation of the lists + 0x50 and + 0x74 that is not a WALL_UPGRADE holds an occupant (FoundationAIUpdate interface slot 0xC: occupant + 0x28 != 0).
+//   * abandon RW 0x79CB47: the camp-destroyed EVA (RW 0x799440, client), state 5, the units near the castle are sent out (RW 0x79C78C), the members fade (client), the castle loses
+//     JUST_BUILT, gets PACKING instead of UNPACKING and loses UNSELECTABLE, the keep and the list + 0x5C get the status NO_ATTACK (RW 0x79A017), timer = FadeTime.
+//   * pack RW 0x79CCF2: every object of the lists + 0x50, + 0x5C (that first loses the status 83), + 0x74 and the keep is destroyed and the lists cleared, + 0x44 cleared, the crew
+//     released (RW 0x79A237(1)), the castle joins PlyrCivilian's default team (RW 0x69954A), the units are sent out again, its upgrades reset (RW 0x68E083) and its footprint returns
+//     to the pathfinder (RW 0x6E85E9).
+//   * the instant unpack RW 0x79C265 in full: the owner is PreBuiltPlyr's player (the first of the list with that name; none: nothing unpacks) or the castle's; the castle joins its
+//     team, unpacks, and each PreBuiltList entry whose template exists builds INSTANT (RW 0x79A5EC: the BASE_DEFENSE_FOUNDATION pads for an FS_BASE_DEFENSE template when there are
+//     any, else the foundations; index -2: the first pad that takes it, else the index clamped to the last pad with an unsigned compare; RW 0x79A518: the pad exists, is no
+//     WALL_UPGRADE, its foundation holds nothing, then the creation interface RW 0x859198 with the pad's position, angle 0 and the pad's player -> construct RW 0x858701); then JUST_BUILT
+//     and the keep / members lose DO_NOT_PICK_ME (RW 0x79A017(0x4F, 0)).
+//   * capture scan RW 0x79B3C4 (state 0, no instant build pending, ScanDistance > 0, InstantUnpack off): the live objects within ScanDistance of KindOf INFANTRY / CAVALRY /
+//     MONSTER / MACHINE and not NO_BASE_CAPTURE, not PlyrCivilian's: an owner that is not ALLIES with an owner met before contests the castle; each owner scores w = 2 for a human,
+//     1 for a computer (Player + 0x5C), the first object 2w + w * CommandPoints, the next w + w * CommandPoints; the best score (the lowest index on a tie) of an uncontested scan
+//     takes the castle when its team differs and CastleToUnpackForFaction names its side (RW 0x7998FF); else, after frame 5, the castle returns to PlyrCivilian.
+//   * unpack RW 0x79BE6A (both forms): the castle's footprint leaves the pathfinder, + 0x9C / + 0x44 reset, the layout (or the explicit object of + 0x98) is made, every member
+//     learns the keep (member + 0x14 = the keep's id, RW 0x7990D9: BUILD-1's "occupant" reading of that field is wrong, S-952), + 0x48 = the frame, the castle gets UNPACKING
+//     instead of PACKING and UNSELECTABLE, the walk-on-wall members' footprints are added (RW 0x799E3F), and the keep takes the castle's price (truncated) and script name
+//     (ScriptEngine RW 0x759467) while the castle is renamed "No Name". With TheTerrainLogic (RW 0xDE4690) set, RW 0x683955 (lane TAINTAREA-1: the TAINT
+//     objects within MaxCastleRadius and their taint are cleared, GameLogic::clearTaintObjects).
+// Lane CASTLEAREA-1 (TARGET FACTS, RotWK game.dat; BFME2 decomp CastleBehaviorRegisterOwnedObject_Unresolved.cpp:622 / CastleBehaviorRegisterOwnedObject.cpp:725,
+// Rva00396E4ARemove.cpp:186 / :206, SidesListCastleBuildLists.cpp):
+//   * the castle's areas RW 0x79B881, after the layout of the template form of the unpack (RW 0x79BE6A, after RW 0x79B903) and in the module's xfer on a load
+//     (RW 0x79B9D6, state + 0x34 not 0): for index 0, 1, .. a new PolygonTrigger (RW 0x6E5275) takes the index-th area of the castle's key (the base name of the
+//     owner's faction, RW 0x799021 -> 0x798F70) from TheSidesList (RW 0x72D76E: the areas are the CastleTemplates chunk's lines with points, keyed by the chunk's
+//     name: RW 0x731010 -> RW 0x730721; a line without points is not kept) until there is none. Each is registered by RW 0x79AB88: the callback RW 0x79A218 with
+//     the module as its context (RW 0x6E4B10), the castle's transform applied to its points (polygon vslot 0x28 RW 0x73253A -> RW 0x70C9C4: x' = ((m01 y + m00 x)
+//     + m02 0) + m03, y' = ((m10 x + m11 y) + m12 0) + m13, SSE), the list + 0x80, the name "Dynamic %s of id %d at index %d" (RW 0x7982A5: the castle's template,
+//     its id, the list's new size) and PolygonTrigger::addPolygonTrigger (RW 0x6E4A99). Retail data: the 51 castle_* / camp_* bases of BFME2's archives have one
+//     area each; RotWK's fortress_* and AI bases have none (tools/castle/castle_survey.py's survey).
+//   * the dispatcher RW 0x79A218(object, context, entered): entered -> RW 0x799157, else RW 0x79935E (object null: nothing).
+//   * enter RW 0x799157: an object without KindOf IGNORED_IN_GUI (template + 0x10D bit 7, KindOf 0x2F) gets the status INSIDE_CASTLE (0x55, RW 0x62684D) and its
+//     id goes into the set + 0x8C (RW 0x472958). An IGNORED_IN_GUI object (the critters) with the keep (+ 0x38, RW 0x449681), an AI (+ 0x260) and the AI's
+//     animal interface (vslot 0x180) whose slot 0 says it is afraid of castles: its pathfinder goal goes (RW 0x68B401) and it paths (RW 0x667ED1(dest, 1)) to its
+//     position + 150 (RW 0xC041F8) along Normalize(itself - the keep) (RW 0x405553: no zero test). The CritterDesync log lines are not ported (a debug file).
+//   * exit RW 0x79935E: an object whose id is in the set loses INSIDE_CASTLE and leaves the set.
+//   * RW 0x79A37D (from the pack RW 0x79CCF2 and the module's destructor): every trigger of + 0x80 leaves the list (removePolygonTrigger RW 0x6E4ABE, then every
+//     object's entries of it are cleared, RW 0x6263AF: no exit runs, so a unit inside keeps INSIDE_CASTLE) and is deleted; the list empties. The set stays.
+// The status' only reader is the line of sight's victim point (RW 0x6CB85A, Combat/CombatLineOfSight.cpp); its only writers are RW 0x799157 / 0x79935E (every
+// push 0x55 / RW 0x44DDEC call of the text section). Retail's xfer saves neither the set nor the areas (it rebuilds them); the port's native snapshot keeps both
+// (OpenBFME, S-4190: a load continues the saved game, where retail's rebuild of a castle saved in state 1 .. 3 makes a second set of areas at the unpack).
+// The partition queries run on ThePartitionManager (lane MODULES-2): the capture scan RW 0x79B4D2 is distance type 0 unsorted, the push out RW 0x79C826 type 3 unsorted.
+// INFERENCE / NOT PORTED (stop S-951, S-952): the push out's geometry overlap filter (RW 0x67C5F3, vtable RW 0xC112C8 -> RW 0xAD2CE0) and the AI's slot 0x1C8 test are not ported; the occupant of a plot is the port's CastleMemberBehavior occupant that still exists
+// (retail clears the plot's + 0x28 in the plot's own update, RW 0x8584DB, one frame later); the crew (RW 0x79B0F1 / 0x798397 / 0x798344), the castle's alert map (+ 0xA0), the stored
+// price (+ 0x4C), RW 0x625E0A and the client parts (EVA, fades, decals) are not ported.
+//
+// Simulation maths goes through SimMath.
+
+#pragma once
+
+#include "Common/INI.h"
+#include "GameLogic/Module/ConstructionModules.h"
+#include "GameLogic/Module/DamageModule.h"
+
+#include <cstdint>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+struct ObjectFilter;
+class ModuleFactory;
+class Player;
+class ThingTemplate;
+
+// lane BACKLOG2: one CastleToUnpackForFaction line (RW 0x79BD2F; BFME2 decomp CastleBehaviorModuleDataRva0039981E.cpp, tier A): `<side> <base> [<cost> [<limit>]]`,
+// the two counts scanned as unsigned integers when present (INI::scanUnsignedInt: anything else fails the parse); the module data keeps a map keyed by the side's
+// NameKey (case-sensitive), into which a second line for the same side is not inserted (STLport map::insert keeps the first)
+struct CastleFactionEntry
+{
+	std::string faction; ///< the side (Player + 0x58)
+	std::string base;    ///< the base layout (record + 0x14)
+	std::uint32_t cost = 0;  ///< record + 0x18: the price of a player's unpack (RW 0x7995FB, paid by RW 0x799039)
+	std::uint32_t limit = 0; ///< record + 0x1C: above 0, fewer free command points than this make the price 99999999 (RW 0x799664)
+};
+
+class CastleBehaviorModuleData : public FoundationAIUpdateModuleData
+{
+public:
+	bool m_useSecondaryBuildList = false;
+	bool m_useNewCastleSystem = false;
+	std::vector<std::string> m_sidesAllowed; // BFME1 castle capture restrictions
+	std::vector<CastleFactionEntry> m_castleToUnpackForFaction; // +0x68 (the map's entries in parse order; lookups are by exact side name)
+	// the entry of `side` (the map's find, RW 0x6B4E57 on the side's name key), or null
+	const CastleFactionEntry *entryFor(const std::string &side) const;
+	std::shared_ptr<const ObjectFilter> m_filterValidOwnedEntries;                // +0x30
+	std::shared_ptr<const ObjectFilter> m_filterCrew;                             // +0x34
+	std::string m_factionDecal;                                                   // +0x5C (parser RW 0x79CA81, retail data does not use it: kept as the line)
+	std::vector<std::pair<std::string, int>> m_preBuiltList;                      // +0x50: (template, pad index; -2: the first free pad)
+	std::string m_preBuiltPlyr;                                                   // +0x10
+	std::string m_decalName;                                                      // +0x14
+	// defaults: the data constructor RW 0x79C543 (lane CASTLE-1)
+	float m_decalSize = 1.0f, m_fadeTime = 2.0f, m_unpackDelayTime = 2.0f, m_buildTime = 5.0f, m_scanDistance = 100.0f, m_maxCastleRadius = 0.0f; // +0x18 .. +0x2C
+	std::uint32_t m_crewPrepareTime = 18, m_crewPrepareInterval = 10;             // +0x38, +0x40 (frames)
+	bool m_instantUnpack = false, m_keepDeathKillsEverything = false, m_summoned = false; // +0x3C, +0x3D, +0x3E
+	std::string m_crewReleaseFX, m_crewPrepareFX;                                 // +0x48, +0x44
+	bool m_disableStructureRotation = false;                                      // +0x74
+	std::string m_evaEnemyCastleSightedEvent;                                     // +0x4C
+	bool m_transferFoundationHealthToCastleUponUnpack = true;                     // +0x75
+	static void buildFieldParse(MultiIniFieldParse &p);
+};
+
+class CastleBehavior : public FoundationAIUpdate, public CreateModuleInterface
+{
+public:
+	OBFME_MODULE_XFER(CastleBehavior) // lane SAVE-4b
+	// RW +0x34 of the module
+	enum State
+	{
+		STATE_IDLE = 0,       // the starting state (RW 0x79A901); a packed castle waits here for a capture
+		STATE_PACKED = 1,     // initiateUnpack(false) (RW 0x79C17D)
+		STATE_UNPACKING = 2,  // RW 0x79CF2A state 2
+		STATE_BUILDING = 3,   // RW 0x79CF2A state 3
+		STATE_UNPACKED = 4,   // after an unpack
+		STATE_ABANDONED = 5   // RW 0x79CB47: fading out until FadeTime runs out, then packed (RW 0x79CCF2)
+	};
+	CastleBehavior(Thing *thing, const CastleBehaviorModuleData *data);
+	~CastleBehavior() override; // lane CASTLEAREA-1: RW 0x79AAA7 -> RW 0x79A37D
+	UpdateSleepTime update() override;
+	CreateModuleInterface *getCreate() override { return this; }
+	void onCreate() override; // RW 0x79C761 (lane SPELL-3): a Summoned castle starts its timed unpack
+	void onBuildComplete() override; // RW 0x798238
+	// lane SCRIPT-2: RW 0x798F2B (module slot 0x24): the castle's new owner takes the keep (FoundationAIUpdate RW 0x858BCB: the occupant) and every object of the
+	// lists + 0x50, + 0x5C, + 0x68, + 0x74 (RW 0x798EAD each): setTeam(the new owner's default team). The skirmish AI's base notifications of both players
+	// (RW 0x6C778A / 0x6C7779) are not ported (S-1186)
+	void onCapture(Player *oldOwner, Player *newOwner) override;
+	void crc(StateHasher &hasher) const override;
+
+	const CastleBehaviorModuleData *data() const { return m_data; }
+	int state() const { return m_state; }
+	bool needsInstantBuild() const { return m_needInstantBuild; }
+	// every object the unpack made, in creation order
+	const std::vector<ObjectID> &ownedObjects() const { return m_owned; }
+	// RW + 0x38 the keep; + 0x50 the foundations (BASE_FOUNDATION / WALL_UPGRADE), + 0x5C the other members, + 0x68 the crew, + 0x74 the BASE_DEFENSE_FOUNDATIONs
+	ObjectID keepId() const { return m_keepId; }
+	const std::vector<ObjectID> &foundations() const { return m_foundations; }
+	const std::vector<ObjectID> &members() const { return m_members; }
+	const std::vector<ObjectID> &crew() const { return m_crew; }
+	const std::vector<ObjectID> &defenseFoundations() const { return m_defenseFoundations; }
+	bool keepGone() const { return m_keepGone; }
+	float timer() const { return m_timer; }
+	// RW 0x79BE6A: makes the layout's objects (see the file comment); false + the reason in lastError()
+	bool unpack(bool instant = true); // lane SPELL-3: `instant` false for the timed unpack (RW 0x79BE6A(0): the members start JUST_BUILT / NO_ATTACK)
+	const std::string &lastError() const { return m_lastError; }
+	// the base name of the owner's faction (RW 0x798F70); empty when the data has none for it
+	std::string baseNameFor(const Player &owner) const;
+	// RW 0x7998FF: CastleToUnpackForFaction names the player's side
+	bool isPlayerAllowedToCapture(const Player &player) const;
+	// lane MODCOMPAT-AI: RW 0x7996D3 (the scripts' CAN_BUILD_OBJECTTYPE_AT_BASE / BUILD_BASE_BUILDING): unpacked (+ 0x34 == 4) and a pad of the list (+ 0x74
+	// the BASE_DEFENSE_FOUNDATIONs for a template with KindOf FS_BASE_DEFENSE (+ 0x110 bit 0) when there are any, else + 0x50 the foundations) that exists
+	// (RW 0x449681), is not a WALL_UPGRADE (+ 0x11A bit 6) and has a FoundationAIUpdate interface (RW 0x68C3C3) without an occupant (slot 0xC). A null
+	// template takes the foundations
+	bool canBuildAtBase(const ThingTemplate *tt) const;
+	// lane MODCOMPAT-AI: RW 0x79A5EC(template, -2, 0) for BUILD_BASE_BUILDING (RW 0x7BEEA4): the first pad of that list that takes the template, built
+	// in the timed form; null when none does
+	Object *buildAtBase(const ThingTemplate &tt) { return preBuild(tt, -2, false); }
+	// ---- lane BACKLOG2: a player's unpack and pack (S-951) ----
+	// RW 0x7983E3 canUnpack (BFME2 decomp Rva00395F57CanUnpack.cpp, tier A): no instant build pending, state 0 and, with checkTimer, the timer run out
+	bool canUnpack(bool checkTimer) const;
+	// RW 0x797B63 (BFME2 decomp Disp8CmpBoolGetters.cpp: state == 4)
+	bool isUnpacked() const { return m_state == STATE_UNPACKED; }
+	// RW 0x79A472 isPlayerAllowedToPackOrUnpack (BFME2 decomp CastleBehaviorRva00397F45.cpp, tier A): the castle's controlling player, or a player
+	// isPlayerAllowedToCapture admits
+	bool isPlayerAllowedToPackOrUnpack(const Player *player) const;
+	// RW 0x7995FB (BFME2 decomp Rva0039718BOwnedPlayerCheck.cpp:rva003970E7, tier A): the side's price; 0 without a player, a side or an entry; 99999999
+	// when the entry's limit is above 0 and the player has fewer free command points (RW 0x6A7F6A, signed)
+	std::uint32_t unpackCost(const Player *player) const;
+	// RW 0x79969F (tier A): `player` controls the castle and has at least unpackCost(player) (Player + 0x94, unsigned)
+	bool canAffordUnpack(const Player *player) const;
+	// RW 0x797B6D (BFME2 decomp Rva00395686Finish.cpp, tier A): `player` controls the castle and has at least the template's calcCostToBuild(player, no
+	// producer, -1) (RW 0x73C25F)
+	bool canAffordUnpackOf(const Player *player, const ThingTemplate *tt) const;
+	// RW 0x797EF9: the button's readiness: in state 0, 1 - timer / UnpackDelayTime (x87); else 0
+	float unpackReadiness() const;
+	// RW 0x79C17D initiateUnpack (BFME2 decomp CastleBehaviorRegisterOwnedObject.cpp, tier A): an explicit template's name is kept (+ 0x98), + 0x4C = 0;
+	// instant: unpack, JUST_BUILT, state 4; else state 1 and the price is paid: the explicit template's (RW 0x797B06) or the side's (RW 0x799039). The alert
+	// map's reset (RW 0x7985AA on + 0xA0) is not ported (the map is not, S-951)
+	void initiateUnpack(bool instant, const ThingTemplate *explicitTemplate);
+	// RW 0x79CB47 (abandon): what a player's pack starts (MSG_CASTLE_PACK, RW 0x77C2B7)
+	void abandonByPlayer() { abandon(); }
+	// RW + 0x4C: the price the last player's unpack paid (0 for the starting fortress and a summoned castle)
+	float storedPrice() const { return m_storedPrice; }
+	const std::string &explicitTemplateName() const { return m_explicitTemplate; }
+	// RW 0x79AC19
+	void registerOwnedObject(Object &obj);
+	// lane MODS-3: edain-unchained.foundation-rebind's keep step (its 0xEDA097): a keep that was the replaced object leaves + 0x38; an empty keep slot then
+	// takes the new keep piece (registerOwnedObject) and the castle state becomes 4 (unpacked)
+	void rebindKeep(ObjectID replaced, Object &piece)
+	{
+		if (m_keepId == replaced)
+		{
+			m_keepId = INVALID_ID;
+		}
+		if (m_keepId == INVALID_ID)
+		{
+			registerOwnedObject(piece);
+			m_state = STATE_UNPACKED;
+		}
+	}
+	// lane CASTLE-1: the stop lines S-950 .. S-952 (in GameLogic::report through BuildStops)
+	static std::vector<std::string> stopLines();
+	// ---- lane CASTLEAREA-1: the castle's areas (see the file comment) ----
+	// one area of + 0x80: its index in the script engine's trigger list and the polygon as registered (world points)
+	struct Area
+	{
+		int trigger = -1;
+		std::string name;
+		std::vector<float> points; ///< x0, y0, x1, y1, ..
+	};
+	const std::vector<Area> &areas() const { return m_areas; }
+	// RW + 0x8C: the objects the areas set INSIDE_CASTLE on, by id
+	const std::set<ObjectID> &insideIds() const { return m_inside; }
+	// RW 0x799157 / RW 0x79935E
+	void onTriggerEntered(Object &obj);
+	void onTriggerExited(Object &obj);
+
+private:
+	// RW 0x7987EE
+	Object *createOwnedObject(const struct CastleTemplateEntry &entry, Player &owner, bool instant);
+	// RW 0x79C265
+	bool tryInstantUnpack();
+	// RW 0x79A5EC / 0x79A518: a PreBuiltList entry
+	Object *preBuild(const ThingTemplate &tt, int index, bool instant);
+	Object *buildOnPad(ObjectID padId, const ThingTemplate &tt, bool instant);
+	// RW 0x799ACB (may kill everything and destroy the castle: KeepDeathKillsEverything)
+	bool shouldAbandon();
+	// RW 0x7999E2 with RW 0x797F16 (kill = true) or RW 0x797F49 (kill = false)
+	void forEachMember(bool kill);
+	// RW 0x79CB47
+	void abandon();
+	// RW 0x79CCF2
+	void pack();
+	// RW 0x79C78C
+	void pushUnitsOut();
+	// RW 0x79B3C4
+	void scanForCapture();
+	// RW 0x79A017
+	void setMembersStatus(int status, bool on);
+	// RW 0x799F0F (lane SPELL-3): clear (-1: none) and set (-1: none) a model condition on the keep and the members
+	void setMembersModelCondition(int clear, int set);
+	// RW 0x79A237
+	void releaseCrew(bool kill);
+	// RW 0x799039 / 0x797B06 (lane BACKLOG2)
+	void payForUnpack();
+	void payForUnpackOf(const ThingTemplate &tt);
+	// the occupant of a foundation (the castle's: the keep; a plot's: its member's occupant) that still exists, or null
+	Object *occupantOf(const Object &foundation) const;
+	// lane CASTLEAREA-1: RW 0x79B881 (the areas of `layout`), RW 0x79AB88 (one area; savedIndex >= 0: a snapshot load's, at that index), RW 0x79A37D
+	void buildAreas(const struct CastleTemplate &layout);
+	void registerArea(Area area, int savedIndex);
+	void freeAreas();
+
+	const CastleBehaviorModuleData *m_data;
+	int m_state = STATE_IDLE;
+	bool m_needInstantBuild = false;   // RW + 0x3C
+	bool m_bfme1StartChecked = false;  // BFME1 (docs/BFME1.md): the start-of-game unpack of a player's castle flag was considered
+	bool m_keepGone = false;           // RW + 0x3D
+	bool m_hasWalkOnWall = false;      // RW + 0x44
+	float m_timer = 0.0f;              // RW + 0x40 (seconds)
+	ObjectID m_keepId = INVALID_ID;    // RW + 0x38
+	UnsignedInt m_unpackFrame = 0;     // RW + 0x48 (the frame of the last unpack: the crew's clock)
+	float m_storedPrice = 0.0f;        // RW + 0x4C (lane BACKLOG2)
+	std::string m_explicitTemplate;    // RW + 0x98 (lane BACKLOG2: MSG_CASTLE_UNPACK_EXPLICIT_OBJECT's template)
+	std::vector<ObjectID> m_owned;
+	std::vector<ObjectID> m_foundations, m_members, m_crew, m_defenseFoundations; // RW + 0x50, + 0x5C, + 0x68, + 0x74
+	std::vector<Area> m_areas;  // RW + 0x80 (lane CASTLEAREA-1)
+	std::set<ObjectID> m_inside; // RW + 0x8C (lane CASTLEAREA-1)
+	std::string m_lastError;
+};
+
+class CastleMemberBehaviorModuleData : public ModuleData
+{
+public:
+	std::string m_campDestroyedOwnerEvaEvent, m_campDestroyedAllyEvaEvent, m_campDestroyedAttackerEvaEvent; // +8, +0xC, +0x10
+	std::string m_underAttackAllyEvaEventIfKeep;
+	std::string m_underAttackEvaEventIfKeep; // BFME1
+	std::string m_beingBuiltSound;                                                                           // +0x14
+	bool m_storeUpgradePrice = false;                                                                        // +0x18
+	bool m_countsForEvaCastleBreached = false;                                                               // +0x19
+	static void buildFieldParse(MultiIniFieldParse &p);
+};
+
+class CastleMemberBehavior : public BehaviorModule, public DamageModuleInterface
+{
+public:
+	OBFME_MODULE_XFER(CastleMemberBehavior) // lane SAVE-4b
+	CastleMemberBehavior(Thing *thing, const CastleMemberBehaviorModuleData *data);
+	const CastleMemberBehaviorModuleData *data() const { return m_data; }
+	void crc(StateHasher &hasher) const override;
+	// RW module + 0x18: the object id of the castle this piece belongs to (INVALID_ID: none); RW + 0x14: the occupant of a plot (the structure being built on it)
+	ObjectID castleId() const { return m_castleId; }
+	void setCastleId(ObjectID id) { m_castleId = id; }
+	ObjectID occupantId() const { return m_occupantId; }
+	void setOccupantId(ObjectID id) { m_occupantId = id; }
+	// RW 0x79A09D (the plot is taken): an occupant is recorded and it is alive
+	bool plotIsTaken() const;
+	// lane DECOMP-2: RW module + 0x14 as retail writes it: 0 from the constructor (RW 0x797FDD), the castle's keep (castle + 0x38) on every object of the castle's
+	// lists + 0x50 / + 0x5C / + 0x74 at the unpack (RW 0x7990D9 from RW 0x79BF42 .. 0x79BF5A, again with + 0x18 for + 0x50 / + 0x74 at RW 0x79BFC9 / 0x79C040), no other
+	// writer found (S-952: the port's occupantId reads the same field as BUILD-1's plot occupant). Object::updateUpgradeModules adds this keep's upgrades (RW 0x693724)
+	ObjectID keepId() const { return m_keepId; }
+	void setKeepId(ObjectID id) { m_keepId = id; }
+	// lane COMBAT-2: the DAMAGE interface (RW vtable 0xC308BC: onDamage RW 0x79B757, onBodyDamageStateChange RW 0x79A0ED). onDamage (the amount dealt > 0) tells the castle behaviour of the
+	// member the frame it was hit (RW 0x79B374: the castle's alert / crew bookkeeping, a map of frames at castle + 0xA0: not ported, counted); a member that reaches RUBBLE (state 3) sets
+	// its breached flag (module + 0x15) and, when CountsForEvaCastleBreached, records a breach event (CombatState::castleBreaches: the client plays the EVA when the owner is its local player); a state
+	// below REALLYDAMAGED (2) clears the flag (a repaired member)
+	DamageModuleInterface *getDamage() override { return this; }
+	void onDamage(const DamageInfo &info) override;
+	void onBodyDamageStateChange(const DamageInfo *info, BodyDamageType oldState, BodyDamageType newState) override;
+	bool breached() const { return m_breached; }
+
+private:
+	bool m_breached = false; // RW + 0x15
+	const CastleMemberBehaviorModuleData *m_data;
+	ObjectID m_castleId = INVALID_ID;
+	ObjectID m_occupantId = INVALID_ID;
+	ObjectID m_keepId = INVALID_ID;
+};
+
+namespace CastleModules
+{
+void registerAll(ModuleFactory &modules);
+}

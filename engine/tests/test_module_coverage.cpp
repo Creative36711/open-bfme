@@ -1,0 +1,148 @@
+// OpenBFME unit tests (lane MODULES-1): the module coverage of the runtime registry.
+//
+// The registry is built the way RetailObjectWorld builds it (ModuleFactory::init, the typed draw data, the horde contain data, LogicModules::registerAll).
+// Each of the binary's 329 classes is then one of:
+//   * ported: a runtime class is bound (ModuleFactory::bindModuleProc);
+//   * base AI: an AI module class bound to the base AIUpdateInterface runtime, its own behaviour not ported (stop S-222);
+//   * parsed only: the data is typed (its fields are parsed) but the runtime is the explicit UnportedModule (stop S-140);
+//   * missing: raw data and the UnportedModule.
+// The counts are pinned here, so a lane that ports a class moves them on purpose. With OPENBFME_MODULE_COVERAGE_OUT set, the test also writes the per-class
+// table that tools/rw_object_model/module_coverage.py joins with the census into workspace/rebuild/specs/module-coverage.md.
+
+#include "doctest.h"
+
+#include "ObjectTestUtil.h"
+
+#include "GameClient/MapHordeSpawn.h"
+#include "GameEngineDevice/W3DDevice/GameClient/Drawable/Draw/W3DDrawModules.h"
+#include "GameLogic/Module/LogicModules.h"
+
+#include <cstdlib>
+#include <fstream>
+#include <string>
+#include <typeinfo>
+
+namespace
+{
+struct CoverageWorld : objtest::World
+{
+	CoverageWorld()
+	{
+		W3DDrawModules::registerTypedDrawModuleData(modules);
+		MapHordeSpawn::bindHordeContainData(modules);
+		LogicModules::registerAll(modules);
+	}
+};
+
+const char *const kTypeNames[] = { "Behavior", "Draw", "ClientUpdate", "ClientBehavior" };
+
+struct Counts
+{
+	int ported = 0, baseAi = 0, parsedOnly = 0, missing = 0;
+};
+
+std::string statusOf(const ModuleFactory::ModuleTemplate &mt, const std::type_info &baseAiProc)
+{
+	if (mt.portedModule)
+	{
+		// every AI class without a runtime of its own shares the lambda of AIUpdateInterface::registerClasses; HordeAIUpdate shares it but is ported there
+		if (mt.isAiModuleData && mt.name != "AIUpdateInterface" && mt.name != "HordeAIUpdate" && mt.newModule.target_type() == baseAiProc)
+		{
+			return "base-ai";
+		}
+		return "ported";
+	}
+	return mt.typed ? "parsed-only" : "missing";
+}
+} // namespace
+
+TEST_CASE("module coverage: every registry class is ported, base AI, parsed only or missing; the counts are pinned (S-140)")
+{
+	CoverageWorld w;
+	const ModuleFactory::ModuleTemplate *ai = w.modules.findModuleTemplate("AIUpdateInterface", MODULETYPE_BEHAVIOR);
+	REQUIRE(ai);
+	REQUIRE(ai->portedModule);
+	const std::type_info &baseAiProc = ai->newModule.target_type();
+
+	Counts c;
+	std::string table = "class\ttype\tstatus\ttyped\tai\tdrawkind\n";
+	// the registry golden's class order
+	std::vector<std::pair<std::string, int>> classes;
+	for (const RwClass &cls : RwBinaryData::embedded().classes)
+	{
+		classes.emplace_back(cls.name, cls.type);
+	}
+	int seen = 0;
+	for (const auto &cls : classes)
+	{
+		const ModuleFactory::ModuleTemplate *mt = w.modules.findModuleTemplate(cls.first, (ModuleType)cls.second);
+		REQUIRE(mt);
+		if (table.find("\n" + cls.first + "\t" + kTypeNames[cls.second] + "\t") != std::string::npos) // a class listed once per (name, type)
+		{
+			continue; // WeaponBonusUpgrade: two sites, one class
+		}
+		++seen;
+		const std::string status = statusOf(*mt, baseAiProc);
+		// a draw class is drawn by the W3D draw runtime (GameClient), not by a bound module proc: its kind (W3DDrawKind) goes into the table
+		const W3DDrawClassInfo *draw = cls.second == MODULETYPE_DRAW ? W3DDrawModules::find(cls.first) : nullptr;
+		const std::string drawKind = draw ? std::to_string((int)draw->kind) : "-";
+		c.ported += status == "ported";
+		c.baseAi += status == "base-ai";
+		c.parsedOnly += status == "parsed-only";
+		c.missing += status == "missing";
+		table += cls.first + "\t" + kTypeNames[cls.second] + "\t" + status + "\t" + (mt->typed ? "1" : "0") + "\t" + (mt->isAiModuleData ? "1" : "0") + "\t" + drawKind + "\n";
+	}
+	CHECK(seen == 329);
+	CHECK(c.ported + c.baseAi + c.parsedOnly + c.missing == 329);
+	CHECK((int)w.modules.portedModuleCount() == c.ported + c.baseAi);
+	MESSAGE("module coverage: ported " << c.ported << ", base AI " << c.baseAi << ", parsed only " << c.parsedOnly << ", missing " << c.missing);
+	// the pins: move them when a class is ported
+	// before MODULES-1: ported 68, base AI 9, parsed only 13, missing 239; MODULES-1: 80 / 227; SPELL-2 (the ten spell book power classes and
+	// FireWeaponUpdate): +11; lane PHYS-1: PhysicsBehavior (RW's dormant fling flight, S-782): +1 -> 92 / 215; STEALTH-1: InvisibilityUpdate,
+	// StealthDetectorUpdate, StealthUpdate: +3 -> 95 / 212; MODULES-2 (EmotionTrackerUpdate, RadiateFearUpdate, LargeGroupBonusUpdate,
+	// PassiveAreaEffectBehavior, HitReactionBehavior): +5 -> 100 / 207; GARRISON-1 (GarrisonContain, HordeGarrisonContain): +2; MODULES-3
+	// (NotifyTargetsOfImminentProbableCrushingUpdate and its horde variant): +2 -> 104 / 203; STEALTH-2 (ToggleHiddenSpecialAbilityUpdate,
+	// InvisibilitySpecialPower): +2 -> 106 / 201; HERO-2 (SpecialDisguiseUpdate, TemporarilyDefectUpdate,
+	// DominateEnemySpecialPower, ActivateModuleSpecialPower, ArrowStormUpdate, CurseSpecialPower, FellBeastSwoopPower, RousingSpeechUpdate,
+	// TeleportSpecialAbilityUpdate, SpecialPowerTimerRefreshSpecialPower): +10 -> 116 / 191; HERO-2 (ShareExperienceBehavior,
+	// DamageFilteredCreateObjectDie): +2 -> 118 / 189; HERO-2 AutoAbilityBehavior: +1 -> 119 / 188; HERO-2 WeaponModeSpecialPowerUpdate,
+	// DualWeaponBehavior: +2 -> 121 / 186; GARRISON-2 (TransportContain, HordeTransportContain, SiegeEngineContain, HordeSiegeEngineContain,
+	// TunnelContain): +5 -> 126 / 181; MOD-4 (AISpecialPowerUpdate, RepairSpecialPower, SpawnBehavior, SlavedUpdate): +4 -> 130 / 177;
+	// AUDIO-4 (LargeGroupAudioUpdate, AnimationSoundClientBehavior): +2 -> 132 / 175; CAMP-1 (AttachUpdate): +1 -> 133 / 174;
+	// HUD-5 (GateOpenAndCloseBehavior, AIGateUpdate): +2 -> 135 / 172; DECOMP-2 (ModelCondition / Upgrade / RandomSoundSelectorClientBehavior): +3 -> 138 / 169; SPELL-3 (FloodUpdate): +1 -> 139 / 168; FACT-B (WeaponChangeSpecialPowerModule, CastleUpgrade): +2 -> 141 / 166; FACT-A (ObjectCreationUpgrade, ReplaceSelfUpgrade; its CastleUpgrade is FACT-B's): +2 -> 143 / 164; FACT-C (HordeDispatchSpecialPower; its ObjectCreationUpgrade is FACT-A's, replaced by FACT-C's port): +1 -> 144 / 163; FLY-1 (GiantBirdAIUpdate: base AI -> ported): 145, base AI 8
+	// S-1991: BloodthirstyUpdate moves from missing to ported. SUMMON-1: SummonReplacementSpecialAbilityUpdate and DoCommandUpgrade missing -> ported: 148 / 159.
+	// FX-4: TransitionDamageFX missing -> ported: 149 / 158. LUMBER1 (SupplyCenterCreate, SupplyCenterDockUpdate): +2 -> 151 / 156.
+	// MODS-3: FireWeaponWhenDamagedBehavior missing -> ported (its DoCommandUpgrade is SUMMON-1's): +1 -> 152 / 155 (merge queue q24).
+	// WALL-2 (DynamicPortalBehaviour, FakePathfindPortalBehaviour): +2 -> 154 / 153 (merge queue q25).
+	// SIEGE-1 (community #64): seven ported (two of them base AI before): +7 -> 161 / 148, base AI 6 (merge queue q26).
+	// BANNER-1 (AllowBannerSpawnUpgrade, RW 0x650650): +1 -> 162 / 147 (merge queue q26). CHAT-1 (on the archive): BeaconClientUpdate missing -> ported: 163 / 146.
+	// community #117 (CitadelSlaughterHordeContain missing -> ported, merge queue q28): 164 / 145
+	// MODCOMPAT-MOD1 (GeometryUpgrade missing -> ported, RW 0x6503A4): 165 / 144
+	// MODCOMPAT-MOD1 (RebuildHoleExposeDie, RebuildHoleBehavior missing -> ported): 167 / 142
+	// MODCOMPAT-MOD1 (SlaveWatcherBehavior missing -> ported): 168 / 141
+	// MODCOMPAT-MOD1 (CommandButtonHuntUpdate missing -> ported): 169 / 140
+	// MODCOMPAT-MOD1 (GrabPassengerSpecialPower missing -> ported): 170 / 139
+	// MODCOMPAT-MOD1 (CritterEmitterUpdate missing -> ported): 171 / 138
+	// MODCOMPAT-MOD1 (AudioLoopUpgrade missing -> ported): 172 / 137
+	// MODCOMPAT-MOD1 (ClickReactionBehavior missing -> ported): 173 / 136
+	// MODCOMPAT-MOD1 (PickupStuffUpdate missing -> ported): 174 / 135
+	// MODCOMPAT-MOD1 (AutoPickUpUpdate missing -> ported): 175 / 134
+	// MODCOMPAT-MOD1 (BoredUpdate missing -> ported): 176 / 133
+	// MODCOMPAT-MOD1 (SalvageCrateCollide parsed only -> ported, RW 0x651052): 177, parsed only 13
+	// BFME2CAMP1 (RebuildHoleExposeDie, RebuildHoleBehavior): missing -> ported: 166 / 143.
+	// TOPPLE-1 (StructureToppleUpdate missing -> ported, RW 0x8A8BB4): 178 / 132
+	// Local 23 (#178): ProductionQueueHordeContain missing -> ported: 180 -> 181, missing 130 -> 129
+	// PORT 55 (#165): SlaughterHordeContain missing -> ported (the shared base of CitadelSlaughterHordeContain): 181 -> 182, missing 129 -> 128
+	CHECK(c.ported == 183); // PORT 17 (issue #73): ThreatFinderUpdate missing -> ported 182 -> 183;  SIEGEFALL-1 (ClearanceTestingSlowDeathBehavior) and TOPPLE-1 (StructureToppleUpdate) missing -> ported: 180 / 130; VeterancyCrateCollide now has a runtime; + #117's CitadelSlaughterHordeContain, SIEGE-1's seven ported (two of them base AI before), BANNER-1's AllowBannerSpawnUpgrade, CHAT-1's BeaconClientUpdate
+	CHECK(c.baseAi == 6);
+	// S-207: SpawnUnitBehavior data is parsed-only; its runtime remains unported (S-140).
+	CHECK(c.parsedOnly == 13); // MODCOMPAT-MOD1 (SalvageCrateCollide) 14 -> 13
+	CHECK(c.missing == 127); // PORT 17 (issue #73): ThreatFinderUpdate missing -> ported 128 -> 127;  // PORT 55 (#165) SlaughterHordeContain 129 -> 128; Local 23 (#178) ProductionQueueHordeContain 130 -> 129; TOPPLE-1 (StructureToppleUpdate) 131 -> 130; SIEGEFALL-1 (ClearanceTestingSlowDeathBehavior) 132 -> 131; VeterancyCrateCollide no longer missing; MODCOMPAT-MOD1 (BoredUpdate) 134 -> 133; MODCOMPAT-MOD1 (AutoPickUpUpdate) 135 -> 134; MODCOMPAT-MOD1 (PickupStuffUpdate) 136 -> 135; MODCOMPAT-MOD1 (ClickReactionBehavior) 137 -> 136; MODCOMPAT-MOD1 (AudioLoopUpgrade) 138 -> 137; MODCOMPAT-MOD1 (CritterEmitterUpdate) 139 -> 138; MODCOMPAT-MOD1 (GrabPassengerSpecialPower) 140 -> 139; MODCOMPAT-MOD1 (CommandButtonHuntUpdate) 141 -> 140; MODCOMPAT-MOD1 (SlaveWatcherBehavior) 142 -> 141; MODCOMPAT-MOD1 (the rebuild holes) 144 -> 142; MODCOMPAT-MOD1 (GeometryUpgrade) 145 -> 144; #117 (CitadelSlaughterHordeContain) 146 -> 145; CHAT-1 (BeaconClientUpdate) 147 -> 146; BANNER-1 (AllowBannerSpawnUpgrade) 148 -> 147; SIEGE-1 153 -> 148; WALL-2 (DynamicPortalBehaviour, FakePathfindPortalBehaviour) 155 -> 153; MODS-3 (FireWeaponWhenDamagedBehavior) 156 -> 155; LUMBER1 (SupplyCenterCreate, SupplyCenterDockUpdate) 158 -> 156; FX-4 (TransitionDamageFX) 159 -> 158; SUMMON-1 (SummonReplacementSpecialAbilityUpdate, DoCommandUpgrade); before: 161, the merge of the archive (S-207 SpawnUnitBehavior missing -> parsed only) with S-1991 (BloodthirstyUpdate missing -> ported)
+
+	if (const char *out = std::getenv("OPENBFME_MODULE_COVERAGE_OUT"))
+	{
+		std::ofstream f(out, std::ios::binary);
+		REQUIRE(f);
+		f << table;
+	}
+}

@@ -1,0 +1,1350 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+//
+// OpenContain at runtime. See GameLogic/Object/Contain/OpenContainRuntime.h for the target facts and the stops. Lane GARRISON-2 (the parts lane GARRISON-1 ported
+// inside GarrisonContain, moved here unchanged, and RW 0x8682D9 / 0x86702D / 0x867242 / 0x866B69 / 0x867D6A).
+
+#include "GameLogic/Object/Contain/OpenContainRuntime.h"
+#include "GameLogic/SnapshotXfer.h"
+
+#include "Common/NumericState.h"
+#include "Common/Player.h"
+#include "Common/StateHash.h"
+#include "Common/Thing/ThingFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/AI/AIPathfind.h"
+#include "GameLogic/AI/AIWorld.h"
+#include "GameLogic/Combat/CombatNames.h"
+#include "GameLogic/Combat/CombatState.h"
+#include "GameLogic/Combat/WeaponDelivery.h"
+#include "GameLogic/Damage.h"
+#include "Common/PlayerList.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Module/ActiveBody.h"
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/InvisibilityModules.h"
+#include "GameLogic/Module/MoneyEventModules.h"
+#include "GameLogic/Module/OpenContain.h"
+#include "GameLogic/Module/PhysicsBehavior.h"
+#include "GameLogic/System/InvisibilityManager.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/ObjectFilterMatch.h"
+#include "GameLogic/SimMath.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <stdexcept>
+
+namespace
+{
+const char *const kOpenContainCpp = "OpenContain.cpp"; // the logic RNG call sites of RW's OpenContain (RW 0x866B69 draws at line 0x8DE)
+
+int statusBit(const char *name)
+{
+	return CombatNames::status(name);
+}
+
+bool maskTest(const ObjectStatusMaskType &m, int bit)
+{
+	return bit >= 0 && (m[(size_t)bit >> 5] >> (bit & 31)) & 1u;
+}
+
+// RW 0x6901AE / 0x69024C set and clear every bit of the mask through RW 0x68D440
+void setStatusMask(Object &obj, const ObjectStatusMaskType &mask, bool on)
+{
+	for (int bit = 0; bit < (int)(mask.size() * 32); ++bit)
+	{
+		if (maskTest(mask, bit))
+		{
+			obj.setStatus((unsigned)bit, on);
+		}
+	}
+}
+
+} // namespace
+
+// RW 0x68C5AF Object::getSingleLogicalBonePosition through the launch bone provider, then RW 0x70BCE7 (the object's transform, retail's SSE order); false
+// without a provider or without exactly one such bone (the caller keeps the object's own position)
+bool OpenContain::boneWorldPosition(Object &obj, const std::string &bone, Coord3D &out)
+{
+	ProjectileLaunchOffsets *provider = obj.logic().combat().launchOffsets();
+	float b[12];
+	if (!provider || !provider->singleLogicalBone(obj, bone, b))
+	{
+		return false;
+	}
+	const float *t = obj.getBasis();
+	const Coord3D &p = *obj.getPosition();
+	const float tt[3] = { p.x, p.y, p.z };
+	float w[3];
+	for (int r = 0; r < 3; ++r)
+	{
+		const float v = SimMath::addf32(SimMath::mulf32(t[r * 3 + 2], b[11]), SimMath::mulf32(t[r * 3 + 1], b[7]));
+		w[r] = SimMath::addf32(SimMath::addf32(v, SimMath::mulf32(t[r * 3 + 0], b[3])), tt[r]);
+	}
+	out = Coord3D{ w[0], w[1], w[2] };
+	return true;
+}
+
+OpenContain::OpenContain(Thing *thing, const ModuleData *data, const OpenContainModuleData &open, const DieMuxData &dieMux)
+	: UpdateModule(thing, data)
+	, m_open(&open)
+	, m_dieMux(&dieMux)
+{
+	m_enabled = open.m_enabled; // RW 0x867F56: the enabled byte from the data's Enabled (+ 0x84)
+}
+
+OpenContain::~OpenContain() = default;
+
+const ObjectStatusMaskType *OpenContain::getObjectStatusOfContained() const
+{
+	return &openData().m_objectStatusOfContained.mask; // RW 0x865C15: data + 0x58
+}
+
+bool OpenContain::isEnclosingContainerFor(const Object &obj) const
+{
+	static const int enclosed = statusBit("ENCLOSED");
+	return maskTest(statusMaskFor(&obj), enclosed); // RW 0x6CAC1F: slot 0xB0(obj), bit 29 of word 1 = status 61
+}
+
+// RW 0x865A7E (lane DECOMP-3): slot 0xB0(null) has CAN_ATTACK (status 1), and a container that is itself contained asks its container's slot 0xB4 in turn
+bool OpenContain::isPassengerAllowedToFire() const
+{
+	static const int canAttack = statusBit("CAN_ATTACK");
+	if (!maskTest(statusMaskFor(nullptr), canAttack))
+	{
+		return false;
+	}
+	const Object *outer = getObject()->getContainedBy(); // the container's + 0x27C
+	const ContainModuleInterface *c = outer ? outer->getContain() : nullptr;
+	return outer ? (c && c->isPassengerAllowedToFire()) : true; // RW calls the outer contain's slot without a null test
+}
+
+// RW 0x865B33 (lane DECOMP-3): with a rider and a victim, unless PassengersTestCollisionHeight (data + 0x68) is negative or the rider stands more than it above the
+// container (z), the shot is blocked when the victim does not lie behind the rider as seen from the container: (c - r) . (v - r) in 2D (SSE, in RW's order) >= 0
+bool OpenContain::isPassengerShotBlocked(const Object *rider, const Object *victim) const
+{
+	if (!rider || !victim)
+	{
+		return false;
+	}
+	const float h = openData().m_passengersTestCollisionHeight;
+	const Coord3D &c = *getObject()->getPosition(), &r = *rider->getPosition(), &v = *victim->getPosition();
+	if (0.0f > h || SimMath::subf32(r.z, c.z) > h)
+	{
+		return false;
+	}
+	const float dot = SimMath::addf32(SimMath::mulf32(SimMath::subf32(c.x, r.x), SimMath::subf32(v.x, r.x)), SimMath::mulf32(SimMath::subf32(c.y, r.y), SimMath::subf32(v.y, r.y)));
+	return !(0.0f > dot);
+}
+
+const ObjectStatusMaskType &OpenContain::statusMaskFor(const Object *obj) const
+{
+	(void)obj;
+	return openData().m_objectStatusOfContained.mask; // RW 0x865C15: data + 0x58
+}
+
+bool OpenContain::isContainedHere(const Object &obj) const
+{
+	return std::find(m_contained.begin(), m_contained.end(), &obj) != m_contained.end(); // RW 0x8662D0
+}
+
+// RW 0x865E78
+void OpenContain::removeFromContainList(Object *obj)
+{
+	auto it = std::find(m_contained.begin(), m_contained.end(), obj);
+	if (it != m_contained.end())
+	{
+		m_contained.erase(it);
+	}
+}
+
+bool OpenContain::ridersFireFromContainer() const
+{
+	static const int enclosed = statusBit("ENCLOSED");
+	return maskTest(openData().m_objectStatusOfContained.mask, enclosed); // RW 0x6CAC1F: bit 29 of word 1 = status 61
+}
+
+bool OpenContain::allowAlliesInside() const
+{
+	return openData().m_allowAlliesInside; // RW 0x865A55: data + 0x7D
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// who may enter
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+// RW 0x86603B
+bool OpenContain::openContainAllows(const Object &obj) const
+{
+	static const CombatNames::Status &st = CombatNames::statuses();
+	static const int temporarilyDefected = statusBit("TEMPORARILY_DEFECTED");
+	static const int holdingTheRing = statusBit("HOLDING_THE_RING");
+	static const int canEnterAnything = statusBit("CAN_ENTER_ANYTHING");
+	static const int comboHorde = CombatNames::kindOf("COMBO_HORDE");
+	static const int garrisonKind = CombatNames::kindOf("GARRISON");
+	static const int fsCashProducer = CombatNames::kindOf("FS_CASH_PRODUCER");
+	static const int chunkVendor = CombatNames::kindOf("CHUNK_VENDOR");
+	static const int rockVendor = CombatNames::kindOf("ROCK_VENDOR");
+	static const int cavalry = CombatNames::kindOf("CAVALRY");
+	static const int mounted = CombatNames::modelCondition("MOUNTED");
+	const Object *container = getObject();
+	GameLogic &logic = container->logic();
+	const OpenContainModuleData &d = openData();
+	if (obj.isDestroyed() || obj.testStatus((unsigned)temporarilyDefected) || obj.testStatus((unsigned)holdingTheRing) || !m_enabled)
+	{
+		return false;
+	}
+	if (obj.isKindOf((unsigned)comboHorde) && !container->isKindOf((unsigned)garrisonKind) && !container->isKindOf((unsigned)fsCashProducer))
+	{
+		return false; // RW 0x86609C .. 0x8660BB
+	}
+	if (obj.isKindOf((unsigned)chunkVendor) || obj.isKindOf((unsigned)rockVendor))
+	{
+		// RW 0x8660F0 .. 0x866153 (lane BACKLOG-1; BFME2 decomp OpenContainIsValidContainerFor.cpp, tier B same-shape for RW 0x86603B): the object enters as its
+		// body's GrabObject (body vt[0x74]): an empty name, a name no template has (TheThingFactory RW 0x6D1305) or a template the PassengerFilter refuses
+		// (ObjectFilter::testTemplate RW 0x763543 with the object's and the container's players) refuses it; the filter's object test is not made
+		const BodyModuleInterface *body = obj.getBodyModule();
+		const std::string grab = body ? body->getGrabObjectName() : std::string();
+		const ThingTemplate *grabbed = grab.empty() ? nullptr : logic.things().findTemplate(grab);
+		if (!grabbed || !ObjectFilterMatch::allows(logic, d.m_passengerFilter, grabbed, obj.getControllingPlayer(), container->getControllingPlayer()))
+		{
+			return false;
+		}
+	}
+	else if (!ObjectFilterMatch::allows(logic, d.m_passengerFilter, obj, container->getControllingPlayer()))
+	{
+		return false; // RW 0x8660E2: PassengerFilter (data + 0x40) with the container's player
+	}
+	// RW 0x866165: a filter excluding CAVALRY refuses a MOUNTED object (RW 0x7634A1(9): the exclude mask's bit 9)
+	if (((d.m_passengerFilter.excludeKindOf[(size_t)cavalry >> 5] >> (cavalry & 31)) & 1u) && obj.testModelCondition(mounted))
+	{
+		return false;
+	}
+	if (!obj.testStatus((unsigned)canEnterAnything))
+	{
+		const Relationship rel = obj.getRelationship(*container); // RW 0x68D7AB(obj, container)
+		bool ok = false;
+		if (rel == ENEMIES)
+		{
+			ok = d.m_allowEnemiesInside; // data + 0x7E
+		}
+		else if (rel == NEUTRAL)
+		{
+			ok = d.m_allowNeutralInside; // + 0x7F
+		}
+		else if (rel == ALLIES)
+		{
+			ok = (obj.getControllingPlayer() == container->getControllingPlayer() && d.m_allowOwnPlayerInsideOverride) || d.m_allowAlliesInside; // + 0x7C / + 0x7D
+			if (!ok && obj.testStatus((unsigned)st.hordeMember))
+			{
+				ok = false; // RW 0x8661D8: main slot 0x50 (RW 0x7FEAC1: false for every contain class)
+			}
+		}
+		if (!ok)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool OpenContain::isValidContainerFor(const Object &obj, bool checkCapacity, bool checkPath) const
+{
+	(void)checkCapacity;
+	(void)checkPath;
+	return openContainAllows(obj);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// entering
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+bool OpenContain::addToContain(Object *obj)
+{
+	if (!obj || obj->getContainedBy())
+	{
+		return false; // RW 0x8674E0: an object in a container is not added
+	}
+	openContainAdd(obj);
+	return true;
+}
+
+// RW 0x8674C2 OpenContain::addToContain
+bool OpenContain::openContainAdd(Object *obj)
+{
+	// RW 0x8674D3: wasSelected (the drawable's selection, client side: false in the logic)
+	if (obj->getContainedBy())
+	{
+		return false;
+	}
+	addToContainList(obj);
+	if (const Player *p = obj->getControllingPlayer())
+	{
+		m_playerEnteredMask = 1u << ((unsigned)p->getPlayerIndex() & 31u); // RW 0x8674FA: interface + 0x58
+	}
+	onContaining(obj, false); // the container's contain slot 0x58
+	// onContaining can kill: TransportContain's GrabWeapon fire (RW 0x86AA8A) may destroy the rider, the container, or both. RotWK links the rider only
+	// below (RW 0x867543 -> Object::onContainedBy RW 0x6901AE sets + 0x27C), but GameLogic::destroyObject (RW 0x62BBAB) runs Object::onDestroy
+	// (RW 0x62BC1E -> RW 0x6902FA) at once, and its leave-the-container step reads + 0x27C, still null here. In retail the destroyed rider therefore stays in
+	// the list and the next frame reads freed memory (the game's pool allocator hides it); the port cannot read a freed object, so it finishes the entry
+	// and then runs the exit that Object::onDestroy would have run:
+	// - the rider is no longer listed: the container's own death path took it out (OpenContain::onDie with EjectPassengersOnDeath -> removeAllContained)
+	//   and ran the exit already; linking it now would point it at a dead container;
+	// - the rider or the container is destroyed: link it, then the container's own removal (contain slot 0xA4), as onDestroy's step would with + 0x27C set.
+	if (!isContainedHere(*obj))
+	{
+		return false;
+	}
+	if (obj->isDestroyed() || getObject()->isDestroyed())
+	{
+		objectOnContainedBy(obj);
+		removeFromContain(obj);
+		return false;
+	}
+	redeployOccupants();      // main slot 0x48
+	objectOnContainedBy(obj); // RW 0x6901AE
+	recalcApparentControllingPlayer(); // main slot 0x54 (OpenContain RW 0x8658A3: the sound once per frame, client side)
+	// RW 0x86753D: with ModifierToGiveOnExit the {id, frame} pair the exit reads is recorded: not ported (S-1100)
+	if (isEnclosingContainerFor(*obj))
+	{
+		addOrRemoveObjFromWorld(obj, false); // RW 0x867566: main slot 0x60(obj, false)
+	}
+	++m_openStats.entered;
+	return true;
+}
+
+// RW 0x866987
+void OpenContain::addToContainList(Object *obj)
+{
+	static const int stealthGarrison = CombatNames::kindOf("STEALTH_GARRISON");
+	m_contained.push_back(obj);
+	if (obj->isKindOf((unsigned)stealthGarrison))
+	{
+		++m_stealthUnitsContained;
+	}
+}
+
+// RW 0x6901AE Object::onContainedBy
+void OpenContain::objectOnContainedBy(Object *rider)
+{
+	static const int mine = CombatNames::kindOf("MINE");
+	static const int unselectable = statusBit("UNSELECTABLE");
+	if (!rider->isKindOf((unsigned)mine))
+	{
+		setStatusMask(*rider, statusMaskFor(rider), true); // RW 0x6901FC: the contain's slot 0xB0 mask, set
+	}
+	else
+	{
+		rider->setStatus((unsigned)unselectable, false);
+	}
+	rider->friend_setContainedBy(getObject());
+	rider->friend_setContainedFrame(rider->logic().getFrame());
+}
+
+// RW 0x69024C Object::onRemovedFrom
+void OpenContain::objectOnRemovedFrom(Object *rider)
+{
+	setStatusMask(*rider, statusMaskFor(rider), false);
+	rider->friend_setContainedBy(nullptr);
+	rider->friend_setContainedFrame(0);
+}
+
+void OpenContain::onContaining(Object *obj, bool wasSelected)
+{
+	(void)obj;
+	(void)wasSelected; // RW 0x865F9A: the EnterSound (client side)
+}
+
+void OpenContain::onRemoving(Object *obj)
+{
+	// RW 0x8680F4: the ExitSound (client side), the rider's bone records leave (RW 0x867663 / 0x866E08), ModifierToGiveOnExit (S-1100)
+	m_riderBoneIndex.erase(obj->getID());
+	m_riderBoneName.erase(obj->getID());
+}
+
+int OpenContain::getContainMax() const
+{
+	return openData().m_containMax; // RW 0x86584C: data + 0x70
+}
+
+std::string OpenContain::riderBone(ObjectID id) const
+{
+	auto it = m_riderBoneName.find(id);
+	return it == m_riderBoneName.end() ? std::string() : it->second;
+}
+
+// RW 0x8671F5: the contained objects (a copy) through main slot 0x68
+void OpenContain::redeployOccupants()
+{
+	const std::vector<Object *> riders(m_contained.begin(), m_contained.end());
+	putRidersAtBones(riders);
+}
+
+// RW 0x868A70
+void OpenContain::putRidersAtBones(const std::vector<Object *> &riders)
+{
+	enum { MAX_BONES = 32 }; // RW 0x868A9E: 0x20 transforms
+	static const int riderIsPilot = statusBit("RIDER_IS_PILOT");
+	static const int canAttack = statusBit("CAN_ATTACK");
+	static const int noAttack = statusBit("NO_ATTACK");
+	Object *container = getObject();
+	ProjectileLaunchOffsets *provider = container->logic().combat().launchOffsets();
+	const ObjectStatusMaskType &osoc = openData().m_objectStatusOfContained.mask;
+	const bool ridersMayFire = maskTest(osoc, canAttack) && !ridersFireFromContainer();
+	std::string lastPrefix;
+	bool numbered = true; // RW - 0x11: cleared once a prefix answers with its single bone, never set again
+	int count = 0;
+	float bones[MAX_BONES][12];
+	for (Object *rider : riders)
+	{
+		if (rider->testStatus((unsigned)riderIsPilot))
+		{
+			continue; // RW 0x868ADC: status 0x28
+		}
+		// RW 0x86630B: the first PassengerBonePrefix entry whose KindOf the rider has all of (RW 0x70C4FE), "ARROW_" without one
+		std::string prefix = "ARROW_";
+		for (const PassengerBonePrefixEntry &e : openData().m_passengerBonePrefix)
+		{
+			bool all = true;
+			const KindOfMaskType &k = rider->getKindOf();
+			for (size_t w = 0; w < k.size(); ++w)
+			{
+				if ((k[w] & e.kindOf[w]) != e.kindOf[w])
+				{
+					all = false;
+				}
+			}
+			if (all)
+			{
+				prefix = e.bonePrefix;
+				break;
+			}
+		}
+		if (prefix != lastPrefix)
+		{
+			// RW 0x868B2B: RW 0x68C650(prefix, 0x20, the current condition, start 1); none: the single bone RW 0x68C5AF
+			count = provider ? provider->multiLogicalBones(*container, prefix, container->getModelConditionBits(), MAX_BONES, bones) : 0;
+			if (count < 0)
+			{
+				count = 0;
+			}
+			lastPrefix = prefix;
+			if (count == 0 && provider && provider->singleLogicalBone(*container, prefix, bones[0]))
+			{
+				count = 1;
+				numbered = false;
+			}
+		}
+		const ObjectID id = rider->getID();
+		int index = -1;
+		auto known = m_riderBoneIndex.find(id);
+		if (known == m_riderBoneIndex.end())
+		{
+			// RW 0x868BB8 .. 0x868C41: the first bone whose name no rider holds (the name always "<prefix>0<n>" when numbered here)
+			int i = 0;
+			for (; i < count; ++i)
+			{
+				std::string name = prefix;
+				if (numbered)
+				{
+					name += "0" + std::to_string(i + 1);
+				}
+				bool used = false;
+				for (const auto &kv : m_riderBoneName)
+				{
+					used = used || kv.second == name;
+				}
+				if (!used)
+				{
+					break;
+				}
+			}
+			if (count >= 1 && i >= count)
+			{
+				index = -1; // every bone taken: no bone (RW 0x868C2B -> 0x868D4D)
+			}
+			else
+			{
+				index = i;
+				m_riderBoneIndex[id] = i; // RW 0x868C41: RW 0x7871FC operator[]
+			}
+		}
+		else if (known->second < count)
+		{
+			index = known->second;
+		}
+		// INFERENCE (S-1103): with no bone known at all (count 0: no launch bone provider, a game without the W3D assets) RW reads an unset transform; the port
+		// treats the rider as one without a bone
+		const bool onBone = index >= 0 && count > 0;
+		float basis[9];
+		Coord3D pos;
+		const float *cb = container->getBasis();
+		const Coord3D &cp = *container->getPosition();
+		bool hidden;
+		if (!onBone)
+		{
+			// RW 0x868D4D: NO_ATTACK in a container whose riders may fire, the container's transform, hidden (main slot 0x6C(rider, 1))
+			if (ridersMayFire)
+			{
+				rider->setStatus((unsigned)noAttack, true);
+			}
+			for (int k = 0; k < 9; ++k)
+			{
+				basis[k] = cb[k];
+			}
+			pos = cp;
+			hidden = true;
+		}
+		else
+		{
+			if (ridersMayFire)
+			{
+				rider->setStatus((unsigned)noAttack, false); // RW 0x868C7F
+			}
+			std::string name = prefix;
+			if (numbered)
+			{
+				char n[16];
+				// RW 0x868CC4 .. 0x868CE5: itoa(index + 1), then a '0' in front while the zero-based INDEX is below 10 (the tenth name is "010", the eleventh "11")
+				std::snprintf(n, sizeof n, index < 10 ? "0%d" : "%d", index + 1);
+				name += n;
+			}
+			m_riderBoneName[id] = name; // RW 0x868CD7: RW 0x8689EC
+			if (openData().m_passengersInTurret)
+			{
+				++m_turretBonesUnported; // RW 0x868D2B: the turret's bone (RW 0x68E807, S-360): the plain bone stands in
+			}
+			else
+			{
+				applyBoneSpecificConditionState(*rider, numbered ? index + 1 : 0); // lane COMBAT-3: RW 0x868F17 .. 0x868F4B
+			}
+			// the bone through the container's transform (RW 0x68C650 answers world transforms): R = C . B, t = C . b + c
+			const float *b = bones[index];
+			for (int r = 0; r < 3; ++r)
+			{
+				for (int c = 0; c < 3; ++c)
+				{
+					basis[r * 3 + c] = SimMath::addf32(SimMath::addf32(SimMath::mulf32(cb[r * 3 + 0], b[0 * 4 + c]), SimMath::mulf32(cb[r * 3 + 1], b[1 * 4 + c])),
+						SimMath::mulf32(cb[r * 3 + 2], b[2 * 4 + c]));
+				}
+			}
+			const float tt[3] = { cp.x, cp.y, cp.z };
+			float w[3];
+			for (int r = 0; r < 3; ++r)
+			{
+				const float v = SimMath::addf32(SimMath::mulf32(cb[r * 3 + 2], b[11]), SimMath::mulf32(cb[r * 3 + 1], b[7]));
+				w[r] = SimMath::addf32(SimMath::addf32(v, SimMath::mulf32(cb[r * 3 + 0], b[3])), tt[r]);
+			}
+			pos = Coord3D{ w[0], w[1], w[2] };
+			hidden = ridersFireFromContainer(); // RW 0x868D3B: main slot 0x6C(rider, ENCLOSED)
+		}
+		onRiderPlaced(rider, hidden);
+		// RW 0x868F72: a rider of a container that is not ENCLOSED takes the whole transform when main slot 0x38 (ForceOrientationContainer) says so, else the position
+		if (!ridersFireFromContainer() && forceOrientationContainer())
+		{
+			rider->setTransform(&pos, basis);
+		}
+		else
+		{
+			rider->setPosition(&pos);
+		}
+	}
+}
+
+// RW 0x868F0B .. 0x868F4B (lane COMBAT-3): a rider on a bone loses PASSENGER_VARIATION_1 .. 5 (RW 0x4B5AA9(0, 0xC2 .. 0xC6), RW 0x5E3B79) and takes the
+// BoneSpecificConditionState flags (data + 0x4C, RW 0x603AF6) of its bone's number (RW 0x68C650's sixth argument: RW 0x4C3731 stores the number of the name
+// "<prefix>NN", 0 for the plain name; the port's bone walk stops at the first miss, so the number is the index + 1), set by RW 0x5E3BA5. Grond's trolls get
+// PASSENGER_VARIATION_1 .. 4 this way and pick their push / pull animations by it.
+void OpenContain::applyBoneSpecificConditionState(Object &rider, unsigned boneNumber)
+{
+	static const int first = CombatNames::modelCondition("PASSENGER_VARIATION_1");
+	Object::ModelConditionBits clear{};
+	for (int b = first; b < first + 5; ++b)
+	{
+		clear[(size_t)b >> 5] |= 1u << (b & 31);
+	}
+	Object::ModelConditionBits set{};
+	const auto &map = openData().m_boneSpecificConditionState;
+	auto it = map.find(boneNumber);
+	if (it != map.end())
+	{
+		for (size_t w = 0; w < set.size(); ++w)
+		{
+			set[w] = it->second[w];
+		}
+	}
+	rider.clearAndSetModelConditionFlags(clear, set);
+}
+
+// RW 0x865BA6
+void OpenContain::monitorConditionChanges()
+{
+	const Object::ModelConditionBits &now = getObject()->getModelConditionBits(); // the drawable's words (the drawable mirrors the object's)
+	bool same = true;
+	for (size_t i = 0; i < now.size(); ++i)
+	{
+		same = same && now[i] == m_watchedConditions[i];
+	}
+	if (!same)
+	{
+		redeployOccupants(); // main slot 0x48
+		for (size_t i = 0; i < now.size(); ++i)
+		{
+			m_watchedConditions[i] = now[i];
+		}
+	}
+}
+
+// RW 0x86708F OpenContain::onDelete: every rider leaves (contain slot 0xA4(rider, true)), loses its container, and a HERO is killed, any other rider destroyed
+void OpenContain::onDelete()
+{
+	static const int hero = CombatNames::kindOf("HERO");
+	m_deleting = true; // RW 0x867096: + 0xDF
+	const std::vector<Object *> riders(m_contained.begin(), m_contained.end());
+	for (Object *r : riders)
+	{
+		removeFromContain(r);
+		r->friend_setContainedBy(nullptr);
+		if (r->isKindOf((unsigned)hero))
+		{
+			r->kill(DAMAGE_UNRESISTABLE, 0); // RW 0x8670EB: kill(8, 0)
+		}
+		else
+		{
+			r->logic().destroyObject(r); // RW 0x62BBAB
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// leaving
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+void OpenContain::removeFromContain(Object *obj)
+{
+	if (obj)
+	{
+		openContainRemove(obj);
+	}
+}
+
+// RW 0x8665BE -> RW 0x865EB6
+void OpenContain::openContainRemove(Object *obj)
+{
+	if (!isContainedHere(*obj))
+	{
+		// RW 0x8665D6 (contain slot 0xE8): "OpenContain::removeFromContain: The object is not in the container" (a debug message): nothing happens
+		return;
+	}
+	static const int noAttack = statusBit("NO_ATTACK");
+	static const int porterTagged = statusBit("PORTER_TAGGED");
+	static const int tagged = statusBit("TAGGED");
+	static const int stealthGarrison = CombatNames::kindOf("STEALTH_GARRISON");
+	static const int canAttack = statusBit("CAN_ATTACK");
+	static const int enclosed = statusBit("ENCLOSED");
+	const ObjectStatusMaskType &osoc = statusMaskFor(obj);
+	if (maskTest(osoc, canAttack) && !maskTest(osoc, enclosed))
+	{
+		obj->setStatus((unsigned)noAttack, false); // RW 0x8665FF
+	}
+	// RW 0x865EB6
+	if (obj->testStatus((unsigned)porterTagged))
+	{
+		obj->setStatus((unsigned)porterTagged, false);
+	}
+	removeFromContainList(obj); // main slot 0x34 (RW 0x865E78)
+	if (obj->isKindOf((unsigned)stealthGarrison) && m_stealthUnitsContained > 0)
+	{
+		--m_stealthUnitsContained; // the exposed stealth units' detection (RW 0x865EE7 .. 0x865EFB) is not ported (S-1100)
+	}
+	obj->setStatus((unsigned)tagged, false); // RW 0x865F05
+	if (isEnclosingContainerFor(*obj))
+	{
+		addOrRemoveObjFromWorld(obj, true); // RW 0x865F23
+	}
+	// RW 0x865F28 .. 0x865F37: an object that is not effectively dead gets its owner's team again (RW 0x68BBE0 / 0x68BB9D: its own team, unchanged in the port)
+	recalcApparentControllingPlayer(); // main slot 0x58 (OpenContain RW 0x865932: the exit sound once per frame, client side)
+	onRemoving(obj);                   // the container's contain slot 0x5C
+	objectOnRemovedFrom(obj);          // RW 0x69024C
+	++m_openStats.left;
+}
+
+// RW 0x866675
+void OpenContain::removeAllContained()
+{
+	while (!m_contained.empty())
+	{
+		Object *r = m_contained.front();
+		removeFromContain(r);
+		if (!m_contained.empty() && m_contained.front() == r)
+		{
+			openContainRemove(r); // a derived removal that took another path: the list still holds it
+		}
+		++m_openStats.ejectedOnDeath;
+	}
+}
+
+// RW 0x865D3D OpenContain::addOrRemoveObjFromWorld
+void OpenContain::addOrRemoveObjFromWorld(Object *obj, bool add)
+{
+	GameLogic &logic = obj->logic();
+	if (!add)
+	{
+		// RW 0x865D47: RW 0x68C6EE (the object's AI / locomotor stop, not ported), out of the world, the drawable hidden, the radar (not ported)
+		if (obj->isInWorld())
+		{
+			logic.friend_containLeaveWorld(*obj);
+		}
+		obj->setDrawableHidden(true);
+	}
+	else
+	{
+		// RW 0x865D5B: RW 0x696E63(the container's position, 1) teleports it to the container (lane BACKLOG4: the teleport form, the AI kept), into the
+		// world, the drawable shown
+		obj->teleportTo(getObject()->getPosition(), true);
+		if (!obj->isInWorld())
+		{
+			logic.friend_containEnterWorld(*obj);
+		}
+		obj->setDrawableHidden(false);
+	}
+	// RW 0x865DB7 .. 0x865DF5: the object's own riders follow when this contain encloses them
+	if (ContainModuleInterface *c = obj->getContain())
+	{
+		if (const ContainedItemsList *items = c->getContainedItemsList())
+		{
+			const std::vector<Object *> riders(items->begin(), items->end());
+			for (Object *r : riders)
+			{
+				if (isEnclosingContainerFor(*r))
+				{
+					addOrRemoveObjFromWorld(r, add);
+				}
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// death, exit
+// ---------------------------------------------------------------------------------------------------------------------------------
+
+// RW 0x867120 OpenContain::onDie (the die interface)
+void OpenContain::onDie(const DieModuleInterface::Event &event)
+{
+	m_dying = true; // RW 0x86713A
+	Object *container = getObject();
+	if (!m_dieMux->isDieApplicable(*container, event))
+	{
+		return;
+	}
+	if (openData().m_ejectPassengersOnDeath)
+	{
+		if (openData().m_damagePercentToUnits > 0.0f)
+		{
+			processDamageToContained(); // RW 0x867182: contain slot 0x148
+		}
+		killRidersWhoAreNotFreeToExit(); // main slot 0x64 (OpenContain RW 0x63F3BF: nothing)
+		removeAllContained();            // slot 0xA8(false)
+		return;
+	}
+	// RW 0x86718A .. 0x8671D9: every rider is hidden and destroyed
+	const std::vector<Object *> riders(m_contained.begin(), m_contained.end());
+	for (Object *r : riders)
+	{
+		r->setDrawableHidden(true);
+		container->logic().destroyObject(r);
+		++m_openStats.ridersDestroyedOnDeath;
+	}
+}
+
+// RW 0x867242: the riders (contain slot 0x118) and then the crew (slot 0x11C, SiegeEngineContain's), each through RW 0x866B69, each list copied first
+void OpenContain::processDamageToContained()
+{
+	for (int pass = 0; pass < 2; ++pass)
+	{
+		const ContainedItemsList *list = pass == 0 ? &m_contained : crewList();
+		if (!list || list->empty())
+		{
+			continue;
+		}
+		const std::vector<Object *> riders(list->begin(), list->end());
+		for (Object *r : riders)
+		{
+			processDamageToRider(r);
+		}
+	}
+}
+
+// RW 0x866B69
+void OpenContain::processDamageToRider(Object *rider)
+{
+	static const int tree = CombatNames::kindOf("TREE");
+	static const int rock = CombatNames::kindOf("ROCK");
+	Object *container = getObject();
+	GameLogic &logic = container->logic();
+	if (rider->isKindOf((unsigned)tree) || rider->isKindOf((unsigned)rock))
+	{
+		// RW 0x866B88 (RW 0x46E72F(0, 0x5E, 0x61): KindOf TREE / ROCK) .. 0x866C08: a held tree or rock is hidden and destroyed
+		rider->setDrawableHidden(true);
+		logic.destroyObject(rider);
+		++m_openStats.ridersDestroyedOnDeath;
+		return;
+	}
+	if (!openData().m_killPassengersOnDeath)
+	{
+		// RW 0x866BB2 .. 0x866C02: UNRESISTABLE damage of MaxHealth x DamagePercentToUnits from the container, death type 3; 100 % kills what is left
+		BodyModuleInterface *body = rider->getBodyModule();
+		if (!body)
+		{
+			return;
+		}
+		DamageInfo info;
+		info.m_input.m_sourceID = container->getID();
+		info.m_input.m_damageType = DAMAGE_UNRESISTABLE;
+		info.m_input.m_deathType = 3;
+		info.m_input.m_amount = (float)SimMath::mulD((double)body->getMaxHealth(), (double)openData().m_damagePercentToUnits); // x87 product, stored as float
+		rider->attemptDamage(info);
+		if (!rider->isDestroyed() && openData().m_damagePercentToUnits == 1.0f)
+		{
+			rider->kill(DAMAGE_UNRESISTABLE, 0); // RW 0x866C4E: kill(8, 0)
+		}
+		return;
+	}
+	// RW 0x866C0C .. 0x866CD6: KillPassengersOnDeath: out of the contain, flung (a rider with a PhysicsBehavior: GameLogicRandomValue(2, 5) x its facing in x / y and up),
+	// killed, and the kill is the container's last damager's
+	removeFromContain(rider); // contain slot 0xA4(rider, false)
+	if (PhysicsBehavior *phys = PhysicsBehavior::find(*rider))
+	{
+		const float k = (float)logic.random().getValue(2, 5, kOpenContainCpp, 0x8DE);
+		const float *m = rider->getBasis();
+		phys->fling(Coord3D{ SimMath::mulf32(m[0], k), SimMath::mulf32(m[3], k), k });
+	}
+	rider->kill(DAMAGE_UNRESISTABLE, 0); // RW 0x866CF5: kill(8, 0)
+	if (const ActiveBody *ab = dynamic_cast<const ActiveBody *>(container->getBodyModule()))
+	{
+		if (Object *killer = logic.findObjectByID(ab->lastDamager()))
+		{
+			killer->scoreTheKill(*rider, 1); // RW 0x6955BC(rider, 1)
+		}
+	}
+	++m_openStats.ridersDestroyedOnDeath;
+}
+
+// RW 0x867D6A: every rider with an AI gets aiExit (RW 0x7716C1) with the container
+void OpenContain::orderAllPassengersToExit(int source)
+{
+	const std::vector<Object *> riders(m_contained.begin(), m_contained.end());
+	for (Object *r : riders)
+	{
+		if (AIUpdateInterface *ai = r->getAIUpdateInterface())
+		{
+			ai->aiExit(getObject(), (CommandSourceType)source);
+		}
+	}
+}
+
+// RW 0x86561F (contain vslot 0x64, the sale's call at RW 0x796806; the same body in every contain table of 2.01 but TunnelContain's RW 0x8812A8):
+//   mov eax, [ecx]              ; the contain's vtable
+//   push 2                      ; CMD_FROM_AI
+//   mov byte ptr [ecx + 0xC1], 0 ; module + 0xE1, the kill-on-death byte (set to 1 by the constructor, RW 0x86806C; read by RW 0x86588C)
+//   call dword ptr [eax + 0x80] ; vslot 0x80 orderAllPassengersToExit
+void OpenContain::onSelling()
+{
+	m_killingRiders = false;             // RW 0x865623
+	orderAllPassengersToExit((int)CMD_FROM_AI); // RW 0x86562A: the virtual, so a horde garrison orders its riders out through RW 0x991027
+}
+
+// RW 0x86588C: `xor eax, eax; cmp byte [ecx + 0xE1], al; je` (the byte cleared by the sale, RW 0x865623), then `mov ecx, [ecx + 4]` (the module data)
+// `cmp byte [ecx + 0x83], al` (KillPassengersOnDeath, data + 0x83): 1 only when both are set
+bool OpenContain::getKillPassengersOnDeath() const
+{
+	return m_killingRiders && openData().m_killPassengersOnDeath;
+}
+
+void OpenContain::onObjectWantsToEnterOrExit(Object *obj, int wants)
+{
+	if (!obj)
+	{
+		return;
+	}
+	if (wants == 2)
+	{
+		m_wanters.erase(obj->getID()); // ZH OpenContain::onObjectWantsToEnterOrExit: WANTS_NEITHER erases
+	}
+	else
+	{
+		m_wanters[obj->getID()] = wants;
+	}
+}
+
+// RW 0x86702D OpenContain::update: the entering player's mask clears, the condition watch (main slot 0x44), the door timer (+ 0x60: the DOOR_1_OPENING -> DOOR_1_CLOSING conditions), the wanters whose objects are gone leave (RW 0x866B17),
+// RW 0x8669B1's held-rider kill timer (+ 0xE4 / + 0xEC: written by the troll's grab, not ported: never armed); every frame
+UpdateSleepTime OpenContain::update()
+{
+	m_playerEnteredMask = 0;   // RW 0x867030: + 0x68
+	monitorConditionChanges(); // main slot 0x44
+	if (m_doorOpenFrames != 0 && --m_doorOpenFrames == 0)
+	{
+		static const int opening = CombatNames::modelCondition("DOOR_1_OPENING");
+		static const int closing = CombatNames::modelCondition("DOOR_1_CLOSING");
+		Object *container = getObject();
+		if (container->testModelCondition(opening) || !container->testModelCondition(closing))
+		{
+			container->setModelConditionState(opening, false);
+			container->setModelConditionState(closing, true);
+		}
+	}
+	if (!m_wanters.empty())
+	{
+		GameLogic &logic = getObject()->logic();
+		for (auto it = m_wanters.begin(); it != m_wanters.end();)
+		{
+			const Object *o = logic.findObjectByID(it->first);
+			it = (!o || o->isDestroyed()) ? m_wanters.erase(it) : std::next(it);
+		}
+	}
+	// lane MODCOMPAT-MOD1, RW 0x8669B1 (called last by RW 0x86702D): the grab's eat. With a victim set (+ 0xC4) and frames left (+ 0xCC > 0) the count goes
+	// down; at 0 a victim still alive is taken out (contain slot 0xA4(victim, 0)), its drawable is hidden (RW 0x6718FB(1), the client's), the eater (+ 0xC8),
+	// when alive, scores the kill (Object::scoreTheKill RW 0x6955BC(victim, 1)) and a victim no longer in the list is destroyed (RW 0x62BBAB). The ids stay set
+	// (RW never clears + 0xC4 / + 0xC8)
+	if (m_eatVictim != INVALID_ID && m_eatFrames > 0 && --m_eatFrames == 0)
+	{
+		GameLogic &logic = getObject()->logic();
+		if (Object *victim = logic.findObjectByID(m_eatVictim))
+		{
+			removeFromContain(victim);
+			if (Object *eater = logic.findObjectByID(m_eatKiller))
+			{
+				eater->scoreTheKill(*victim, 1);
+			}
+			if (std::find(m_contained.begin(), m_contained.end(), victim) == m_contained.end())
+			{
+				logic.destroyObject(victim);
+			}
+		}
+	}
+	return UPDATE_SLEEP_NONE;
+}
+
+// lane MODCOMPAT-MOD1: RW 0x865A5C
+bool OpenContain::manualPickUpAllows(const Object &obj) const
+{
+	return ObjectFilterMatch::allows(getObject()->logic(), m_open->m_manualPickUpFilter, obj, getObject()->getControllingPlayer());
+}
+
+// lane MODCOMPAT-MOD1: RW 0x865853
+void OpenContain::eatPassengerAfter(const Object &victim, int frames, const Object &eater)
+{
+	m_eatFrames = frames < 2 ? 1 : frames;
+	m_eatVictim = victim.getID();
+	m_eatKiller = eater.getID();
+}
+
+// lane PORT-9, RW 0x867C40 (module vslot 0x4C, the C++ name is INFERENCE): the STEALTH_GARRISON occupants that belong to another player than the object
+// that collided into this container are revealed and ordered out. RW copies m_contained first (RW 0x867C58 .. 0x867C65) because the walk removes from it.
+bool OpenContain::tryToEvacuate(Object *entering)
+{
+	const std::vector<Object *> copy(m_contained.begin(), m_contained.end()); // RW 0x867C58 the copy, RW 0x867C63 its head
+	const Player *pEntering = entering ? entering->getControllingPlayer() : nullptr; // RW 0x867C85 (RW 0x68B678)
+	static const int stealthGarrison = CombatNames::kindOf("STEALTH_GARRISON"); // RW 0x867C9A: template + 0x10C bit 0x02
+	for (Object *rider : copy)
+	{
+		if (rider && rider->getControllingPlayer() == pEntering) // RW 0x867C8E .. 0x867C99
+		{
+			continue;
+		}
+		if (!rider || !rider->isKindOf((unsigned)stealthGarrison)) // RW 0x867C9A .. 0x867CA5
+		{
+			continue;
+		}
+		if (AIUpdateInterface *ai = rider->getAIUpdateInterface()) // RW 0x867CAC
+		{
+			// RW 0x867CA6 .. 0x867CB2: StealthUpdate::of (RW 0x68FBD3) and markAsDetected(0, 1, null, horde) (RW 0x7767A9);
+			// RW 0x867CB7 .. 0x867CC7: then TheInvisibilityManager->markDetected(rider, null, 0, 1) (RW 0x81C32C)
+			if (StealthUpdate *su = StealthUpdate::of(*rider))
+			{
+				su->markAsDetected(0, 1, nullptr, true);
+			}
+			rider->logic().invisibility().markDetected(rider, nullptr, 0, 1);
+			ai->aiExit(getObject(), CMD_FROM_AI); // RW 0x867CCC .. 0x867CDB (RW 0x7716C1(obj, 2))
+			continue;
+		}
+		// RW 0x867CE2 .. 0x867CEA: no AI: removeFromContain(rider, true), whose own exposure (RW 0x865EF5 .. 0x865F22) reveals the STEALTH_GARRISON
+		// rider the same way before the removal
+		if (StealthUpdate *su = StealthUpdate::of(*rider))
+		{
+			su->markAsDetected(0, 1, nullptr, true); // RW 0x865F0E
+		}
+		rider->logic().invisibility().markDetected(rider, nullptr, 0, 1); // RW 0x865F1B .. 0x865F22
+		removeFromContain(rider); // RW 0x867CEA (contain vslot 0xA4)
+	}
+	return true; // RW 0x867D0F
+}
+
+// lane PORT-9, RW 0x8659D8 (CollideModuleInterface slot 0x00, vtable RW 0xC5D650): the gates in RW's order. A container that is a SHIP never picks up; the
+// touching object's AI must be entering THIS container (AI vslot 0x1FC, RW 0x664D12); the enemy stealth occupants are evacuated first; the container must
+// accept the object; an object already inside is left alone; and CollidePickup No (data + 0x81, default 1 at RW 0x867ECF) refuses the pickup itself
+void OpenContain::onCollide(Object *other, const Coord3D *, const Coord3D *)
+{
+	if (!other) // RW 0x8659DD .. 0x8659E2
+	{
+		return;
+	}
+	Object *container = getObject(); // RW 0x8659E5 (module + 0x08)
+	static const int ship = CombatNames::kindOf("SHIP"); // RW 0x8659EB: template + 0x11F bit 0x80
+	if (container->isKindOf((unsigned)ship))
+	{
+		return;
+	}
+	const AIUpdateInterface *otherAI = other->getAIUpdateInterface(); // RW 0x8659F4 (Object + 0x260)
+	if (!otherAI || otherAI->enterTarget() != container) // RW 0x8659FA .. 0x865A08
+	{
+		return;
+	}
+	if (!tryToEvacuate(other)) // RW 0x865A0A .. 0x865A16 (module vslot 0x4C)
+	{
+		return;
+	}
+	if (!isValidContainerFor(*other, true, false)) // RW 0x865A18 .. 0x865A2B (contain vslot 0x98)
+	{
+		return;
+	}
+	if (other->getContainedBy() == container) // RW 0x865A2D .. 0x865A33 (Object + 0x27C)
+	{
+		return;
+	}
+	if (!m_open->m_collidePickup) // RW 0x865A38 .. 0x865A3F (module data + 0x81)
+	{
+		return;
+	}
+	addToContain(other); // RW 0x865A41 .. 0x865A48 (contain vslot 0x9C)
+}
+
+// RW 0x8682D9 OpenContain::exitObjectViaDoor
+void OpenContain::exitObjectViaDoor(Object *obj, int door)
+{
+	(void)door;
+	if (!obj)
+	{
+		return;
+	}
+	Object *container = getObject();
+	removeFromContain(obj); // RW 0x8682EF: contain slot 0xA4(obj, false)
+	// RW 0x8682F8 .. 0x868323: DoorOpenTime (data + 0x78) arms the door timer and shows DOOR_1_OPENING (not DOOR_1_CLOSING)
+	m_doorOpenFrames = openData().m_doorOpenTime;
+	if (m_doorOpenFrames != 0)
+	{
+		static const int opening = CombatNames::modelCondition("DOOR_1_OPENING");
+		static const int closing = CombatNames::modelCondition("DOOR_1_CLOSING");
+		if (container->testModelCondition(closing) || !container->testModelCondition(opening))
+		{
+			container->setModelConditionState(closing, false);
+			container->setModelConditionState(opening, true);
+		}
+	}
+	++m_openStats.exitedViaDoor;
+	const int paths = openData().m_numberOfExitPaths; // data + 0x74
+	if (paths < 1)
+	{
+		static const int ship = CombatNames::kindOf("SHIP");
+		if (container->isKindOf((unsigned)ship))
+		{
+			exitShipToShore(*container, *obj); // RW 0x868516 .. 0x868733 (lane SHIP-1)
+		}
+		return; // RW 0x868738: RW 0x6E85E9 (the pathfinder's unit map) follows the object's position in the port
+	}
+	// RW 0x868538 .. 0x8685E3: the bones ExitStart / ExitEnd, numbered (two digits) when there are several paths, the paths taken in turn
+	std::string startBone = "ExitStart", endBone = "ExitEnd";
+	if (paths > 1)
+	{
+		char n[8];
+		std::snprintf(n, sizeof n, "%02d", m_nextExitPath);
+		startBone += n;
+		endBone += n;
+		m_nextExitPath = m_nextExitPath % paths + 1;
+	}
+	Coord3D start = *container->getPosition(), end = *container->getPosition();
+	boneWorldPosition(*container, startBone, start);
+	boneWorldPosition(*container, endBone, end);
+	obj->setPosition(&start);                           // RW 0x868600: RW 0x70C201
+	obj->setOrientation(container->getOrientation());   // RW 0x86860B: RW 0x70C31E
+	AIUpdateInterface *ai = obj->getAIUpdateInterface();
+	if (ai)
+	{
+		// RW 0x868637 .. 0x8686D5: the container is no obstacle for it (RW 0x66831A), the move goes to the end bone, then to the rally point when one is set (exit
+		// interface + 0xAC, not written by the ported contains), as an exit production path (RW 0x77113C, CMD_FROM_AI); the destination adjustment RW 0x6F3C87 is
+		// S-1100's
+		std::vector<Coord3D> path;
+		path.push_back(end);
+		path.push_back(end);
+		ai->aiFollowPath(path, container, CMD_FROM_AI, true);
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+void OpenContain::crc(StateHasher &h) const
+{
+	UpdateModule::crc(h);
+	h.addU32((std::uint32_t)m_contained.size());
+	for (const Object *o : m_contained)
+	{
+		h.addU32(o->getID());
+	}
+	h.addU32(m_stealthUnitsContained);
+	h.addU32(m_playerEnteredMask);
+	h.addU32((std::uint32_t)m_wanters.size());
+	for (const auto &kv : m_wanters)
+	{
+		h.addU32(kv.first);
+		h.addI32(kv.second);
+	}
+	h.addBool(m_enabled);
+	h.addBool(m_dying);
+	h.addBool(m_killingRiders);
+	h.addI32(m_nextExitPath);
+	h.addFloat(m_rallyPoint.x); // lane BACKLOG-1
+	h.addFloat(m_rallyPoint.y);
+	h.addFloat(m_rallyPoint.z);
+	h.addBool(m_rallyPointExists);
+	h.addU32(m_doorOpenFrames);
+	h.addU32(m_eatVictim); // lane MODCOMPAT-MOD1
+	h.addU32(m_eatKiller);
+	h.addI32(m_eatFrames);
+	h.addBool(m_deleting);
+	h.addU32((std::uint32_t)m_riderBoneIndex.size());
+	for (const auto &kv : m_riderBoneIndex)
+	{
+		h.addU32(kv.first);
+		h.addI32(kv.second);
+	}
+	h.addU32((std::uint32_t)m_riderBoneName.size());
+	for (const auto &kv : m_riderBoneName)
+	{
+		h.addU32(kv.first);
+		h.addString(kv.second);
+	}
+	for (std::uint32_t w : m_watchedConditions)
+	{
+		h.addU32(w);
+	}
+}
+
+bool OpenContain::getEntryPosition(Coord3D &out) const
+{
+	// RW 0x8657D1
+	const Object *obj = getObject();
+	static const int kShip = CombatNames::kindOf("SHIP");
+	if (obj->isKindOf((unsigned)kShip))
+	{
+		// lane SHIP-1, RW 0x8657E2 .. 0x865834: a SHIP's entry is its shore spot (RW 0x6EFBB8 of its position, into a static buffer); none: its position
+		Coord3D spot = *obj->getPosition();
+		if (shipShoreSpot(*obj, *obj->getPosition(), spot))
+		{
+			out = spot;
+			return true;
+		}
+	}
+	out = *obj->getPosition();
+	return true;
+}
+
+bool OpenContain::shipShoreSpot(const Object &ship, const Coord3D &pos, Coord3D &out)
+{
+	// RW 0x6EFBB8 on TheAI's pathfinder (TheAI + 0x10) with the ship's geometry and angle (lane SHIP-1)
+	AIWorld *world = ship.logic().aiWorld();
+	AIUpdateInterface *ai = const_cast<Object &>(ship).getAIUpdateInterface();
+	if (!world || !ai)
+	{
+		throw std::logic_error("OpenContain: a SHIP's shore spot without a pathfinder or without the ship's AI (its pathfind geometry)");
+	}
+	return world->pathfinder().getClosestPointOnLand(pos, ai->pathfindObject(), out);
+}
+
+const char *OpenContain::shipStop()
+{
+	return "S-4160: ship boarding and landing are ported only in the contain (lane SHIP-1: the shore spot RW 0x6EFBB8 as a SHIP's entry position, its riders' exit "
+	       "test and their exit to the shore): not ported are the boarding AI (AIPrepareForBoarding RW 0x74403F / 0x756651, the SHIP branch of "
+	       "AIMoveToPositionAndEnterState RW 0x751A8A / 0x756452: the destination adjustment, the ship's states 0x46 / 0x47 and its shore test, "
+	       "privateMoveToPositionAmphibious RW 0x66B564) and the angled exit path RW 0x77122F that the exit states' byte RW 0xDE9064 selects; "
+	       "OpenBFME boundary policy: a ship/rider exit with only zero-initialized destinations retains ordinary path checks instead of a straight leg, and a rider "
+	       "whose machine goal is zero-initialized (no boarding AI set it) ends its exit path at the shore point instead of following that goal";
+}
+
+// lane SHIP-1, RW 0x868516 .. 0x868733 (OpenContain::exitObjectViaDoor with NumberOfExitPaths 0 and a SHIP container). TARGET FACTS (RotWK game.dat, S-001):
+//   the shore spot of the ship's position (RW 0x6EFBB8); none: nothing more. The rider's AI (+ 0x260) is needed. dir = spot - the ship's position (x87 x / y,
+//   SSE z); angle = RW 0x441BD2(dir.y, dir.x) (atan2). away = the ship AI's last path request destination (AI + 0x148) - the ship's position (SSE); when 50
+//   (RW 0xDAE9BC) is more than its length (RW 0x403111): Q = spot + 50 x dir normalized (RW 0x403175; SSE), else Q = that destination. The rider goes to the spot
+//   (RW 0x70C201) facing angle (RW 0x70C31E). Unless it is a member inside a horde (RW 0x6939DF): the exit path [Q, Q, the rider machine's goal position (AI + 0x30
+//   -> + 0x24)] is followed as an exit production path (RW 0x77113C(path, ship, 2); RW 0x77122F with the angle while the exit state's byte RW 0xDE9064 is set:
+//   not ported, the port's exit states carry no such byte, S-4160) and Q becomes that goal position; then RW 0x68B3AB reserves Q as the rider's goal cell.
+void OpenContain::exitShipToShore(const Object &ship, Object &rider)
+{
+	const Coord3D shipPos = *ship.getPosition();
+	if (AIWorld *world = ship.logic().aiWorld())
+	{
+		world->noteStop(shipStop());
+	}
+	Coord3D spot = shipPos;
+	if (!shipShoreSpot(ship, shipPos, spot))
+	{
+		++m_openStats.shipExitsWithoutShore;
+		return;
+	}
+	AIUpdateInterface *ai = rider.getAIUpdateInterface();
+	if (!ai)
+	{
+		return;
+	}
+	const Coord3D goal = ai->stateMachine().goalPosition();
+	Coord3D dir{ NumericState::pc24Sub(spot.x, shipPos.x), NumericState::pc24Sub(spot.y, shipPos.y), SimMath::subf32(spot.z, shipPos.z) };
+	const float angle = (float)SimMath::atan2d(dir.y, dir.x);
+	const AIUpdateInterface *shipAI = ship.getAIUpdateInterface();
+	Coord3D q = shipAI->mover().requestedDestination();
+	const double away = SimMath::length3d(SimMath::subf32(q.x, shipPos.x), SimMath::subf32(q.y, shipPos.y), SimMath::subf32(q.z, shipPos.z));
+	if ((double)50.0f > away)
+	{
+		const float len = (float)SimMath::length3d(dir.x, dir.y, dir.z); // RW 0x403175 Coord3D::normalize: the length stored as a float, 1 / it, three SSE products
+		if (len != 0.0f)
+		{
+			const float inv = SimMath::divf32(1.0f, len);
+			dir.x = SimMath::mulf32(dir.x, inv);
+			dir.y = SimMath::mulf32(dir.y, inv);
+			dir.z = SimMath::mulf32(dir.z, inv);
+		}
+		q = Coord3D{ SimMath::addf32(spot.x, SimMath::mulf32(50.0f, dir.x)), SimMath::addf32(spot.y, SimMath::mulf32(50.0f, dir.y)),
+		             SimMath::addf32(spot.z, SimMath::mulf32(dir.z, 50.0f)) };
+	}
+	rider.setPosition(&spot);
+	rider.setOrientation(angle);
+	if (!ai->isContained())
+	{
+		// merge queue q37: a rider whose machine goal is still zero-initialized (the boarding AI that would set it, AIMoveToPositionAndEnterState's SHIP
+		// branch, is unported: S-4160) does not follow that goal: the exit path ends at Q. With the rebuilt paths (RW 0x767B0E) the [Q, Q] legs end and
+		// FindClosestPath (RW 0x6FB869) finds a leg towards the map's (0, 0), so the landed riders walked off the shore towards the map's corner
+		const bool noGoal = goal.x == 0.0f && goal.y == 0.0f && goal.z == 0.0f;
+		std::vector<Coord3D> path{ q, q };
+		if (!noGoal)
+		{
+			path.push_back(goal);
+		}
+		ai->aiFollowPath(path, const_cast<Object *>(&ship), CMD_FROM_AI, true);
+		// OpenBFME integration guard requested in #133: an untouched ship and
+		// rider have zero-initialized destinations, not an authored exit lane.
+		// Keep the ordinary search for that absent lane; do not reinterpret a
+		// real production exit or a nonzero ship/rider destination.
+		const Coord3D requested = shipAI->mover().requestedDestination();
+		if (requested.x == 0.0f && requested.y == 0.0f && requested.z == 0.0f &&
+		    goal.x == 0.0f && goal.y == 0.0f && goal.z == 0.0f &&
+		    q.x == 0.0f && q.y == 0.0f && q.z == 0.0f)
+		{
+			ai->setCanPathThroughUnits(false);
+		}
+		q = noGoal ? q : goal;
+	}
+	ai->world().pathfinder().updateGoal(ai->pathfindObject(), &q, LAYER_GROUND); // RW 0x68B3AB
+	++m_openStats.shipExitsToShore;
+}
+
+bool OpenContain::isShipOnWater(const Object &container)
+{
+	// the SHIP test of RW 0x8657D1 / 0x86A2D0 and RW 0x6EFBB8's: TheTerrainLogic slot 0x4C (isUnderwater) at the container's position
+	static const int kShip = CombatNames::kindOf("SHIP");
+	if (!container.isKindOf((unsigned)kShip))
+	{
+		return false;
+	}
+	AIWorld *ai = container.logic().aiWorld();
+	const PathfindTerrain *terrain = ai ? ai->pathfinder().terrainView() : nullptr;
+	if (!terrain)
+	{
+		throw std::logic_error("OpenContain: a SHIP's water test without a map terrain");
+	}
+	const Coord3D *p = container.getPosition();
+	return terrain->isUnderwater(p->x, p->y, nullptr, nullptr);
+}
+
+bool OpenContain::validMovementTerrain(AIUpdateInterface &ai, const Coord3D &at)
+{
+	// RW 0x6E8707: the cell of floor(x * 0.1), floor(y * 0.1) (RW 0xBD83D4, x87 at 24 bits) on the layer given (the callers pass 1, the ground)
+	Pathfinder &pf = ai.world().pathfinder();
+	const PathfindCell *cell = pf.getCell(LAYER_GROUND, SimMath::floorToInt(NumericState::pc24Mul(at.x, 0.1f)), SimMath::floorToInt(NumericState::pc24Mul(at.y, 0.1f)));
+	if (!cell)
+	{
+		return false;
+	}
+	const PathfindCell::CellType type = cell->getType();
+	if (type == PathfindCell::CELL_OBSTACLE || type == PathfindCell::CELL_BRIDGE_IMPASSABLE)
+	{
+		return true; // RW 0x6E8758: types 4 and 5 (ZH: an obstacle or impassable cell under a transport lets the rider out)
+	}
+	// RW 0x6E8762: a clear cell whose bits 4..9 are not 0x10 lets every rider out; the port's cell keeps no such field (its occupants are lists): a clear cell takes
+	// the surface test, which every ground or air locomotor passes on a clear cell (table entry 0x09)
+	return (Pathfinder::validLocomotorSurfacesForCellType(type) & ai.curLocomotor()->getTemplate().m_surfaces) != 0u;
+}
+
+bool OpenContain::getEntryOffset(Coord3D &out) const
+{
+	// RW 0x8657B6: a SHIP asks slot 0x158, any other container answers its position
+	return getEntryPosition(out);
+}
+
+bool OpenContain::getExitOffset(Coord3D &out) const
+{
+	out = *getObject()->getPosition(); // RW 0x867ACD
+	return true;
+}
+
+// ---- lane SAVE-4b: the snapshot (OpenBFME native, S-4190; retail's OpenContain::xfer RW 0x868FEF (1, 1) holds RotWK's fuller contain) ------------------
+// The riders in insertion order as ids (the Objects block has made them), then the crc's fields with the maps in key order, then the statistics.
+void OpenContain::xfer(Xfer &x)
+{
+	XferVersion v{ 1, 2 }; // 2: lane MODCOMPAT-MOD1's eat (RW interface + 0xC4 / 0xC8 / 0xCC); a version 1 snapshot loads as not eating
+	x.xferVersion(v);
+	xferUpdateModule(x);
+	GameLogic &logic = getObject()->logic();
+	SnapshotXfer::objectPointers(x, logic, m_contained, "a contain's rider", getObject()->getID());
+	x.xferUnsignedInt(&m_stealthUnitsContained);
+	SnapshotXfer::maskWithin(x, m_playerEnteredMask, SnapshotXfer::lowBits(logic.players().getPlayerCount()), "a contain's players entered", "this game's players"); // lane SAVE-4e
+	auto intMap = [&](std::map<ObjectID, int> &m, const char *what) {
+		SnapshotXfer::map(x, m, 8, what, [&](ObjectID &id) { x.xferObjectID(&id); }, [&](int &v) { x.xferInt(&v); });
+	};
+	intMap(m_wanters, "a contain's enter / exit wishes");
+	for (const auto &kv : m_wanters)
+	{
+		SnapshotXfer::checkRange(kv.second, 0, 2, "a contain's enter / exit wish"); // 0 enter, 1 exit, 2 neither (slot 0x44)
+	}
+	x.xferBool(&m_enabled);
+	x.xferBool(&m_dying);
+	x.xferBool(&m_killingRiders);
+	x.xferInt(&m_nextExitPath);
+	SnapshotXfer::checkRange(m_nextExitPath, 1, 0x7FFFFFFF, "a contain's next exit path");
+	x.xferUnsignedInt(&m_doorOpenFrames);
+	if (v.current >= 2) // lane MODCOMPAT-MOD1
+	{
+		x.xferObjectID(&m_eatVictim);
+		x.xferObjectID(&m_eatKiller);
+		x.xferInt(&m_eatFrames);
+		SnapshotXfer::checkRange(m_eatFrames, 0, 0x7FFFFFFF, "a contain's eat frames");
+	}
+	else
+	{
+		m_eatVictim = INVALID_ID;
+		m_eatKiller = INVALID_ID;
+		m_eatFrames = 0;
+	}
+	x.xferBool(&m_deleting);
+	intMap(m_riderBoneIndex, "a contain's rider bones");
+	SnapshotXfer::map(x, m_riderBoneName, 5, "a contain's rider bone names", [&](ObjectID &id) { x.xferObjectID(&id); },
+		[&](std::string &name) { x.xferAsciiString(&name); });
+	SnapshotXfer::maskWords(x, m_watchedConditions, SnapshotXfer::modelConditionCount(), "a contain's watched conditions", "the model conditions"); // lane SAVE-4e
+	SnapshotXfer::u64(x, m_turretBonesUnported);
+	SnapshotXfer::u64(x, m_openStats.entered);
+	SnapshotXfer::u64(x, m_openStats.left);
+	SnapshotXfer::u64(x, m_openStats.ridersDestroyedOnDeath);
+	SnapshotXfer::u64(x, m_openStats.ejectedOnDeath);
+	SnapshotXfer::u64(x, m_openStats.exitedViaDoor);
+	SnapshotXfer::u64(x, m_openStats.shipExitsToShore);      // lane SAVE-4e (merge): SHIP-1's counters, which replaced the unported ship exit count
+	SnapshotXfer::u64(x, m_openStats.shipExitsWithoutShore);
+}

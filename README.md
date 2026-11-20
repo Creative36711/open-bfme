@@ -1,20 +1,52 @@
-# open-bfme
+# WOTR Remaster
 
-Локальный набор retail-файлов BFME2 1.06 и RotWK 2.01 для тестирования
-OpenBFME. Игровые данные не должны попадать в обычные Git-коммиты.
+A Godot-native War of the Ring remaster built as a maintained downstream of
+[OpenBFME](https://github.com/Open-BFME/openbfme-godot). The strategic state and
+deterministic rules live in C++; Godot owns presentation, input, camera, and
+editor tooling. The project does not use Win32 menu automation, coordinate
+clicks, or OCR.
 
-## Передача настоящих BIG-файлов в Arena
+The current engine baseline is OpenBFME `v0.4.12-nightly.261118100`
+(`4a8d82727c2664c381b7b1c07344881760c4765b`). See the architecture records in
+`docs/architecture/` and the update procedure in `docs/UPSTREAM_SYNC.md`.
 
-OpenBFME проверяет каждый retail-архив по размеру и MD5 и не монтирует
-распакованную папку вместо архивов. Поэтому `.big` нельзя просто распаковать:
-для запуска нужны исходные архивы байт-в-байт.
+## Agent workflow
 
-`tools/retail_big_transfer.py` делит все BIG-файлы BFME2 и RotWK на тома по
-95 MiB. Это меньше лимита Google Drive-коннектора Arena (100 MiB). При
-восстановлении проверяются SHA-256 каждого тома, а также MD5 и SHA-256 каждого
-BIG-файла.
+This is one repository for product code, OpenBFME integration, process documents,
+and the ScriptCat transport. Start with `AGENTS.md`, `docs/REGULATION.md`,
+`docs/PHASES.md`, and the active specification in `docs/missions/`. ScriptCat
+1.16.2 and its WOTR profile live in `tools/script-cat/`; its complete local gate
+is `npm run verify:scriptcat`.
 
-На компьютере с настоящими установками или после `git lfs pull`:
+## Arena bootstrap
+
+The repository carries a checksum-pinned Godot 4.7.2 build and SwiftShader so
+an Arena sandbox can render without a GPU or access to GitHub release assets.
+
+```bash
+tools/arena/bootstrap.sh --runtime
+tools/arena/build_engine.sh
+```
+
+Art tooling (Blender as `bpy`, Pillow, and chromakey):
+
+```bash
+tools/arena/bootstrap.sh --art
+```
+
+## Retail assets
+
+BFME2 and RotWK installations are proprietary runtime inputs and must never be
+committed. OpenBFME requires the original BIG files byte-for-byte and validates
+their sizes and MD5 hashes. Local data belongs in the ignored `.retail/`
+directory:
+
+```text
+.retail/BFME2
+.retail/RotWK
+```
+
+### Pack on the machine with BFME2 1.06 and RotWK 2.01
 
 ```bash
 python tools/retail_big_transfer.py pack \
@@ -23,7 +55,11 @@ python tools/retail_big_transfer.py pack \
   --out "/path/to/openbfme-retail-transfer"
 ```
 
-На Windows PowerShell команда выглядит так:
+This creates `manifest.json`, `SHA256SUMS.txt`, and 95-MiB
+`retail-bigs.part-*.bin` volumes suitable for Arena's 100-MiB connector limit.
+The current retail set contains 213 archives in 57 volumes (5.249 GiB).
+
+On Windows PowerShell the same pack step is:
 
 ```powershell
 python tools/retail_big_transfer.py pack `
@@ -32,31 +68,40 @@ python tools/retail_big_transfer.py pack `
   --out "D:\openbfme-retail-transfer"
 ```
 
-В Google Drive нужно загрузить из получившейся папки:
+Upload `manifest.json` and a single first volume as a canary before starting the
+bulk transfer. Validate that volume and the ingest path in Arena; only then
+upload the remaining volumes. `SHA256SUMS.txt` is optional but recommended.
 
-- `manifest.json`;
-- все `retail-bigs.part-*.bin`;
-- `SHA256SUMS.txt` необязателен.
+### Reset-safe, low-disk restoration in Arena
 
-Для текущего набора объёмом около 5,25 GiB получится примерно **57 томов**.
-После загрузки достаточно сообщить агенту имя папки Google Drive: он скачает
-тома, восстановит архивы в игнорируемую рабочую папку `.retail/` и проверит их
-по политикам актуальной версии OpenBFME.
-
-Ручное восстановление:
+Place `manifest.json` and one or more consecutive volumes in the same staging
+folder, then run:
 
 ```bash
-python tools/retail_big_transfer.py unpack \
-  --manifest /path/to/transfer/manifest.json \
+python tools/retail_big_transfer.py ingest \
+  --manifest google_drive/manifest.json \
   --out .retail \
   --delete-parts
 ```
 
-Результат:
+`ingest` authenticates a volume before writing it, atomically checkpoints after
+each volume, and then deletes that local volume. A retry resumes at the next
+volume; only a small streaming buffer and one 95-MiB input volume are needed.
+Archive MD5/SHA-256 and volume SHA-256 are checked before completion.
 
-```text
-.retail/BFME2
-.retail/RotWK
+If all volumes are already local, the original all-at-once command remains
+available:
+
+```bash
+python tools/retail_big_transfer.py unpack \
+  --manifest /path/to/manifest.json \
+  --out .retail \
+  --delete-parts
 ```
 
-Их можно передать движку через `BFME2_INSTALL` и `ROTWK_INSTALL`.
+At runtime:
+
+```bash
+export BFME2_INSTALL="$PWD/.retail/BFME2"
+export ROTWK_INSTALL="$PWD/.retail/RotWK"
+```

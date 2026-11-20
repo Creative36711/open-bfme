@@ -1,0 +1,376 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+//
+// InGameUI (ZH Include/GameClient/InGameUI.h, Source/GameClient/InGameUI.cpp; B1 InGameUI*.cpp), lane HUD-1: the in-game interface state the input translators and the
+// control bar share. It is CLIENT state. The one thing it mirrors from the simulation is the local player's selection (ZH keeps "drawable selected"
+// flags and a list with push_front; here the ids of the selected objects, the NEWEST first: the first one drives the control bar); the simulation's selection is Player::selection(),
+// changed only by the selection messages the translators append (MSG_CREATE_SELECTED_GROUP ...), never from here.
+//
+// What is not ported (stop S-283): the radius cursor decals, the military subtitles, superweapon timers, the popup messages, the
+// beacon / replay controls, the "can selected objects do X" queries beyond what the translators call and
+// the alternate mouse bookkeeping (RotWK's default setup is the alternate one, RW 0x642A4B: CommandTranslator::setUseAlternateMouse, lane PLAY-1).
+
+#pragma once
+
+#include "Common/INIDataTypes.h"
+#include "GameClient/GUI/GameWindow.h"
+#include "GameLogic/ObjectTypes.h"
+
+#include <functional>
+#include <set>
+#include <string>
+#include <vector>
+
+class CommandButton;
+class GameLogic;
+class FormationAssistant;
+class MessageStream;
+struct HudContext;
+
+// ZH Mouse::MouseCursor, as the NAMES of the `MouseCursor <Name>` blocks of Data\INI\Mouse.ini (the table the engine picks from). Lane BUILD-5: RotWK's name table
+// RW 0xD9E108 numbers them None 0, Normal 1, Arrow 2, Scroll 3, Target 4 (ZH's CROSS slot), Move 5, AttackMove 6, AttackObj 7, ..., Build 10, InvalidBuild 11,
+// GenericInvalid 12, ...; the code passes the numbers (InGameUI::setMouseCursor RW 0x69B06D -> TheMouse vslot 0x4C), the port the names.
+namespace MouseCursorName
+{
+inline constexpr const char *None = "None";
+inline constexpr const char *Arrow = "Arrow";
+inline constexpr const char *Target = "Target";             // 4: the building placement's mode cursor (placeBuildAvailable RW 0x69C69B)
+inline constexpr const char *Build = "Build";               // 10: a move hint while placing (createCommandHint RW 0x6A3E2A); retail Mouse.ini has no such block
+inline constexpr const char *InvalidBuild = "InvalidBuild"; // 11: an attack hint while placing (RW 0x6A3E25); no retail Mouse.ini block either
+inline constexpr const char *Select = "Select";
+inline constexpr const char *Move = "Move";
+inline constexpr const char *AttackMove = "AttackMove";
+inline constexpr const char *AttackObj = "AttackObj";
+inline constexpr const char *ForceAttackObj = "ForceAttackObj";
+inline constexpr const char *ForceAttackGround = "ForceAttackGround";
+inline constexpr const char *GenericInvalid = "GenericInvalid";
+inline constexpr const char *EnterFriendly = "EnterFriendly";
+inline constexpr const char *DeliverRing = "DeliverRing";
+inline constexpr const char *EnterAggressive = "EnterAggressive";
+inline constexpr const char *SetRallyPoint = "SetRallyPoint";
+inline constexpr const char *ResumeConstruction = "ResumeConstruction"; // lane QA-1 (Mouse.ini MouseCursor ResumeConstruction)
+inline constexpr const char *DoRepair = "DoRepair";                     // lane QA-1 (Mouse.ini MouseCursor DoRepair)
+inline constexpr const char *Scroll = "Scroll";
+} // namespace MouseCursorName
+
+class InGameUI
+{
+public:
+	struct FormationSlot { ObjectID object; Coord3D position; float angle; float radius; std::string preview; };
+	bool formationActive = false;
+	int formationType = -1;
+	unsigned formationExpires = 0;
+	Coord3D formationAnchor{};
+	float formationAngle = 0, formationDragLength = 0;
+	const FormationAssistant *formationData = nullptr;
+	std::vector<FormationSlot> formationSlots;
+	InGameUI() = default;
+	InGameUI(const InGameUI &) = delete;
+	InGameUI &operator=(const InGameUI &) = delete;
+
+	// the stream the selection changes append their messages to (ZH TheMessageStream)
+	void setMessageStream(MessageStream *stream) { m_stream = stream; }
+
+	// ---- the selection (ZH selectDrawable / deselectDrawable / deselectAllDrawables) ----
+	const std::vector<ObjectID> &selected() const { return m_selected; }
+	int getSelectCount() const { return (int)m_selected.size(); }
+	ObjectID firstSelected() const { return m_selected.empty() ? (ObjectID)INVALID_ID : m_selected.front(); }
+	bool isSelected(ObjectID id) const;
+	void selectObject(ObjectID id);
+	void deselectObject(ObjectID id);
+	// ZH deselectAllDrawables(postMessage): the message is MSG_DESTROY_SELECTED_GROUP
+	void deselectAll(bool postMessage = true);
+	void mirrorSelection(const std::vector<ObjectID> &ids); ///< presentation only, no command emitted
+	// the logic dropped the object (it died): the mirror forgets it without a message
+	void forgetObject(ObjectID id) { deselectObject(id); }
+	// ZH / RotWK InGameUI::getFrameSelectionChanged (vtable + 0x120, the field + 0x570): the logic frame of the last select / deselect of a drawable
+	// (InGameUI::selectDrawable, BFME2 decomp InGameUISelectDrawable.cpp; deselectDrawable); setLogic gives it the logic whose frame it records
+	unsigned getFrameSelectionChanged() const { return m_frameSelectionChanged; }
+	void setLogic(const GameLogic *logic) { m_logic = logic; }
+	int getMaxSelectCount() const { return m_maxSelect; }
+	void setMaxSelectCount(int n) { m_maxSelect = n; }
+	int selectMatching(HudContext &ctx, bool acrossMap);
+
+	// ---- the GUI command (ZH setGUICommand / getGUICommand: the command button waiting for a target) ----
+	const CommandButton *getGUICommand() const { return m_guiCommand; }
+	void setGUICommand(const CommandButton *command);
+
+	// ---- modes ----
+	bool isInForceAttackMode() const { return m_forceAttack; }
+	void setForceAttackMode(bool on) { m_forceAttack = on; }
+	bool isInForceMoveToMode() const { return m_forceMove; }
+	void setForceMoveToMode(bool on) { m_forceMove = on; }
+	bool isInWaypointMode() const { return m_waypoint; }
+	void setWaypointMode(bool on) { m_waypoint = on; }
+	bool isInAttackMoveToMode() const { return m_attackMoveTo; }
+	void setAttackMoveToMode(bool on) { m_attackMoveTo = on; }
+	void clearAttackMoveToMode() { m_attackMoveTo = false; }
+	// the "prefer selection" key (shift): selections add to the group
+	bool isInPreferSelectionMode() const { return m_preferSelection; }
+	void setPreferSelectionMode(bool on) { m_preferSelection = on; }
+	bool getInputEnabled() const { return m_inputEnabled; }
+	// lane OWNERFIX-1: InGameUI::setInputEnabled(bool, bool *gate) (RW 0x69B5ED, BFME2 decomp InGameUIInputModes.cpp slot 82, tier A): on an enabled-to-disabled
+	// edge: setSelecting(false), setRadiusCursorNone (the HUD draws no radius cursor while the input is off: InGameHud::updateRadiusCursor), the mode flags
+	// +0x8B0 / +0x8B8 .. +0x8C2 off (the port has the force-attack, force-move and waypoint ones, and +0x8BA, the prefer-selection mode; the other eight are not mapped, S-4964; a pending GUI command stays) and MSG_CHANGE_ORDERMODE
+	// (0x469) with 0 and 1 appended to the stream (immediate orders again if the mode was queued: the same message the Alt key's release sends)
+	void setInputEnabled(bool on);
+	// lane OWNERFIX-1 r2: setRadiusCursorNone (InGameUI vslot 0x144, called by the edge between setSelecting(false) and the mode flags, RW 0x69B5ED): the owner of the
+	// radius cursor (InGameHud) registers what clears it, so it is gone in the edge's own call, not at the next frame
+	void setRadiusCursorNoneHook(std::function<void()> hook) { m_radiusCursorNone = std::move(hook); }
+	// the steps of the last disable edge / DISABLE_INPUT in the order they ran (HudInput keeps the vector); the tests pin retail's order with it
+	void setStepLog(std::vector<std::string> *log) { m_stepLog = log; }
+	// lane OWNERFIX-1: a map script's DISABLE_INPUT (enable false) / ENABLE_INPUT (true). ScriptActions DISABLE_INPUT (RW 0x7BC586, BFME2 decomp
+	// ScriptActions.cpp, tier A), in retail's order: setInputEnabled(false) (RW 0x69B5DA: the edge above), Mouse::setVisibility(false) (RW 0x5EDD0F),
+	// MSG_DESTROY_SELECTED_GROUP (true) appended to the stream (0x3EC, TheMessageStream vslot 0x48), vslot 0x110 deselectAllDrawables (RW 0x69C817, posts
+	// nothing itself), the waypoint mode off (+ 0x8B0 = 0), then the control bar's help provider reset (RW 0x8076CD: InGameHud::scriptInput) and the LookAt
+	// translator's flags (RW 0x83AB5D: InGameHud::scriptInput). ENABLE_INPUT (RW 0x7BC5E9): setInputEnabled(true), setVisibility(true)
+	void applyScriptInput(bool enable);
+	static std::string scriptInputStopLine(); ///< `[S-4964] ...` (InGameHud::stops)
+	bool scriptMouseHidden() const { return m_scriptMouseHidden; }
+	bool isScrolling() const { return m_scrolling; }
+	// lane BUILD-5: RotWK InGameUI::setScrolling (vslot 0xA4, RW 0x69B28F; BFME2 decomp InGameUIInputModes.cpp:330, tier A): a change only; on: TheMouse's capture
+	// (vslot 0x50) and the Scroll cursor (3), off: the Arrow cursor (2) and the release (vslot 0x54)
+	void setScrolling(bool on);
+	// lane BUILD-5: the offset the LookAt translator scrolled the view by this client frame (InGameUI::setScrollAmount, vslot 0xB4; BfmeOwnVVDScrollUpdate.cpp:249 ..
+	// 365, RW 0x83B471 tier A): zero while not scrolling. The directional Scroll cursor faces it (W3DMouse::setCursorDirection RW 0x498B1A)
+	void setScrollAmount(float x, float y) { m_scrollAmountX = x; m_scrollAmountY = y; }
+	float scrollAmountX() const { return m_scrollAmountX; }
+	float scrollAmountY() const { return m_scrollAmountY; }
+	bool isSelecting() const { return m_selecting; }
+	void setSelecting(bool on) { m_selecting = on; }
+	bool isQuitMenuVisible() const { return m_quitMenuVisible; }
+	void setQuitMenuVisible(bool on) { m_quitMenuVisible = on; }
+	// the rectangle of a drag selection under construction, in pixels (valid while isSelecting())
+	void setAreaSelectHint(const IRegion2D &r) { m_areaHint = r; m_hasAreaHint = true; }
+	void endAreaSelectHint() { m_hasAreaHint = false; }
+	bool hasAreaSelectHint() const { return m_hasAreaHint; }
+	const IRegion2D &areaSelectHint() const { return m_areaHint; }
+
+	// ---- the pointer ----
+	// the cursor the translators chose this frame (a name of Mouse.ini)
+	const std::string &cursor() const { return m_cursor; }
+	// RotWK InGameUI::setMouseCursor (RW 0x69B06D, tier A: TheMouse->setCursor; in the GUI command mode a cursor other than Arrow / Scroll is the mode's own:
+	// BFME2 InGameUI::setMouseCursor 0x0029A5D6, InGameUIInputModes.cpp, matched: + 0x800 takes it while + 0x7FC is 2)
+	void setCursor(const std::string &name);
+	// lane BUILD-5: RW 0x69BD53 (BFME2 decomp Rva0029B313.cpp, tier A), what createCommandHint calls: the cursor changes only while neither selecting nor scrolling
+	void hintCursor(const std::string &name)
+	{
+		if (!m_selecting && !m_scrolling)
+		{
+			setCursor(name);
+		}
+	}
+	// lane BUILD-5: InGameUI + 0x7FC / + 0x800, the mouse mode and its cursor: 1 / Target while a building waits for its site (placeBuildAvailable RW 0x69C6A6),
+	// 2 / the cursor setMouseCursor last kept while a GUI command waits for its target (BFME2 InGameUI::setGUICommand 0x0029A889, InGameUIInputModes.cpp, matched:
+	// mode 2 for a command other than DOZER_CONSTRUCT (0x35) whose Options need a target (0x227), the mode's cursor reset to Arrow), 0 / Arrow otherwise.
+	// createMouseoverHint (RW 0x69F637, BFME2 decomp InGameUICreateMouseoverHint.cpp:511) sets the mode's cursor when the mode is not 0
+	int mouseMode() const;
+	const std::string &mouseModeCursor() const;
+	ObjectID mouseoverObject() const { return m_mouseoverObject; }
+	bool hasMouseoverLocation() const { return m_hasMouseoverLocation; }
+	const Coord3D &mouseoverLocation() const { return m_mouseoverLocation; }
+	void setMouseover(ObjectID id) { m_mouseoverObject = id; m_hasMouseoverLocation = false; }
+	void setMouseoverLocation(const Coord3D &c) { m_mouseoverObject = INVALID_ID; m_mouseoverLocation = c; m_hasMouseoverLocation = true; }
+
+	// ---- lane INPUT-1: what a meta command asks of the screen outside the stream (the HUD / the device takes the counts) ----
+	// SPELL_STORE (RW 0x820638 -> RW 0x71C6AF: the spell store opens, or closes when it is open), TAKE_SCREENSHOT (RW 0x82019D: Display vslot 0x14C)
+	void requestSpellStoreToggle() { ++m_spellStoreToggles; }
+	unsigned spellStoreToggles() const { return m_spellStoreToggles; }
+	void requestScreenshot() { ++m_screenshots; }
+	// DIPLOMACY (Tab, RW 0x81FFAA): the Palantir flag's screen (the players / tribute screen in a skirmish, the objectives in a campaign)
+	void requestDiplomacy() { ++m_diplomacy; }
+	// lane CHAT-1: CHAT_ALLIES (false) / CHAT_EVERYONE (true) (RW 0x81FEE0 / 0x81FF34): the chat window, drained by the HUD in order
+	// lane CHAT-1: the objects this client hides (an enemy's beacon, BeaconClientUpdate::hideBeacon RW 0x8CDC11): never picked, dropped from the selection
+	void setClientHidden(ObjectID id, bool hidden)
+	{
+		if (hidden)
+		{
+			m_clientHidden.insert(id);
+		}
+		else
+		{
+			m_clientHidden.erase(id);
+		}
+	}
+	bool isClientHidden(ObjectID id) const { return !m_clientHidden.empty() && m_clientHidden.count(id) != 0; }
+	const std::set<ObjectID> &clientHidden() const { return m_clientHidden; }
+	// lane CHAT-1: a network game (LAN / online): the chat and beacon keys work only there (RW 0x441B7C: game mode 1 or 5)
+	void setNetworkGame(bool on) { m_networkGame = on; }
+	bool networkGame() const { return m_networkGame; }
+	void requestChat(bool everyone) { m_chatRequests.push_back(everyone); }
+	std::vector<bool> takeChatRequests()
+	{
+		std::vector<bool> out;
+		out.swap(m_chatRequests);
+		return out;
+	}
+	unsigned diplomacyRequests() const { return m_diplomacy; }
+	unsigned screenshotRequests() const { return m_screenshots; }
+
+	// ---- messages for the player (ZH InGameUI::message(label)): game text labels, drained by the HUD ----
+	void message(const std::string &label) { m_messages.push_back(label); if (m_messageHandler) m_messageHandler(label); }
+	void setMessageHandler(std::function<void(const std::string &)> handler) { m_messageHandler = std::move(handler); }
+	std::vector<std::string> takeMessages();
+	const std::vector<std::string> &messages() const { return m_messages; }
+
+	// ---- the building waiting for placement (ZH placeBuildAvailable; lane BUILD-1: PlaceEventTranslator places it) ----
+	// an empty name ends the mode. The ghost (location, angle and the legality code of BuildPlacement) is what the translator sets from the pointer; the device layer draws it
+	// `command` is the build button that asked for the site (lane QA2-FIX: RotWK's processCommandUI DOZER_CONSTRUCT case RW 0x940A86 calls placeBuildAvailable, then
+	// jumps to RW 0x94089B: setGUICommand(button); the wall span message takes its Options from getGUICommand (RW 0x83E999). The port keeps the button with the placement
+	// instead of making it the GUI command, so the translators that wait for a GUI command target are not entered (inference: RotWK's placement end RW 0x83E6A4 clears
+	// both together, vslots 0xBC(0) and 0xDC(0, 0))
+	// lane BUILD-5 (RW 0x69C5E6): a new template shows the mode cursor Target (RW 0x69C69B), no template the Arrow (RW 0x69C7B0 / 0x69C7EE) and drops the anchor
+	// (vslot 0xE8(null))
+	void placeBuildAvailable(const std::string &templateName, ObjectID sourceObject, const CommandButton *command = nullptr);
+	const std::string &placeBuildTemplate() const { return m_placeTemplate; }
+	ObjectID placeBuildSource() const { return m_placeSource; }
+	const CommandButton *placeBuildCommand() const { return m_placeCommand; }
+	// RotWK's line build flag (InGameUI + 0x8C6; vslot 0xFC reads it, vslot 0x100 sets it, RW 0x48E8ED / 0x48E8F4): the placement update RW 0x6A2D26 sets it on the
+	// first client frame a pending line build (a wall hub from a wall hub) is not anchored; the placement release sends the span only while it is set (RW 0x83E924)
+	bool isLineBuildStarted() const { return m_lineBuildStarted; }
+	void setLineBuildStarted(bool on) { m_lineBuildStarted = on; }
+	bool isPlacing() const { return !m_placeTemplate.empty(); }
+	void setPlaceGhost(const Coord3D &location, float angle, int legalCode)
+	{
+		m_placeLocation = location;
+		m_placeAngle = angle;
+		m_placeLegal = legalCode;
+		m_placeHasGhost = true;
+	}
+	bool placeHasGhost() const { return m_placeHasGhost; }
+	// lane BUILD-5: the ghost's location and angle (RW 0x6A3847 / 0x6A385B, every client frame) apart from its legality (RW 0x6A3939: odd client frames only)
+	// lane BUILD-5 r2: `slotAngle` is the angle the place icon's slot keeps (RW 0x6A3847: the angle before a PORT's snap), `angle` the drawable's (after it)
+	void setPlaceGhostPose(const Coord3D &location, float angle, float slotAngle)
+	{
+		m_placeLocation = location;
+		m_placeAngle = angle;
+		m_placeSlotAngle = slotAngle;
+		m_placeHasGhost = true;
+	}
+	float placeSlotAngle() const { return m_placeSlotAngle; }
+	void setPlaceLegalCode(int legalCode) { m_placeLegal = legalCode; }
+	// lane BUILD-5: the rotation anchor of the placement (InGameUI + 0x554 .. 0x564; setPlacementStart vslot 0xE8, setPlacementEnd 0xEC, isPlacementAnchored 0xF0,
+	// getPlacementPoints 0xF4: BFME2 decomp InGameUIPlacement.cpp, tier B). A start sets the end to it too; null drops the anchor
+	void setPlacementStart(const ICoord2D *start)
+	{
+		if (start)
+		{
+			m_placeAnchorStart = *start;
+			m_placeAnchorEnd = *start;
+			m_placeAnchored = true;
+		}
+		else
+		{
+			m_placeAnchored = false;
+		}
+	}
+	void setPlacementEnd(const ICoord2D &end) { m_placeAnchorEnd = end; }
+	bool isPlacementAnchored() const { return m_placeAnchored; }
+	const ICoord2D &placementStart() const { return m_placeAnchorStart; }
+	const ICoord2D &placementEnd() const { return m_placeAnchorEnd; }
+
+	// ---- lane BUILD-5: MiscAudio sounds the translators ask for (by MiscAudio field name, e.g. BadBuildingPlacementSound), drained by the device ----
+	void requestMiscSound(const std::string &field) { m_miscSounds.push_back(field); }
+	// RW 0x6D9BF3 -> RW 0x71C7E4: a new UNDER_ATTACK event re-arms the control bar's blink (a flag and a 150-client-frame count,
+	// the + 0x2A0 window toggled every 15 frames). The device draws the blink; here the request is counted and drained
+	void requestAttackFlash() { ++m_attackFlashes; }
+	unsigned takeAttackFlashes()
+	{
+		unsigned out = m_attackFlashes;
+		m_attackFlashes = 0;
+		return out;
+	}
+	unsigned attackFlashes() const { return m_attackFlashes; }
+	std::vector<std::string> takeMiscSounds()
+	{
+		std::vector<std::string> out;
+		out.swap(m_miscSounds);
+		return out;
+	}
+	const std::vector<std::string> &miscSounds() const { return m_miscSounds; }
+	const Coord3D &placeLocation() const { return m_placeLocation; }
+	float placeAngle() const { return m_placeAngle; }
+	// LegalBuildCode (GameLogic/BuildPlacement.h): 0 = the ghost may be placed
+	int placeLegalCode() const { return m_placeLegal; }
+
+	// ---- the move hints (lane PLAY-1): the marker drawn where a move order was given ----
+	// TARGET FACTS (RotWK game.dat, caveat S-001; lane PLAY-1 r2 read them, BFME2's W3DInGameUI ctor is the decomp's Rva0008EF3FProduct, tier B for RW 0x48E889):
+	//   * HintSpy's case table (RW 0x838225 .. 0x83825E): MSG_DO_MOVETO / ATTACKMOVETO / FORCEMOVETO (0x42F .. 0x431) -> InGameUI vslot 0x70 = createMoveHint;
+	//     MSG_ADD_WAYPOINT and the formation move are NOT hinted;
+	//   * createMoveHint RW 0x69F54F: a single selected object that cannot move (RW 0x690E97: IMMOBILE, KINDOF bit 2 at template + 0x108) gets no hint; the
+	//     location must pass RW 0x69E8D0 (see HudInput::hintSpy); then EVERY hint is expired (RW 0x69B76C -> RW 0x69B745: frame 0, flag 1: one marker at a
+	//     time) and the next of 25 slots (+ 0x40, 0x14 bytes: location, the client frame (TheGameClient vslot 0x7C), the expired flag) takes the new one;
+	//   * drawMoveHints RW 0x48EDED: GlobalData's MoveHintName (+ 0x10) model with its "%s.%s" animation once (mode 2) for a hint not expired whose age is
+	//     below 41 client frames (nothing while the client frame itself is below 41), placed by TerrainLogic's alignOnTerrain / water height (vslots 0x48 / 0x4C).
+	// MoveHintName: GlobalData + 0x10, parseAsciiString RW 0x42EE5E, field row RW 0xBFF5C0 (retail GameData: SCMoveHint).
+	struct MoveHint
+	{
+		Coord3D pos{};
+		unsigned frame = 0;   ///< the client frame it was made in; 0 = unused / expired
+		bool expired = true;  ///< + 0x10 (RW 0x69B745 sets it)
+	};
+	static constexpr int MAX_MOVE_HINTS = 25;              // RW 0x69F5D6 (cmp 0x19) / RW 0x48E8AD
+	static constexpr unsigned MOVE_HINT_FRAMES = 40;       // RW 0x48EE1A: drawn while the age is below 0x29
+	void createMoveHint(const Coord3D &pos);
+	void expireMoveHints();                                // RW 0x69B76C(0)
+	const MoveHint *moveHints() const { return m_moveHints; }
+	// the client frame (ZH TheGameClient->getFrame(): one per 30 Hz client frame; the HUD's camera frame advances it)
+	unsigned clientFrame() const { return m_clientFrame; }
+	void advanceClientFrame() { ++m_clientFrame; }
+	// RW 0x48EDED's draw test for slot i
+	bool moveHintDrawn(int i) const;
+	int liveMoveHintCount() const;
+	unsigned moveHintsMade() const { return m_moveHintsMade; }
+
+private:
+	void markSelectionChanged();
+	MoveHint m_moveHints[MAX_MOVE_HINTS];
+	int m_nextMoveHint = 0;
+	unsigned m_clientFrame = 1; ///< ZH's client frame starts above 0 (a hint's frame 0 means unused)
+	unsigned m_moveHintsMade = 0;
+	MessageStream *m_stream = nullptr;
+	unsigned m_frameSelectionChanged = 0;
+	unsigned m_spellStoreToggles = 0, m_screenshots = 0, m_diplomacy = 0;
+	const GameLogic *m_logic = nullptr;
+	std::vector<ObjectID> m_selected;
+	const CommandButton *m_guiCommand = nullptr;
+	bool m_forceAttack = false, m_forceMove = false, m_waypoint = false, m_attackMoveTo = false, m_preferSelection = false;
+	std::function<void()> m_radiusCursorNone;
+	std::vector<std::string> *m_stepLog = nullptr;
+	void noteStep(const char *step)
+	{
+		if (m_stepLog)
+		{
+			m_stepLog->push_back(step);
+		}
+	}
+	bool m_scriptMouseHidden = false; ///< lane OWNERFIX-1: Mouse::setVisibility(false) of DISABLE_INPUT
+	bool m_inputEnabled = true, m_scrolling = false, m_selecting = false, m_quitMenuVisible = false;
+	IRegion2D m_areaHint{};
+	bool m_hasAreaHint = false;
+	std::string m_cursor = MouseCursorName::Arrow;
+	std::string m_guiModeCursor = MouseCursorName::Arrow; ///< BFME2 InGameUI + 0x800 in the GUI command mode (setMouseCursor 0x0029A5D6)
+	ObjectID m_mouseoverObject = INVALID_ID;
+	Coord3D m_mouseoverLocation;
+	bool m_hasMouseoverLocation = false;
+	std::vector<std::string> m_messages;
+	std::vector<bool> m_chatRequests; ///< lane CHAT-1
+	std::set<ObjectID> m_clientHidden; ///< lane CHAT-1
+	bool m_networkGame = false;        ///< lane CHAT-1
+	std::function<void(const std::string &)> m_messageHandler;
+	std::string m_placeTemplate;
+	ObjectID m_placeSource = INVALID_ID;
+	const CommandButton *m_placeCommand = nullptr;
+	bool m_lineBuildStarted = false;
+	Coord3D m_placeLocation;
+	float m_placeAngle = 0.0f;
+	float m_placeSlotAngle = 0.0f;
+	int m_placeLegal = 0;
+	bool m_placeHasGhost = false;
+	bool m_placeAnchored = false;
+	ICoord2D m_placeAnchorStart{}, m_placeAnchorEnd{};
+	float m_scrollAmountX = 0.0f, m_scrollAmountY = 0.0f;
+	std::vector<std::string> m_miscSounds;
+	unsigned m_attackFlashes = 0;
+	int m_maxSelect = 0;
+};
