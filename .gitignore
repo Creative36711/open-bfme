@@ -1,0 +1,8 @@
+# Local retail game data and staged Google Drive transfers.
+.retail/
+.retail-transfer/
+google_drive/
+
+# Local Python artefacts.
+__pycache__/
+*.py[cod]
