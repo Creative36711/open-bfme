@@ -7,7 +7,8 @@ editor tooling. The project does not use Win32 menu automation, coordinate
 clicks, or OCR.
 
 The current engine baseline is OpenBFME `v0.4.12-nightly.261118100`
-(`4a8d82727c2664c381b7b1c07344881760c4765b`). See the architecture records in
+(`4a8d82727c2664c381b7b1c07344881760c4765b`). It currently has **842 open stops**,
+tracked in `docs/STOPS.md`. See the architecture records in
 `docs/architecture/` and the update procedure in `docs/UPSTREAM_SYNC.md`.
 
 ## Agent workflow
@@ -21,8 +22,10 @@ profile live in `tools/script-cat/`; its complete local gate is
 
 ## Arena bootstrap
 
-The repository carries a checksum-pinned Godot 4.7.2 build and SwiftShader so
-an Arena sandbox can render without a GPU or access to GitHub release assets.
+The repository pins a Godot 4.7.2 build and SwiftShader by source commit and
+checksums. The bootstrap hydrates them only when requested, so an Arena sandbox
+can render without a GPU or access to GitHub release assets while the public
+repository stays free of the 63-MiB tool archives.
 
 ```bash
 tools/arena/bootstrap.sh --runtime

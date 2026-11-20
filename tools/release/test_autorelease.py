@@ -1665,7 +1665,9 @@ def test_private_paths_and_user_names_in_file_names(world, path):
     sha = world.change({path: "x\n"}, "a private name")
     world.gate(sha)
     r = world.release(sha, "--since", world.first)
-    assert r.returncode != 0 and ("a private path in a file name" in r.stdout or "a user name in a file name" in r.stdout), r.stdout
+    # On a machine whose literal account name is "user", the diagnostic's word "user" is itself privacy-masked.
+    user_reason = re.search(r"a (?:user|<\d+ chars>) name in a file name", r.stdout)
+    assert r.returncode != 0 and ("a private path in a file name" in r.stdout or user_reason), r.stdout
 
 
 def test_one_redaction_point_covers_intent_fields(world, tmp_path):
