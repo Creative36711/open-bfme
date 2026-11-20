@@ -1,0 +1,1907 @@
+// OpenBFME. GPL-3.0.
+// See GameLogic/GameLogic.h for the sources of every rule.
+
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/NewGame/StartingBase.h"
+#include "Common/ModEngineFeatures.h"
+
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
+#include "Common/GameState.h" // lane SAVE-4a
+#include "Common/Snapshot.h"
+#include "GameLogic/AI/AIWorld.h"
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Module/HeroModules.h"
+#include "GameLogic/Module/NotifyCrushModules.h"
+#include "GameLogic/Module/UpgradeModuleClasses.h"
+#include "GameLogic/Combat/CombatState.h"
+#include "GameLogic/SimMath.h"
+#include "GameLogic/BuildStops.h"
+#include "GameLogic/StructureStops.h"
+#include "GameLogic/VictoryConditions.h"
+#include "GameLogic/SkirmishAI/SkirmishAIManager.h"
+#include "Common/JobSystem.h"
+#include "Common/NumericState.h"
+
+#include "Common/StateHash.h"
+#include "Common/Thing/ModuleFactory.h"
+#include "Common/Thing/ThingFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/Combat/ObjectWeapons.h" // lane PERF-WS: the final list's weapon status conditions on the pool
+#include "GameLogic/Map/TerrainLogic.h"
+#include "GameLogic/Map/TerrainTrees.h"
+#include "GameLogic/System/ThreatFinder.h" // PORT 17
+#include "GameLogic/System/TaintManager.h"
+#include "GameLogic/Module/ObjectHelper.h"
+#include "GameLogic/Module/SquishCollide.h"
+#include "GameLogic/Module/UnportedModule.h"
+#include "GameLogic/BuildAssistantSell.h"
+#include "GameLogic/Module/UpdateModule.h"
+#include "GameLogic/Module/ConstructionModules.h"
+#include "GameLogic/Economy.h"
+#include "GameLogic/ExperienceWorld.h"
+#include "GameLogic/CreateAHeroSystem.h"
+#include "GameLogic/GlobalWeatherSystem.h"
+#include "GameLogic/Object/AttributeModifierPool.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/System/InvisibilityManager.h"
+#include "GameLogic/System/DOTManager.h"
+#include "GameLogic/ScriptEngine/ScriptEngine.h"
+
+#include "GameLogic/Object/PartitionManager.h"
+#include "GameLogic/Module/AreaScanModules.h"
+#include "GameLogic/Module/EmotionModules.h"
+#include "GameLogic/Module/HitReactionBehavior.h"
+#include "GameLogic/System/EmotionSystem.h"
+
+#include <algorithm>
+#include <atomic>
+#include <stdexcept>
+
+GameLogic::GameLogic(ThingFactory &things, ModuleFactory &modules, PlayerList &players, RandomAlgorithm rng)
+	: m_things(things)
+	, m_modules(modules)
+	, m_players(players)
+	, m_random(rng)
+	, m_economy(std::make_unique<Economy>(*this))
+	, m_combat(std::make_unique<CombatState>(*this))
+	, m_victory(std::make_unique<VictoryConditions>(*this))
+	, m_sell(std::make_unique<BuildAssistantSell>(*this)) // lane FACT-A
+	, m_skirmishAI(std::make_unique<SkirmishAIManager>(*this))
+	, m_experience(std::make_unique<ExperienceWorld>(*this))
+	, m_createAHeroes(std::make_unique<CreateAHeroGame>(*this))
+	, m_weather(std::make_unique<GlobalWeatherSystem>(*this))
+	, m_invisibility(std::make_unique<InvisibilityManager>(*this))
+	, m_dot(std::make_unique<DOTManager>(*this)) // lane DECOMP-1
+	, m_trees(std::make_unique<TerrainTrees>(*this)) // lane SPELL-3
+	, m_threatFinders(std::make_unique<ThreatFinderManager>()) // PORT 17: RW 0xDE8888
+	, m_taint(std::make_unique<TaintManager>()) // lane TAINTAREA-1 (BFME2 0x6C08F0 / RW 0xAD4A50)
+	, m_scriptEngine(std::make_unique<ScriptEngine>(*this)) // lane SCRIPT-1
+{
+	buildPhaseWorkTable();
+	// lane SPELLFIX-1: the economy's attribute modifier product is the object's own pool query, RW 0x68C82D(type, &out, name 0, innate 1) as the income
+	// sites call it (TerrainResourceBehavior RW 0x88558D, SupplyCenterDockUpdate RW 0x8A4614): Industry, Dwarven Riches, Blight and the levelled farms'
+	// PRODUCTION lists now scale income. BFME2 1.06 the same. The sum seam (COMMAND_POINT_BONUS, BOUNTY_PERCENTAGE) stays uninstalled: S-253
+	m_economy->setAttributeModifierProvider([](const Object &obj, int type, float &product) { return obj.attributeModifierProduct(type, nullptr, true, product); });
+	m_partition = std::make_unique<PartitionManager>(*this);
+	m_emotions = std::make_unique<EmotionWorld>(*this);
+	m_inertBit = ObjectTemplateInfoBuilder::kindOfIndex("INERT");
+	m_projectileBit = ObjectTemplateInfoBuilder::kindOfIndex("PROJECTILE");
+	registerSnapshotBlocks(); // lane SAVE-4a (GameLogicSnapshot.cpp)
+}
+
+// lane MODULES-2: RW 0x68E31F registers the object with ThePartitionManager (RW 0x68E3B6 -> 0xA39050) unless its template's KindOf has INERT (+ 0x110 bit 25) or
+// PROJECTILE (+ 0x108 bit 25); RW 0x68C18F unregisters it (RW 0x68C1B4 -> 0xA39060) when it has an entry
+void GameLogic::partitionEnter(Object &obj)
+{
+	if ((m_inertBit >= 0 && obj.isKindOf((unsigned)m_inertBit)) || (m_projectileBit >= 0 && obj.isKindOf((unsigned)m_projectileBit)))
+	{
+		return;
+	}
+	m_partition->registerObject(obj);
+}
+
+void GameLogic::partitionLeave(Object &obj)
+{
+	m_partition->unRegisterObject(obj);
+}
+
+void GameLogic::friend_objectEnteredWorld(Object &obj)
+{
+	invisibilityNoteCreated(obj); // lane STEALTH-2: RW 0x69A6BF, just before the world entry RW 0x69A6C6
+	partitionEnter(obj); // lane MODULES-2: RW 0x68E3B6, before the script world (RW 0x68E3E2)
+	if (m_enteredWorld)
+	{
+		m_enteredWorld(obj);
+	}
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.entered)
+		{
+			h.entered(obj);
+		}
+	}
+	obj.friend_setInWorld(true); // RW 0x68E3FB: + 0x474 = 1
+}
+
+void GameLogic::friend_objectLeftWorld(Object &obj)
+{
+	const bool inWorld = obj.isInWorld();
+	if (inWorld)
+	{
+		partitionLeave(obj); // lane MODULES-2: RW 0x68C1B4
+		if (m_leftWorld)
+		{
+			m_leftWorld(obj);
+		}
+	}
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.left && (inWorld || !h.containment || h.leaveWhenOut))
+		{
+			h.left(obj);
+		}
+	}
+	obj.friend_setInWorld(false); // RW 0x68C1E1: + 0x474 = 0
+}
+
+// lane GARRISON-1: RW 0x68E31F from a contain (the order of the ported parts: the shroud record RW 0x68E352, the partition RW 0x68E3B6, the script world RW 0x68E3E2;
+// the radar RW 0xB6C470 and RW 0x688354 are not ported, S-142; lane DECOMP-3: RW 0x6A9D9C last)
+void GameLogic::friend_containEnterWorld(Object &obj)
+{
+	if (obj.isInWorld())
+	{
+		return;
+	}
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.entered && h.containment && !h.leaveWhenOut)
+		{
+			h.entered(obj);
+		}
+	}
+	partitionEnter(obj);
+	if (m_enteredWorld)
+	{
+		m_enteredWorld(obj);
+	}
+	// lane DECOMP-3: the skirmish AI manager's event RW 0x6A9D9C comes last (RW 0x68E42D, after the partition RW 0x68E3B6 and the script world RW 0x68E421)
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.entered && h.containment && h.leaveWhenOut)
+		{
+			h.entered(obj);
+		}
+	}
+	obj.friend_setInWorld(true);
+	++m_containWorldTransitions;
+}
+
+// lane GARRISON-1: RW 0x68C18F from a contain (the shroud record RW 0x68C19B, the partition RW 0x68C1B4, the script world RW 0x68C1D0; the radar RW 0xB6C480 and
+// RW 0x68836C are not ported, S-142; lane DECOMP-3: RW 0x6A99CB last)
+void GameLogic::friend_containLeaveWorld(Object &obj)
+{
+	if (!obj.isInWorld())
+	{
+		return;
+	}
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.left && h.containment && !h.leaveWhenOut)
+		{
+			h.left(obj);
+		}
+	}
+	partitionLeave(obj);
+	if (m_leftWorld)
+	{
+		m_leftWorld(obj);
+	}
+	// lane DECOMP-3: the skirmish AI manager's event RW 0x6A99CB comes last (RW 0x68C205, after the partition RW 0x68C1B4 and the script world RW 0x68C1F5)
+	for (auto &h : m_extraWorldHooks)
+	{
+		if (h.left && h.containment && h.leaveWhenOut)
+		{
+			h.left(obj);
+		}
+	}
+	obj.friend_setInWorld(false);
+	++m_containWorldTransitions;
+}
+
+GameLogic::~GameLogic()
+{
+	reset();
+}
+
+void GameLogic::invalidateTemplateInfo()
+{
+	m_templateInfo.clear();
+	m_crushInfo.clear();
+	m_crushById.clear();
+}
+
+const CrushTemplateInfo &GameLogic::crushInfo(const ThingTemplate *finalOverride)
+{
+	const size_t id = finalOverride->getTemplateID();
+	if (id < m_crushById.size() && m_crushById[id].first == finalOverride)
+	{
+		return *m_crushById[id].second;
+	}
+	auto it = m_crushInfo.find(finalOverride);
+	if (it == m_crushInfo.end())
+	{
+		it = m_crushInfo.emplace(finalOverride, std::make_unique<CrushTemplateInfo>(CrushTemplateInfo::of(*finalOverride))).first;
+	}
+	if (id >= m_crushById.size())
+	{
+		m_crushById.resize(id + 1, { nullptr, nullptr });
+	}
+	if (!m_crushById[id].first)
+	{
+		m_crushById[id] = { finalOverride, it->second.get() }; // the first template of the id keeps the slot
+	}
+	return *it->second;
+}
+
+const ObjectTemplateInfo &GameLogic::templateInfo(const ThingTemplate *finalOverride)
+{
+	auto it = m_templateInfo.find(finalOverride);
+	if (it == m_templateInfo.end())
+	{
+		ObjectTemplateInfo info = ObjectTemplateInfoBuilder::build(*finalOverride);
+		if (!info.kindOfError.empty())
+		{
+			m_errors.push_back("template " + finalOverride->getName() + ": " + info.kindOfError);
+		}
+		it = m_templateInfo.emplace(finalOverride, std::move(info)).first;
+	}
+	return it->second;
+}
+
+Object *GameLogic::newObject(const ThingTemplate *tt, Team *team, const ObjectStatusMaskType &status, ObjectID id)
+{
+	return m_things.newObject(*this, tt, team, status, id);
+}
+
+float GameLogic::getGroundHeight(float x, float y) const
+{
+	return m_terrain ? m_terrain->getGroundHeight(x, y, nullptr) : 0.0f;
+}
+
+float GameLogic::getLayerHeightForDestination(float x, float y, float z) const
+{
+	// lane WALL-2: TheTerrainLogic vslot 0x1C (getLayerHeight) with the layer of RW 0x680A75 (getLayerForDestination) at (x, y, z)
+	if (m_aiWorld && m_aiWorld->mapReady())
+	{
+		const Pathfinder &pf = m_aiWorld->pathfinder();
+		return pf.getLayerHeight(x, y, pf.getLayerAt(x, y, z));
+	}
+	return getGroundHeight(x, y);
+}
+
+float GameLogic::getAlignOnTerrainHeight(float x, float y, float z) const
+{
+	// RW 0x6819D9: layer = getLayerForDestination(0, pos) (RW 0x680A75), z = getLayerHeight(x, y, layer) (vslot 0x1C), + 2.5 when layer > LAYER_GROUND
+	if (m_aiWorld && m_aiWorld->mapReady())
+	{
+		const Pathfinder &pf = m_aiWorld->pathfinder();
+		constexpr float kAlignOnTerrainLift = 2.5f; // RW 0xBE5AE8 (BFME2 0x00BCFB10): the lift above any layer but the ground
+		const PathfindLayerEnum layer = pf.getLayerAt(x, y, z);
+		const float height = pf.getLayerHeight(x, y, layer);
+		return layer > LAYER_GROUND ? SimMath::addf32(height, kAlignOnTerrainLift) : height;
+	}
+	return getGroundHeight(x, y);
+}
+
+float GameLogic::getHighestLayerHeight(float x, float y) const
+{
+	if (m_aiWorld && m_aiWorld->mapReady())
+	{
+		return m_aiWorld->pathfinder().getHighestLayerHeight(x, y);
+	}
+	return getGroundHeight(x, y);
+}
+
+void GameLogic::reportError(const std::string &text)
+{
+	if (std::find(m_errors.begin(), m_errors.end(), text) == m_errors.end())
+	{
+		m_errors.push_back(text);
+	}
+}
+
+// ---- the object list --------------------------------------------------------------------------------------------------
+void GameLogic::linkObject(Object *obj)
+{
+	// B1 GameLogicRegisterObject.cpp: bfmeInsertXN(&objList, &objTail): append at the tail
+	obj->friend_setListLinks(m_objectTail, nullptr);
+	if (m_objectTail)
+	{
+		m_objectTail->friend_setNext(obj);
+	}
+	else
+	{
+		m_objectHead = obj;
+	}
+	m_objectTail = obj;
+	++m_objectCount;
+}
+
+void GameLogic::unlinkObject(Object *obj)
+{
+	Object *prev = obj->getPrevObject(), *next = obj->getNextObject();
+	if (prev)
+	{
+		prev->friend_setNext(next);
+	}
+	else
+	{
+		m_objectHead = next;
+	}
+	if (next)
+	{
+		next->friend_setPrev(prev);
+	}
+	else
+	{
+		m_objectTail = prev;
+	}
+	obj->friend_setListLinks(nullptr, nullptr);
+	--m_objectCount;
+}
+
+Object *GameLogic::findObjectByID(ObjectID id) const
+{
+	return id < m_objectsById.size() ? m_objectsById[id] : nullptr;
+}
+
+void GameLogic::friend_addObjectToLookup(Object *obj)
+{
+	if (obj->getID() >= m_objectsById.size())
+	{
+		m_objectsById.resize((size_t)obj->getID() + 1 + (m_objectsById.size() >> 1), nullptr);
+	}
+	if (m_objectsById[obj->getID()] != nullptr && m_objectsById[obj->getID()] != obj)
+	{
+		throw std::logic_error("GameLogic: object id " + std::to_string(obj->getID()) + " is already in use");
+	}
+	m_objectsById[obj->getID()] = obj;
+}
+
+void GameLogic::friend_removeObjectFromLookup(Object *obj)
+{
+	if (obj->getID() < m_objectsById.size() && m_objectsById[obj->getID()] == obj)
+	{
+		m_objectsById[obj->getID()] = nullptr;
+	}
+}
+
+// RW 0x62BA8B: the list append (0x68BB6A), the id table (0x62BA64), then the module loop (RW 0x62BD6A .. 0x62BE0E)
+void GameLogic::registerObject(Object *obj)
+{
+	linkObject(obj);
+	friend_addObjectToLookup(obj);
+	UnsignedInt now = m_frame;
+	if (now == 0)
+	{
+		now = 1;
+	}
+	for (const std::unique_ptr<BehaviorModule> &b : obj->modules())
+	{
+		UpdateModule *u = b->asUpdateModule();
+		if (!u)
+		{
+			continue;
+		}
+		if (u->friend_getNextCallFrame() == 0)
+		{
+			u->friend_setNextCallFrame(now);
+		}
+		if (u->friend_getNextCallFrame() == (UnsignedInt)UPDATE_SLEEP_FOREVER)
+		{
+			u->friend_setIndexInLogic((int)m_sleeping.size(), -1);
+			m_sleeping.push_back(u);
+		}
+		else
+		{
+			const int phase = (int)u->getUpdatePhase();
+			std::vector<UpdateModule *> &vec = m_updates[phase];
+			u->friend_setIndexInLogic((int)vec.size(), phase);
+			vec.push_back(u);
+		}
+	}
+}
+
+// RW 0x62BCBF: the same loop over the whole object list after clearing the vectors
+void GameLogic::rebuildUpdateVectors()
+{
+	for (std::vector<UpdateModule *> &vec : m_updates)
+	{
+		for (UpdateModule *u : vec)
+		{
+			u->friend_setIndexInLogic(-1);
+		}
+		vec.clear();
+	}
+	for (UpdateModule *u : m_sleeping)
+	{
+		u->friend_setIndexInLogic(-1);
+	}
+	m_sleeping.clear();
+	UnsignedInt now = m_frame == 0 ? 1 : m_frame;
+	for (Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		for (const std::unique_ptr<BehaviorModule> &b : o->modules())
+		{
+			UpdateModule *u = b->asUpdateModule();
+			if (!u)
+			{
+				continue;
+			}
+			if (u->friend_getNextCallFrame() == 0)
+			{
+				u->friend_setNextCallFrame(now);
+			}
+			if (u->friend_getNextCallFrame() == (UnsignedInt)UPDATE_SLEEP_FOREVER)
+			{
+				u->friend_setIndexInLogic((int)m_sleeping.size(), -1);
+				m_sleeping.push_back(u);
+			}
+			else
+			{
+				const int phase = (int)u->getUpdatePhase();
+				u->friend_setIndexInLogic((int)m_updates[phase].size(), phase);
+				m_updates[phase].push_back(u);
+			}
+		}
+	}
+}
+
+// RW 0x62B921
+void GameLogic::friend_awakenUpdateModule(Object *obj, UpdateModule *u, UnsignedInt when)
+{
+	const UnsignedInt now = m_frame;
+	if (u == m_current)
+	{
+		return;
+	}
+	if (when == u->friend_getNextCallFrame())
+	{
+		return;
+	}
+	if (now > 0 && u->friend_getNextCallFrame() == now && when == now + 1)
+	{
+		return;
+	}
+	const int idx = u->friend_getIndexInLogic();
+	const int phase = u->friend_getPhaseInLogic();
+	if (obj->isInList(&m_objectHead))
+	{
+		if (phase < 0 && when < (UnsignedInt)UPDATE_SLEEP_FOREVER)
+		{
+			// the module sits in `sleeping` (a negative phase): swap-remove it and append it to its phase vector
+			const int newPhase = (int)u->getUpdatePhase();
+			if (idx < (int)m_sleeping.size() - 1)
+			{
+				m_sleeping[(size_t)idx] = m_sleeping.back();
+				m_sleeping[(size_t)idx]->friend_setIndexInLogic(idx);
+			}
+			m_sleeping.pop_back();
+			std::vector<UpdateModule *> &vec = m_updates[newPhase];
+			const int newIndex = (int)vec.size();
+			vec.push_back(u);
+			u->friend_setIndexInLogic(newIndex, newPhase);
+		}
+		u->friend_setNextCallFrame(when);
+	}
+	else
+	{
+		if (idx != -1)
+		{
+			throw std::logic_error("fatal error! sleepy update module index mismatch."); // RW 0x62BA0E .. 0x62BA4B
+		}
+		// object initialization may wake a module before list insertion
+		u->friend_setNextCallFrame(when);
+	}
+}
+
+// ---- the logic frame ----------------------------------------------------------------------------------------------------
+void GameLogic::buildPhaseWorkTable()
+{
+	struct Row
+	{
+		int phase;
+		const char *name;
+		const char *source;
+		bool builtin;
+	};
+	// phase 0 = every phase. RW order inside a phase (RW 0x62E4E8 .. 0x62EE6A).
+	static const Row rows[] = {
+		{ 1, "logicDebugFrame", "RW 0x62E515 (-> 0x604152): the script engine's debug-frame helper", false },
+		{ 1, "freezeGate", "RW 0x62E520 .. 0x62E552 and 0x62E57E .. 0x62E595: tactical view / script engine freeze, MSG_CLEAR_GAME_DATA", false },
+		{ 1, "frameAdvance", "RW 0x62E568 .. 0x62E577: ++frame when RW 0x625130 (advance flag set, +0xA8 and +0x9D clear) and not frozen", true },
+		{ 1, "commandOnlyTransition", "RW 0x62E5AC .. 0x62E5D8: GameLogic + 0x125 set: processCommandList only (mission save load)", false },
+		{ 1, "frame2ObjectBlock", "RW 0x62E640 .. 0x62E697: at frame 2, path destruction of objects whose AI asks (several global predicates)", false },
+		{ 0, "pathfinderQueue", "RW 0x62E69F (-> 0x6F2364): Pathfinder::processPathfindQueue on TheAI + 0x10, then setFPMode (0x440809); every phase", false },
+		{ 1, "subsystemsPhase1", "RW 0x62E6AF .. 0x62E6DD: script engine, Lua script engine, terrain logic and victory system updates (vslot 0x28)", false },
+		{ 1, "logicCrc", "RW 0x62E6E2 .. 0x62E880: the MSG_LOGIC_CRC message every CRCInterval frames (not in game modes 4, 7, 9)", false },
+		{ 1, "recorderAndStats", "RW 0x62E885 .. 0x62E8CF: statistics collector, recorder, two more subsystems (GameLogic + 0x174, the DOTManager, lane DECOMP-1, and + 0x178, the InvisibilityManager, lane STEALTH-1, run after the row)", false },
+		{ 1, "commandList", "RW 0x62E8D4 .. 0x62E905: every pending command goes to the command dispatcher (RW 0x779A3D), then the list resets", false },
+		{ 1, "drawableCallback", "RW 0x62E908 .. 0x62E933: per object, getDrawable()->callback(0)", false },
+		{ 2, "partitionAndCollision", "RW 0x62E93B .. 0x62E94E: the partition manager and the collision manager update (vslot 0x28)", false },
+		{ 2, "recordTransforms", "RW 0x62E951 .. 0x62E97E: every object whose recorded frame is not the frame records its transform (RW 0x6260E1)", true },
+		{ 0, "scheduler", "RW 0x62E982 .. 0x62EB63: the sleepy update vectors (phases 3 .. 6)", true },
+		{ 5, "aiUpdate", "RW 0x62EB63 .. 0x62EB71: TheAI vslot 0x28", false },
+		{ 0, "deferredEntriesDrain", "RW 0x62EB74 (-> 0x629DA6): deletes the entries appended to GameLogic + 0x164 during the phase", false },
+		{ 5, "subsystemsBeforeDestroy", "RW 0x62EB85 .. 0x62EBAE: four subsystem updates (vslot 0x28) before the destroy list", false },
+		{ 5, "processDestroyList", "RW 0x62EBB1 (-> 0x62A2C9)", true },
+		{ 5, "subsystemsAfterDestroy", "RW 0x62EBB8 .. 0x62EC0B: eight more subsystem updates (a group audio, weapon / locomotor stores, victory conditions, the experience level system, ...)", false },
+		{ 1, "endOfFrameObjectChecks", "RW 0x62EC55 .. 0x62ECAA: per object disabled expiry (0x690A42), IGNORE_AI_COMMAND (0x690AB9), NO_COLLISIONS (0x690AE5)", true },
+		{ 1, "updatePendingDamage", "RW 0x62EC9D (-> 0x697EB6): per object, the queued damage whose delay passed is applied (lane COMBAT-1)", true },
+		{ 1, "logicTimeNotify", "RW 0x62ECC3 .. 0x62EE39: frame * 10 to a client subsystem and the mission save thumbnail", false },
+	};
+	static_assert(sizeof(rows) / sizeof(rows[0]) == (size_t)ROW_COUNT, "the phase work rows and the Row enum must agree");
+	for (const Row &r : rows)
+	{
+		PhaseWork w;
+		w.phase = r.phase;
+		w.name = r.name;
+		w.source = r.source;
+		w.builtin = r.builtin;
+		m_phaseWork.push_back(std::move(w));
+	}
+}
+
+bool GameLogic::installPhaseWork(const std::string &name, std::function<void()> fn)
+{
+	for (PhaseWork &w : m_phaseWork)
+	{
+		if (w.name == name)
+		{
+			if (w.builtin)
+			{
+				return false;
+			}
+			w.installed = std::move(fn);
+			return true;
+		}
+	}
+	return false;
+}
+
+std::vector<std::string> GameLogic::unportedPhaseWork() const
+{
+	std::vector<std::string> out;
+	for (const PhaseWork &w : m_phaseWork)
+	{
+		if (!w.builtin && !w.installed)
+		{
+			out.push_back(std::string("phase ") + (w.phase ? std::to_string(w.phase) : std::string("all")) + " " + w.name + ": " + w.source);
+		}
+	}
+	return out;
+}
+
+void GameLogic::runLogicFrame()
+{
+	for (int phase = 1; phase <= 6; ++phase)
+	{
+		update(phase);
+	}
+}
+
+// lane STEALTH-2: RW 0x69A6BF (see InvisibilityManager::noteCreated)
+void GameLogic::invisibilityNoteCreated(Object &obj)
+{
+	m_invisibility->noteCreated(obj);
+}
+
+// RW 0x62E4E8 (B1 GameLogic.cpp:8264-8392)
+void GameLogic::update(int phase)
+{
+	if (phase < 1 || phase > 6)
+	{
+		throw std::logic_error("GameLogic::update: phase must be 1..6");
+	}
+	if (m_depth == 0)
+	{
+		// RW + 0x1B4 == 0: the outermost update. Retail runs setFPMode here (RW 0x440809); the port establishes the complete canonical floating-point
+		// environment (nearest rounding, masked exceptions, FTZ / DAZ off: MXCSR 0x1F80) so that nothing a driver, a plug-in or the host thread did to
+		// it reaches the simulation (lockstep: NumericState::normalizeFloatingPointEnvironment).
+		NumericState::setFPMode();
+	}
+	++m_depth;
+	if (phase == 1)
+	{
+		runRow(ROW_LOGIC_DEBUG_FRAME);
+		runRow(ROW_FREEZE_GATE);
+		// RW 0x62E568: the frame advances at the START of phase 1 (RW DIFFERS from B1, which increments at the end)
+		if (m_frameAdvance)
+		{
+			++m_frame;
+		}
+		m_fxEvents.beginFrame(); // lane FX-2: the event list holds the current frame's calls only
+		runRow(ROW_COMMAND_ONLY);
+	}
+	m_lastPhase = phase;
+	const bool wasInUpdate = m_inUpdate;
+	m_inUpdate = true;
+	if (phase == 1)
+	{
+		runRow(ROW_FRAME2_OBJECT_BLOCK);
+	}
+	runRow(ROW_PATHFINDER_QUEUE);
+	if (phase == 1)
+	{
+		m_scriptEngine->update(); // lane SCRIPT-1: RW 0x62E6AF, TheScriptEngine vslot 0x28, the first of the row
+		runRow(ROW_SUBSYSTEMS_PHASE1);
+		runRow(ROW_LOGIC_CRC);
+		runRow(ROW_RECORDER_STATS);
+		m_weather->update(); // RW 0x62E8BE: TheGlobalWeatherSystem vslot 0x28 (RW 0x71A09E), one of that row's subsystems (lane SPELL-2)
+		m_dot->update(); // RW 0x62E8C9 .. 0x62E8CF: GameLogic + 0x174, the DOTManager (lane DECOMP-1)
+		m_invisibility->update(); // RW 0x62E8D4 .. 0x62E8DA: GameLogic + 0x178, the last of that row, before the command list (lane STEALTH-1)
+		runRow(ROW_COMMAND_LIST);
+		runRow(ROW_DRAWABLE_CALLBACK);
+	}
+	if (phase == 2)
+	{
+		m_partition->update(); // RW 0x62E93B: ThePartitionManager vslot 0x28 (RW 0xA39020 -> 0xA3B4E0), then the row's collision manager (lane MODULES-2)
+		runRow(ROW_PARTITION_COLLISION);
+		combat().processProjectileContacts(); // lane FLANK-1: the flying projectiles' contacts, the same collision manager row (S-780 inference: after the AI units' pass)
+		// RW 0x62E951 .. 0x62E97E
+		for (Object *o = m_objectHead; o; o = o->getNextObject())
+		{
+			if (o->getRecordedFrame() != m_frame)
+			{
+				o->recordTransform(m_frame);
+			}
+		}
+	}
+	else if (phase > 2)
+	{
+		runModules(phase);
+		if (phase == 5)
+		{
+			runRow(ROW_AI_UPDATE);
+		}
+	}
+	runRow(ROW_DEFERRED_DRAIN);
+	if (phase == 5)
+	{
+		runRow(ROW_SUBSYSTEMS_BEFORE_DESTROY);
+		m_sell->update(); // lane FACT-A: RW 0x62EB9B, TheBuildAssistant vslot 0x28 (the third of the row's four; the second and fourth are not ported)
+		processDestroyList();
+		runRow(ROW_SUBSYSTEMS_AFTER_DESTROY);
+		// lane END-1: RW 0x62EBCE: TheVictoryConditions (RW 0xDE89AC) vslot 0x28 runs here, after the destroy list and the weapon / locomotor stores and before the
+		// experience system (lane COMBAT-2 had it in the phase 1 row; RW 0x62E6AF .. 0x62E6DD updates four other subsystems)
+		m_victory->update();
+		m_experience->update(); // RW 0x62EBD9: TheDelayedExperienceLevelGrantSystem vslot 0x28, one of that row's subsystems (lane XP-1)
+		if (m_livingWorldTags.active)
+		{
+			StartingBase::updateLivingWorldReinforcements(*this); // WOTR2 milestone 7: ArmySummarySystem::update RW 0x80F4D3 (from RW 0x62EBEA)
+		}
+		m_skirmishAI->update(); // RW 0x62EBEF: TheSkirmishAIManager vslot 0x28, one of that row's subsystems (after the victory conditions; lane AI-1)
+	}
+	if (phase == 1)
+	{
+		endOfFrameObjectChecks();
+		// RW 0x62EC9D (-> 0x697EB6): object list order; an object that dies from a pending hit stays in the list until the destroy list
+		for (Object *o = m_objectHead; o; o = o->getNextObject())
+		{
+			if (o->pendingDamageCount() != 0)
+			{
+				o->updatePendingDamage();
+			}
+		}
+		runRow(ROW_PENDING_DAMAGE);
+		runRow(ROW_LOGIC_TIME_NOTIFY);
+	}
+	if (phase == 6)
+	{
+		// lane END-1: Player::update (RW 0x6AF269, from PlayerList::update RW 0x6A84DB over the 20 player slots) records each player's per-frame score
+		// statistics (ScoreKeeper::recordPerFrameStats RW 0x79F704, RW 0x6AF3AD with the frame). The PlayerList's update was not found in the frame (its
+		// caller is a subsystem table): the end of the frame is INFERENCE (S-1061)
+		for (int i = 0; i < m_players.getPlayerCount(); ++i)
+		{
+			Player *p = m_players.getNthPlayer(i);
+			// lane CAMP-1H: RW 0x6AF2FA .. 0x6AF32B, before the score: the player's teams run their generic scripts (Team::updateGenericScripts RW 0x7A267D;
+			// a game without map scripts has none)
+			if (m_scriptEngine->loaded())
+			{
+				m_scriptEngine->updateGenericScripts(*p);
+			}
+			p->getScoreKeeper().recordPerFrameStats(*this, *p, m_frame);
+		}
+		// lane SDK-2: the OpenBFME end-of-frame listeners (mod scripts); a copy, as a listener may remove itself
+		if (!m_endOfFrameHooks.empty())
+		{
+			const std::vector<EndOfFrameEntry> hooks = m_endOfFrameHooks;
+			for (const EndOfFrameEntry &h : hooks)
+			{
+				h.hook(m_frame);
+			}
+		}
+	}
+	m_inUpdate = wasInUpdate;
+	--m_depth;
+}
+
+void GameLogic::runModules(int phase)
+{
+	int start = 0, end = 0;
+	switch (phase)
+	{
+	case 3:
+	case 4: start = 0; end = 1; break;
+	case 5: start = 1; end = 3; break;
+	case 6: start = 3; end = 4; break;
+	default: return;
+	}
+	for (int p = start; p < end; ++p)
+	{
+		std::vector<UpdateModule *> &vec = m_updates[p];
+		if (p == (int)PHASE_FINAL)
+		{
+			// lane PERF-WS: before the pass; the pass applies the results in list order. With one logic thread the pre-pass would only be a second
+			// walk of the list: the pass computes in update as before (so the perf2 pin compares that path with the pool's)
+			if (JobSystem::logic().threadCount() > 1)
+			{
+				prepareWeaponStatusWork(vec);
+			}
+			else
+			{
+				m_weaponStatusWork.clear();
+			}
+		}
+		// RW 0x62E9D4 .. 0x62E9F7: phase 4 starts at size / 2 (i = size / 2 - 1, then ++), the others at 0 (i = -1, then ++)
+		int i = phase == 4 ? (int)(vec.size() >> 1) - 1 : -1;
+		size_t next = (size_t)(i + 1);
+		bool brokeOut = false;
+		while (next < vec.size())
+		{
+			++i;
+			++next;
+			if (phase == 3 && (size_t)i == (vec.size() >> 1)) // RW 0x62EA10 .. 0x62EA1E: stop at half of the CURRENT size
+			{
+				brokeOut = true;
+				break;
+			}
+			UpdateModule *u = vec[(size_t)i];
+			if (!u || u->friend_getNextCallFrame() > m_frame)
+			{
+				continue;
+			}
+			Object *obj = u->getObject();
+			int sleep = (int)UPDATE_SLEEP_NONE;
+			const DisabledMaskType disabled = obj->getDisabledMask();
+			if (disabled == DISABLEDMASK_NONE || (disabled & u->getDisabledTypesToProcess()) != 0)
+			{
+				m_current = u;
+				if (obj->testStatus(OBJECT_STATUS_DESTROYED))
+				{
+					sleep = (int)UPDATE_SLEEP_FOREVER; // RW 0x62EA85 `test byte [obj + 0x94], 1`
+				}
+				else if (p == (int)PHASE_FINAL && (size_t)i < m_weaponStatusWork.size() && m_weaponStatusWork[(size_t)i].module == u)
+				{
+					// lane PERF-WS: the module's update is its WeaponStatusHelper's: the conditions computed on the pool before the pass are applied
+					// here, where update would have computed them (nothing of the pass so far changed what they read), and the sleep is update's,
+					// UPDATE_SLEEP_NONE. A module without an entry of its own (none at the pre-pass, or another module at this index) runs update
+					const WeaponStatusWork &work = m_weaponStatusWork[(size_t)i];
+					work.weapons->applyWeaponStatusConditions(work.cond);
+				}
+				else
+				{
+					sleep = (int)u->update();
+					if (sleep < (int)UPDATE_SLEEP_NONE)
+					{
+						sleep = (int)UPDATE_SLEEP_NONE;
+					}
+				}
+				m_current = nullptr;
+			}
+			u->friend_setNextCallFrame(m_frame + (UnsignedInt)sleep);
+		}
+		(void)brokeOut;
+		if (phase > 3)
+		{
+			migrateForeverModules(p);
+		}
+	}
+}
+
+// lane PERF-WS: the final list is the WeaponStatusHelpers (the FiringTrackerHelper shell sleeps forever; nothing wakes it). A helper's update
+// reads its own object alone (its statuses, its weapons' timers and ammo) and writes its own weapons' slot conditions and model conditions, so
+// no module of the pass changes what a later one computes: the conditions of every module the pass will update are computed here on the logic
+// job pool, against the list at the pass's start, with the pass's own tests, and the pass applies them in list order (the model conditions are
+// ordered client events, and the hash sees the same writes in the same order). A module without an entry (asleep at the pre-pass and woken
+// since, registered meanwhile) runs update as before. An awake module of the list that is not such a helper (a future port, a test's scripted
+// module) would break the premise: then no entry is kept and the pass is the serial one (counted: Report::weaponStatusSerialFrames). An
+// entry's module and weapons live through the pass: no object is deleted in phase 6 (processDestroyList runs in phase 5 only, docs/MAINLOOP.md)
+void GameLogic::prepareWeaponStatusWork(const std::vector<UpdateModule *> &vec)
+{
+	static_assert(WEAPONSLOT_COUNT == 6, "WeaponStatusWork::cond holds one condition per weapon slot");
+	constexpr size_t kModulesPerJob = 256;
+	m_weaponStatusWork.assign(vec.size(), WeaponStatusWork{});
+	std::atomic<bool> other{ false };
+	std::atomic<unsigned> filled{ 0 }; // entries the pass will apply (the #192 review: a frame whose modules all sleep is not a pooled one)
+	JobSystem::logic().parallelFor(vec.size(), kModulesPerJob, [this, &vec, &other, &filled](size_t, size_t begin, size_t end) {
+		unsigned mine = 0;
+		for (size_t i = begin; i < end; ++i)
+		{
+			UpdateModule *u = vec[i];
+			if (!u || u->friend_getNextCallFrame() > m_frame)
+			{
+				continue;
+			}
+			const Object *obj = u->getObject();
+			const DisabledMaskType disabled = obj->getDisabledMask();
+			if (!(disabled == DISABLEDMASK_NONE || (disabled & u->getDisabledTypesToProcess()) != 0) || obj->testStatus(OBJECT_STATUS_DESTROYED))
+			{
+				continue; // the pass skips it, or sleeps it forever
+			}
+			ObjectWeapons *weapons = u->weaponStatusWeapons();
+			if (!weapons)
+			{
+				other.store(true, std::memory_order_relaxed);
+				break; // the chunk's results are discarded below
+			}
+			WeaponStatusWork &work = m_weaponStatusWork[i];
+			weapons->computeWeaponStatusConditions(work.cond);
+			work.weapons = weapons;
+			work.module = u;
+			++mine;
+		}
+		filled.fetch_add(mine, std::memory_order_relaxed);
+	});
+	if (other.load(std::memory_order_relaxed))
+	{
+		m_weaponStatusWork.assign(vec.size(), WeaponStatusWork{});
+		++m_weaponStatusSerialFrames;
+	}
+	else if (filled.load(std::memory_order_relaxed) > 0)
+	{
+		++m_weaponStatusPooledFrames;
+	}
+}
+
+// RW 0x62EADF .. 0x62EB4D: the reverse scan that moves FOREVER modules from the phase vector to `sleeping`
+void GameLogic::migrateForeverModules(int vectorIndex)
+{
+	std::vector<UpdateModule *> &vec = m_updates[vectorIndex];
+	size_t j = vec.size();
+	while (j > 0)
+	{
+		--j;
+		UpdateModule *u = vec[j];
+		if (u && u->friend_getNextCallFrame() >= (UnsignedInt)UPDATE_SLEEP_FOREVER)
+		{
+			if (j < vec.size() - 1)
+			{
+				vec[j] = vec.back();
+				vec[j]->friend_setIndexInLogic((int)j, vectorIndex);
+			}
+			vec.pop_back();
+			u->friend_setIndexInLogic((int)m_sleeping.size()); // phase -1
+			m_sleeping.push_back(u);
+		}
+	}
+}
+
+// RW 0x62EC55 .. 0x62ECAA
+void GameLogic::endOfFrameObjectChecks()
+{
+	for (Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		if (o->getDisabledMask() != DISABLEDMASK_NONE)
+		{
+			o->checkDisabledStatus(m_frame);
+		}
+		if (o->testStatus(OBJECT_STATUS_IGNORE_AI_COMMAND))
+		{
+			o->checkIgnoreAICommandStatus(m_frame);
+		}
+		if (o->testStatus(OBJECT_STATUS_NO_COLLISIONS))
+		{
+			o->checkNoCollisionsStatus(m_frame);
+		}
+	}
+}
+
+// ---- destruction ----------------------------------------------------------------------------------------------------------
+// ZH GameLogic.cpp:3959-4010 (spec 5.5)
+void GameLogic::destroyObject(Object *obj)
+{
+	if (!obj || obj->isDestroyed())
+	{
+		return;
+	}
+	for (const std::unique_ptr<BehaviorModule> &m : obj->modules())
+	{
+		if (DestroyModuleInterface *d = m->getDestroy())
+		{
+			d->onDestroy();
+		}
+	}
+	obj->setStatus(OBJECT_STATUS_DESTROYED, true);
+	// stop AI locomotion and the path: the AI update interface is not ported (S-142)
+	m_objectsToDestroy.push_back(obj);
+	obj->friend_onDestroy();
+}
+
+void GameLogic::friend_replaceUpdateModule(UpdateModule *old, UpdateModule *replacement)
+{
+	if (old)
+	{
+		removeUpdateModule(old);
+	}
+	if (!replacement)
+	{
+		return;
+	}
+	const UnsignedInt now = m_frame == 0 ? 1 : m_frame;
+	if (replacement->friend_getNextCallFrame() == 0)
+	{
+		replacement->friend_setNextCallFrame(now);
+	}
+	if (replacement->friend_getNextCallFrame() == (UnsignedInt)UPDATE_SLEEP_FOREVER)
+	{
+		replacement->friend_setIndexInLogic((int)m_sleeping.size(), -1);
+		m_sleeping.push_back(replacement);
+	}
+	else
+	{
+		const int phase = (int)replacement->getUpdatePhase();
+		std::vector<UpdateModule *> &vec = m_updates[phase];
+		replacement->friend_setIndexInLogic((int)vec.size(), phase);
+		vec.push_back(replacement);
+	}
+}
+
+void GameLogic::removeUpdateModule(UpdateModule *u)
+{
+	const int index = u->friend_getIndexInLogic();
+	const int phase = u->friend_getPhaseInLogic();
+	if (index == -1)
+	{
+		return;
+	}
+	u->friend_setPhaseInLogic(-1);
+	u->friend_setIndexInLogic(-1);
+	std::vector<UpdateModule *> &vec = phase < 0 ? m_sleeping : m_updates[phase];
+	if (index < (int)vec.size() - 1)
+	{
+		vec[(size_t)index] = vec.back();
+		vec[(size_t)index]->friend_setIndexInLogic(index, phase);
+	}
+	vec.pop_back();
+}
+
+// RW 0x62A2C9
+void GameLogic::processDestroyList()
+{
+	for (size_t k = 0; k < m_objectsToDestroy.size(); ++k) // the list may grow during the pass (a destroyed horde destroys its members)
+	{
+		Object *obj = m_objectsToDestroy[k];
+		for (const std::unique_ptr<BehaviorModule> &m : obj->modules())
+		{
+			if (UpdateModule *u = m->asUpdateModule())
+			{
+				removeUpdateModule(u);
+			}
+		}
+		// the module destructors run at RW's delete: GettingBuiltBehavior's (RW 0x85750D) first kills the worker the structure spawned (RW 0x85730B, lane AI-2 r6).
+		// Called before the object leaves the lists so the builder is still found by id; the dead worker goes on this same list (the loop walks its growth)
+		// lane TAINTAREA-1: AttributeModifierAuraUpdate's (RW 0x89EE67): a TAINT object's radius clear (its cells, its TAINTEFFECT objects, the trees). In
+		// the module order of the object (the destructors' order)
+		for (const std::unique_ptr<BehaviorModule> &m : obj->modules())
+		{
+			if (GettingBuiltBehavior *gb = dynamic_cast<GettingBuiltBehavior *>(m.get()))
+			{
+				gb->killSpawnedWorkerOnDelete();
+			}
+			else if (AttributeModifierAuraUpdate *aura = dynamic_cast<AttributeModifierAuraUpdate *>(m.get()))
+			{
+				aura->onDeleteClearTaint();
+			}
+		}
+		// the pathfinder's map removal (RW 0x6E85FB): not ported (PATH-1 hooks in through the object's modules)
+		unlinkObject(obj);
+		if (obj->getID() < m_objectsById.size())
+		{
+			m_objectsById[obj->getID()] = nullptr;
+		}
+		delete obj;
+		++m_destroyedTotal;
+	}
+	m_objectsToDestroy.clear();
+}
+
+// lane BACKLOG3 (S-2452): see GameLogic.h
+void GameLogic::noteBeacon(BeaconNotice::Kind kind, int playerIndex, ObjectID object, const Coord3D &position)
+{
+	if (m_beaconNotices.size() >= kBeaconNotices)
+	{
+		m_beaconNotices.erase(m_beaconNotices.begin());
+	}
+	BeaconNotice n;
+	n.seq = ++m_beaconSeq;
+	n.frame = m_frame;
+	n.kind = kind;
+	n.playerIndex = playerIndex;
+	n.object = object;
+	n.position = position;
+	m_beaconNotices.push_back(n);
+}
+
+void GameLogic::noteRadarEvent(int type, const Coord3D &position, RadarEventNotice::Source source, int playerIndex)
+{
+	if (m_radarEventNotices.size() >= kRadarEventNotices)
+	{
+		m_radarEventNotices.erase(m_radarEventNotices.begin()); // the radar keeps 64 records itself (round robin, RW 0x6D93EB)
+	}
+	RadarEventNotice n;
+	n.seq = ++m_radarEventSeq;
+	n.frame = m_frame;
+	n.type = type;
+	n.position = position;
+	n.source = source;
+	n.playerIndex = playerIndex;
+	m_radarEventNotices.push_back(n);
+	noteRadarLogicWrite();
+}
+
+void GameLogic::reset()
+{
+	m_missionObjectives.reset(); // lane CAMPUI-1: TheMissionObjectiveTracker's reset (RW 0x835E03): a new game has no list until its map.ini's
+	m_radarEventNotices.clear(); // lane BACKLOG3: a new game's radar starts empty (the sequence goes on: a client's cursor stays behind it)
+	// ZH GameLogic::reset: every object goes; the scheduler vectors are cleared with their modules' indices
+	m_current = nullptr;
+	while (m_objectHead)
+	{
+		Object *o = m_objectHead;
+		for (const std::unique_ptr<BehaviorModule> &m : o->modules())
+		{
+			if (UpdateModule *u = m->asUpdateModule())
+			{
+				u->friend_setIndexInLogic(-1);
+			}
+		}
+		unlinkObject(o);
+		// lane SMOOTH-3: the object leaves the id lookup before it is deleted. Its modules' destructors run AI state exits (e.g. the garrison enter state's
+		// RW 0x752B0F onExit looks its container up by id); with the lookup still holding objects deleted earlier in this loop they used a freed object
+		// (AddressSanitizer: heap-use-after-free in GameLogic::reset, test_hud_garrison_input).
+		friend_removeObjectFromLookup(o);
+		delete o;
+	}
+	for (std::vector<UpdateModule *> &vec : m_updates)
+	{
+		vec.clear();
+	}
+	m_sleeping.clear();
+	m_weaponStatusWork.clear(); // lane PERF-WS: no module pointer outlives its game
+	m_weaponStatusSerialFrames = 0;
+	m_weaponStatusPooledFrames = 0;
+	m_objectsToDestroy.clear();
+	m_objectsById.clear();
+	m_templateInfo.clear();
+	m_crushInfo.clear();
+	m_crushById.clear();
+	m_frame = 0;
+	m_gameDifficulty = 1; // lane CAMP-1H: GameLogic::reset RW 0x62D3EB (+ 0xA4 = 1)
+	m_buildableOverrides.clear(); // lane BFME2CAMP1 (review): a new game starts without the script's overrides (ZH GameLogic::reset clears its map; donor)
+	m_campaignCarryover.reset();  // lane BFME2CAMP1: the mission's start sets it again
+	m_showBehindBuildingMarkers = true; // lane OCCLUDE-1: GameLogic::reset RW 0x62D3D6 (+ 0x99 = 1)
+	m_rankLevelLimit = kDefaultRankLevelLimit; // PORT-43: RW 0x62A20D (startNewGame's init helper RW 0x62A11A; GameLogic::reset RW 0x62D232 leaves +0x118 untouched)
+	m_rankLevelLimitScripted = false;
+	m_nextObjectID = 1;
+	m_sharedProductionID = 0;
+	m_objectCount = 0;
+	m_lastPhase = 0;
+	m_depth = 0;
+	m_creationsWithoutDispatch = 0;
+	m_scriptEventsWithoutDispatch = 0;
+	m_destroyedTotal = 0;
+	m_errors.clear();
+	m_economy->reset();
+	m_combat->reset();
+	m_victory->reset();
+	m_sell->reset(); // lane FACT-A
+	m_skirmishAI->reset();
+	m_experience->reset();
+	m_partition->reset();
+	m_emotions->reset();
+	m_weather->reset(); // lane SPELL-2 (the objects are gone: nothing to remove from them)
+	m_invisibility->reset();
+	m_dot->reset(); // lane DECOMP-1
+	m_trees->reset(); // lane SPELL-3
+	m_threatFinders->reset(); // PORT 17: the map's named threat areas go with their objects
+	m_taint->reset(); // lane TAINTAREA-1: GameLogic::reset RW 0x62D2FF -> RW 0xAD4BB0 (the grid shrinks to one cell; its cell size stays)
+	m_scriptEngine->reset(); // lane SCRIPT-1
+}
+
+// RW 0x628882 (see GameLogic.h): the LUA-1 function when installed, else the same steps
+int GameLogic::sendObjectCreated(Object &obj)
+{
+	auto bindDrawable = [this, &obj]() {
+		if (m_clientHooks)
+		{
+			m_clientHooks->objectCreated(obj); // RW 0x6288D3 / 0x6288DC: the Drawable is made and bound
+		}
+	};
+	if (m_objectCreatedProc)
+	{
+		return m_objectCreatedProc(obj, bindDrawable);
+	}
+	const int seed = m_random.getValue(1, 999, "GameLogic.cpp", 0x19A7); // RW 0x628892 .. 0x6288A5
+	bindDrawable();
+	++m_creationsWithoutDispatch;
+	return seed;
+}
+
+// lane HERO-2: RW 0x7379CB(slot, object, args) -> LuaScriptEngine::dispatch (RW 0x735F53), through the proc the live game installed (see GameLogic.h)
+void GameLogic::dispatchScriptEvent(int slot, Object &self, const LuaEventArgs &args)
+{
+	if (m_scriptEventProc)
+	{
+		m_scriptEventProc(slot, self, args);
+		return;
+	}
+	++m_scriptEventsWithoutDispatch;
+}
+
+// lane NUGGET-1: RW 0x735F53 for an event found by name (see GameLogic.h)
+void GameLogic::dispatchNamedScriptEvent(const std::string &name, Object &self, const LuaEventArgs &args)
+{
+	if (m_namedScriptEventProc)
+	{
+		m_namedScriptEventProc(name, self, args);
+		return;
+	}
+	++m_scriptEventsWithoutDispatch;
+}
+
+// lane HERO-2: RW 0x663E32 (see GameLogic.h)
+void GameLogic::scriptModelConditionEvents(Object &self, std::array<std::uint32_t, 19> &snapshot)
+{
+	const Object::ModelConditionBits &now = self.getModelConditionBits();
+	if (m_frame < 2) // RW 0x663E41: TheGameLogic + 0x40 < 2
+	{
+		snapshot = now;
+		return;
+	}
+	if (snapshot == now) // RW 0x444D9B
+	{
+		return;
+	}
+	if (m_modelConditionEventProc)
+	{
+		m_modelConditionEventProc(self, snapshot); // RW 0x7378DA(flags, snapshot, object)
+	}
+	snapshot = now;
+}
+
+// ---- the state hash ---------------------------------------------------------------------------------------------------------
+std::uint32_t GameLogic::computeStateHash() const
+{
+	return hashState(nullptr, nullptr);
+}
+
+// lane BFME2CAMP1: RW 0x62FEE6 (see GameLogic.h)
+void GameLogic::setBuildableStatusOverride(const ThingTemplate *tt, std::int32_t status)
+{
+	if (tt)
+	{
+		m_buildableOverrides[tt->getName()] = status;
+	}
+}
+
+// RW 0x62EE6D
+bool GameLogic::findBuildableStatusOverride(const ThingTemplate *tt, std::int32_t &status) const
+{
+	if (!tt)
+	{
+		return false;
+	}
+	const auto it = m_buildableOverrides.find(tt->getName());
+	if (it == m_buildableOverrides.end())
+	{
+		return false;
+	}
+	status = it->second;
+	return true;
+}
+
+std::uint32_t GameLogic::computeStateHashBreakdown(std::vector<StateHashSection> &sections, std::vector<ObjectStateHash> *objects) const
+{
+	sections.clear();
+	if (objects)
+	{
+		objects->clear();
+	}
+	return hashState(&sections, objects);
+}
+
+// The state's sections in a fixed order (lane MP-1), hashed by the profile's rule at the end (lane UBER-1: Faithful chains them in one walk, Uber hashes
+// each on its own in parallel).
+std::uint32_t GameLogic::hashState(std::vector<StateHashSection> *sections, std::vector<ObjectStateHash> *objects) const
+{
+	// lane UBER-1: the sections are listed first and hashed after the list is complete (the Faithful profile feeds them one after another into the total
+	// exactly as before; the Uber profile hashes each on its own, see the end of this function)
+	struct PendingSection
+	{
+		std::string name;
+		std::function<void(StateHasher &)> feed;
+	};
+	std::vector<PendingSection> pending;
+	pending.reserve(32);
+	auto section = [&](const std::string &name, std::function<void(StateHasher &)> feed) { pending.push_back(PendingSection{ name, std::move(feed) }); };
+	section("frame, object ids, RNG", [&](StateHasher &x) {
+		x.addU32(m_frame);
+		x.addBool(m_frameAdvance); // RW GameLogic + 0x44: when false the frame counter does not advance
+		x.addI32(m_gameDifficulty); // lane CAMP-1H: RW GameLogic + 0xA4
+		// WOTR2 milestone 7: the War of the Ring battle's army tags, only while they are in use (every other game hashes as before)
+		if (m_livingWorldTags.inUse())
+		{
+			x.addBool(m_livingWorldTags.active);
+			x.addU32((std::uint32_t)m_livingWorldTags.objects.size());
+			for (const auto &kv : m_livingWorldTags.objects)
+			{
+				x.addU32(kv.first);
+				x.addI32(kv.second.armyId);
+				x.addString(kv.second.spawnId);
+				x.addI32(kv.second.buildingId);
+			}
+			x.addU32((std::uint32_t)m_livingWorldTags.heroes.size());
+			for (const auto &kv : m_livingWorldTags.heroes)
+			{
+				x.addI32(kv.first.first);
+				x.addString(kv.first.second);
+				x.addI32(kv.second.armyId);
+				x.addString(kv.second.spawnId);
+				x.addI32(kv.second.buildingId); // review wotr2m7: the same fields as the xfer
+			}
+			x.addU32((std::uint32_t)m_livingWorldTags.destroyedBuildings.size());
+			for (int id : m_livingWorldTags.destroyedBuildings)
+			{
+				x.addI32(id);
+			}
+			x.addU32((std::uint32_t)m_livingWorldTags.reinforcements.size());
+			for (const LivingWorldBattleTags::Reinforcement &r : m_livingWorldTags.reinforcements)
+			{
+				x.addI32(r.armyId);
+				x.addI32(r.playerIndex);
+				x.addI32(r.state);
+				x.addU32(r.arrivalFrame);
+				x.addU32((std::uint32_t)r.members.size());
+				for (const LivingWorldBattleTags::Member &m : r.members)
+				{
+					x.addString(m.thingTemplate);
+					x.addI32(m.memberIndex);
+					x.addI32(m.quantity);
+					x.addFloat(m.experience);
+					x.addU32((std::uint32_t)m.upgrades.size());
+					for (const std::string &u : m.upgrades)
+					{
+						x.addString(u);
+					}
+					x.addString(m.spawnId);
+				}
+				x.addU32((std::uint32_t)r.spawnPoints.size());
+				for (const auto &p : r.spawnPoints)
+				{
+					x.addString(p.first);
+					x.addString(p.second);
+				}
+			}
+			x.addU32((std::uint32_t)m_livingWorldTags.arrivals.size());
+			for (int id : m_livingWorldTags.arrivals)
+			{
+				x.addI32(id);
+			}
+		}
+		// lane RULES-1: the game rules and the Legendary Heroes factor, only when the game has them (a game without keeps its hash)
+		if (!MpGameRules::isNone(m_gameRules))
+		{
+			for (std::int32_t v : m_gameRules)
+			{
+				x.addI32(v);
+			}
+		}
+		if (m_legendaryHeroes != LegendaryHeroes::kOff)
+		{
+			x.addI32(m_legendaryHeroes);
+		}
+		m_cheatMode.crc(x); // lane CHEAT-1: only a Cheat Mode game hashes it (every other game keeps its hash)
+		// lane UBER-1: an Uber game hashes its profile (a Faithful game hashes nothing more: its hashes stay the ones before UBER-1)
+		if (m_simulationProfile != SimulationProfile::Faithful)
+		{
+			x.addI32((std::int32_t)m_simulationProfile);
+		}
+		// lane BFME2CAMP1: the script's buildability overrides, only when there are any (a game without keeps its hash)
+		if (!m_buildableOverrides.empty())
+		{
+			x.addU32((std::uint32_t)m_buildableOverrides.size());
+			for (const auto &e : m_buildableOverrides)
+			{
+				x.addString(e.first);
+				x.addI32(e.second);
+			}
+		}
+		// lane BFME2CAMP1: the campaign's carry-over, only in a campaign game that has it
+		if (m_campaignCarryover)
+		{
+			x.addU32(0xCA4401u);
+			m_campaignCarryover->crc(x);
+		}
+		// PORT-43: GameLogic + 0x118 (m_rankLevelLimit) when scripted by PLAYER_SET_RANKLEVELLIMIT (RW 0x7BB04E); an unscripted game derives +0x118 from
+		// EconomySettings::powerLimit / EconomyContext::gameMode (already hashed by Economy::crc) and keeps its existing hashes (retail's XferCRC skips +0x118 at RW 0x630ADF)
+		if (m_rankLevelLimitScripted)
+		{
+			x.addI32(m_rankLevelLimit);
+		}
+		x.addU32(m_nextObjectID);
+		if (ModEngineFeatures::has(ModEngineFeature::EdainUnchainedUniqueProductionId))
+		{
+			x.addU32(m_sharedProductionID); // lane MODS-3 (a retail game hashes nothing more)
+		}
+		x.addU32((std::uint32_t)m_objectCount);
+		for (std::uint32_t w : m_random.seedArray())
+		{
+			x.addU32(w);
+		}
+	});
+	// the scheduler: the vectors in order (their order is state: iteration order decides module order)
+	section("scheduler", [&](StateHasher &x) {
+		for (int p = 0; p < PHASE_COUNT; ++p)
+		{
+			x.addU32((std::uint32_t)m_updates[p].size());
+			for (const UpdateModule *u : m_updates[p])
+			{
+				x.addU32(u->getObject()->getID());
+				x.addU32(u->friend_getNextCallFrame());
+			}
+		}
+		x.addU32((std::uint32_t)m_sleeping.size());
+		for (const UpdateModule *u : m_sleeping)
+		{
+			x.addU32(u->getObject()->getID());
+			x.addU32(u->friend_getNextCallFrame());
+		}
+		x.addU32((std::uint32_t)m_objectsToDestroy.size());
+		for (const Object *o : m_objectsToDestroy)
+		{
+			x.addU32(o->getID());
+		}
+	});
+	section("objects", [&](StateHasher &x) {
+		if (m_simulationProfile == SimulationProfile::Uber)
+		{
+			hashObjectsUber(x); // lane UBER-1
+			return;
+		}
+		hashObjectsTaped(x); // lane PERF-HD: every object's crc in list order, its words found on the job pool
+	});
+	if (objects)
+	{
+		for (const Object *o = m_objectHead; o; o = o->getNextObject())
+		{
+			StateHasher own;
+			o->crc(own);
+			objects->push_back(ObjectStateHash{ o->getID(), o->getTemplate() ? o->getTemplate()->getName() : std::string(), own.value() });
+		}
+	}
+	// lane MODULES-2: after the objects, before the contributors (the MP-1 section order keeps its fixed head and tail)
+	section("partition manager", [&](StateHasher &x) { m_partition->crc(x); }); // the trees' link order is history, hence state
+	section("emotion system", [&](StateHasher &x) { m_emotions->crc(x); });     // the scary / hero list (its order is state)
+	for (size_t i = 0; i < m_hashContributors.size(); ++i)
+	{
+		// MOVE-1: state outside the objects (the pathfinder; VIS-1: the shroud), named by their owners
+		const std::string name = m_hashContributors[i].name.empty() ? "contributor " + std::to_string(i) : m_hashContributors[i].name;
+		section(name, [this, i](StateHasher &x) { m_hashContributors[i].fn(x); });
+	}
+	section("players and teams", [&](StateHasher &x) { m_players.crc(x); });
+	section("settings", [&](StateHasher &x) { m_settings.crc(x); });
+	section("economy", [&](StateHasher &x) { m_economy->crc(x); });
+	section("combat", [&](StateHasher &x) { m_combat->crc(x); });
+	section("victory", [&](StateHasher &x) { m_victory->crc(x); });
+	if (!m_sell->empty()) // lane FACT-A: only a frame with a structure being sold has the section
+	{
+		section("sell list", [&](StateHasher &x) { m_sell->crc(x); });
+	}
+	section("skirmish AI", [&](StateHasher &x) { m_skirmishAI->crc(x); }); // lane AI-1
+	section("experience", [&](StateHasher &x) { m_experience->crc(x); }); // lane XP-1
+	if (!m_createAHeroes->heroes().empty()) // lane HERO-2: only a game with a Create-a-Hero has the section
+	{
+		section("create-a-hero", [&](StateHasher &x) { x.addU32(m_createAHeroes->crc()); });
+	}
+	section("weather", [&](StateHasher &x) { m_weather->crc(x); }); // lane SPELL-2
+	section("invisibility", [&](StateHasher &x) { m_invisibility->crc(x); }); // lane STEALTH-1
+	if (!m_dot->empty())
+	{
+		section("damage over time", [&](StateHasher &x) { m_dot->crc(x); }); // lane DECOMP-1: only while a record runs (a game without one keeps its hash)
+	}
+	if (m_trees->anyChanged() || m_trees->anyClusterUsed())
+	{
+		// lane SPELL-3: only once a tree toppled or was harvested, or (RAI-POW-3) a tree killer marked a cluster: a game without keeps its hash
+		section("terrain trees", [&](StateHasher &x) { m_trees->crc(x); });
+	}
+	if (m_taint->anyNonDefault())
+	{
+		// lane TAINTAREA-1: retail's GameLogic::getCRC (RW 0x625886) transfers TheTaintManager; here only while a cell is painted (a game without keeps its hash)
+		section("taint manager", [&](StateHasher &x) { m_taint->crc(x); });
+	}
+	section("large group audio", [&](StateHasher &x) { m_largeGroupAudio.crc(x); }); // lane AUDIO-4: TheLargeGroupAudio's gate (+ 0x38 / + 0x3C)
+	if (m_scriptEngine->loaded())
+	{
+		section("script engine", [&](StateHasher &x) { m_scriptEngine->crc(x); }); // lane SCRIPT-1 (a game without map scripts keeps its hash)
+	}
+	StateHasher h;
+	auto record = [&](const PendingSection &p, std::uint32_t value, std::uint32_t before) {
+		if (sections)
+		{
+			StateHashSection sec;
+			sec.name = p.name;
+			sec.value = value;
+			sec.chainBefore = before;
+			sec.chainAfter = h.value();
+			sections->push_back(sec);
+		}
+	};
+	if (m_simulationProfile != SimulationProfile::Uber)
+	{
+		// Faithful: one walk feeds the total and, when asked, the per-section hashes (lane MP-1): a section is hashed into the total and into its own
+		// hasher, so the breakdown can never drift from the hash it explains.
+		// lane PERF-HD: every section's words are recorded on a tape first (the objects section on this thread, which spreads its objects over the
+		// logic job pool itself; the others one job each, as the Uber profile hashes them: each reads only its own subsystem, nothing changes the state
+		// while the hash runs), then the tapes are chained in the list order: the same words in the same order as the one serial walk, so the same
+		// values whatever the thread count (the Faithful pins and every recorded game's hashes are unchanged).
+		std::vector<std::vector<std::uint32_t>> &tapes = m_hashSectionTapes;
+		if (tapes.size() < pending.size())
+		{
+			tapes.resize(pending.size());
+		}
+		// the objects section's words stay on the objects' own tapes, chained straight from there below. Lane UBER-HASH: the objects' tapes and the
+		// other sections' tapes are found in ONE dispatch (the sections first: the pathfinder's and the shroud's walk every cell, so they start at once
+		// instead of after the objects' barrier); every tape is its own slot, so the words are the same
+		size_t objectsTape = pending.size();
+		for (size_t i = 0; i < pending.size(); ++i)
+		{
+			if (pending[i].name == "objects")
+			{
+				objectsTape = i;
+			}
+		}
+		const size_t objectJobs = objectsTape < pending.size() ? listHashObjects() : 0;
+		const std::vector<const Object *> &hashObjects = m_uberHashObjects;
+		std::vector<std::vector<std::uint32_t>> &objectTapes = m_hashObjectTapes;
+		const size_t sectionCount = pending.size();
+		JobSystem::logic().parallelFor(sectionCount + objectJobs, 1,
+			[&pending, &tapes, &hashObjects, &objectTapes, objectsTape, sectionCount](size_t, size_t begin, size_t end) {
+				for (size_t i = begin; i < end; ++i)
+				{
+					if (i >= sectionCount)
+					{
+						const size_t first = (i - sectionCount) * kHashObjectsPerJob;
+						const size_t last = std::min(hashObjects.size(), first + kHashObjectsPerJob);
+						for (size_t o = first; o < last; ++o)
+						{
+							objectTapes[o].clear();
+							StateHasher rec(&objectTapes[o]);
+							hashObjects[o]->crc(rec);
+						}
+					}
+					else if (i != objectsTape)
+					{
+						tapes[i].clear();
+						StateHasher rec(&tapes[i]);
+						pending[i].feed(rec);
+					}
+				}
+			});
+		const size_t objectCount = m_uberHashObjects.size();
+		for (size_t i = 0; i < pending.size(); ++i)
+		{
+			const std::uint32_t before = h.value();
+			StateHasher x;
+			if (i == objectsTape)
+			{
+				for (size_t o = 0; o < objectCount; ++o)
+				{
+					h.replay(m_hashObjectTapes[o]);
+					if (sections)
+					{
+						x.replay(m_hashObjectTapes[o]);
+					}
+				}
+			}
+			else
+			{
+				h.replay(tapes[i]);
+				if (sections)
+				{
+					x.replay(tapes[i]);
+				}
+			}
+			record(pending[i], sections ? x.value() : 0u, before);
+		}
+		return h.value();
+	}
+	// lane UBER-1 (docs/UBER.md), NOT A PORT: every section is hashed into its own StateHasher (the objects section first, on this thread: it spreads its
+	// objects over the logic job pool itself, and a dispatch from inside a job would run inline), the other sections on the logic job pool one job each
+	// (each reads only its own subsystem; nothing changes the state while the hash runs); then the total chains every section's value in the list order.
+	// The result depends only on the state, never on the thread count; the breakdown's value is the section's, its chain the Uber total's.
+	// Lane UBER-HASH: the objects' own hashes and the other sections in ONE dispatch (the sections first, so the pathfinder's and the shroud's
+	// whole-map walks start at once instead of after the objects' barrier); every value lands in its own slot, so the hash is unchanged.
+	std::vector<std::uint32_t> values(pending.size(), 0u);
+	size_t objectsIndex = pending.size();
+	for (size_t i = 0; i < pending.size(); ++i)
+	{
+		if (pending[i].name == "objects")
+		{
+			objectsIndex = i;
+		}
+	}
+	const size_t objectJobs = objectsIndex < pending.size() ? listHashObjects() : 0;
+	m_uberHashValues.resize(m_uberHashObjects.size());
+	const std::vector<const Object *> &hashObjects = m_uberHashObjects;
+	std::vector<std::uint32_t> &objectValues = m_uberHashValues;
+	const size_t sectionCount = pending.size();
+	JobSystem::logic().parallelFor(sectionCount + objectJobs, 1,
+		[&pending, &values, &hashObjects, &objectValues, objectsIndex, sectionCount](size_t, size_t begin, size_t end) {
+			for (size_t i = begin; i < end; ++i)
+			{
+				if (i >= sectionCount)
+				{
+					const size_t first = (i - sectionCount) * kHashObjectsPerJob;
+					const size_t last = std::min(hashObjects.size(), first + kHashObjectsPerJob);
+					for (size_t o = first; o < last; ++o)
+					{
+						StateHasher own;
+						hashObjects[o]->crc(own);
+						objectValues[o] = own.value();
+					}
+				}
+				else if (i != objectsIndex)
+				{
+					StateHasher x;
+					pending[i].feed(x);
+					values[i] = x.value();
+				}
+			}
+		});
+	if (objectsIndex < pending.size())
+	{
+		StateHasher x;
+		chainObjectsUber(x);
+		values[objectsIndex] = x.value();
+	}
+	for (size_t i = 0; i < pending.size(); ++i)
+	{
+		const std::uint32_t before = h.value();
+		h.addU32(values[i]);
+		record(pending[i], values[i], before);
+	}
+	return h.value();
+}
+
+// lane PERF-HD: the Faithful profile's objects section, every object's crc in object list order as the serial walk feeds it: each object's words are
+// recorded on its own tape on the logic job pool (Object::crc is const: it reads the object and its modules only; the Uber hash runs it there too), then
+// appended in list order. The words and their order are the walk's, so the value is the walk's with any thread count.
+void GameLogic::hashObjectsTaped(StateHasher &x) const
+{
+	gatherObjectTapes();
+	for (size_t i = 0; i < m_uberHashObjects.size(); ++i)
+	{
+		for (std::uint32_t w : m_hashObjectTapes[i])
+		{
+			x.addU32(w);
+		}
+	}
+}
+
+// lane PERF-HD: every object's crc words on its own tape (m_hashObjectTapes, object list order in m_uberHashObjects), on the logic job pool
+void GameLogic::gatherObjectTapes() const
+{
+	constexpr size_t kObjectsPerJob = 64;
+	m_uberHashObjects.clear();
+	for (const Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		m_uberHashObjects.push_back(o);
+	}
+	const std::vector<const Object *> &objects = m_uberHashObjects;
+	std::vector<std::vector<std::uint32_t>> &tapes = m_hashObjectTapes;
+	if (tapes.size() < objects.size())
+	{
+		tapes.resize(objects.size());
+	}
+	JobSystem::logic().parallelFor(objects.size(), kObjectsPerJob, [&objects, &tapes](size_t, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+		{
+			tapes[i].clear();
+			StateHasher rec(&tapes[i]);
+			objects[i]->crc(rec);
+		}
+	});
+}
+
+// lane UBER-1 (docs/UBER.md), NOT A PORT: the Uber profile's objects section. Retail's CRC step (rotate-add, Common/StateHash.h) chains every word into
+// the one before, so the Faithful section is one serial walk (about three quarters of the hash, and every recorded game hashes every frame for its
+// replay). Uber hashes each object into its own StateHasher on the logic job pool (Object::crc is const: it reads the object and its modules only),
+// then chains the object count and every (id, object hash) in object list order on this thread. Chunks are fixed runs of kObjectsPerJob objects and
+// each value lands in its object's slot, so the result is the same with any thread count; it differs from the Faithful hash on purpose (an Uber
+// game never compares hashes with a Faithful one: the profile identity refuses the mix).
+void GameLogic::hashObjectsUber(StateHasher &x) const
+{
+	constexpr size_t kObjectsPerJob = 64;
+	m_uberHashObjects.clear();
+	for (const Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		m_uberHashObjects.push_back(o);
+	}
+	m_uberHashValues.resize(m_uberHashObjects.size());
+	const std::vector<const Object *> &objects = m_uberHashObjects;
+	std::vector<std::uint32_t> &values = m_uberHashValues;
+	JobSystem::logic().parallelFor(objects.size(), kObjectsPerJob, [&objects, &values](size_t, size_t begin, size_t end) {
+		for (size_t i = begin; i < end; ++i)
+		{
+			StateHasher own;
+			objects[i]->crc(own);
+			values[i] = own.value();
+		}
+	});
+	chainObjectsUber(x);
+}
+
+// lane UBER-1: the Uber objects section's chain over m_uberHashValues (object list order in m_uberHashObjects)
+void GameLogic::chainObjectsUber(StateHasher &x) const
+{
+	const std::vector<const Object *> &objects = m_uberHashObjects;
+	x.addU32((std::uint32_t)objects.size());
+	for (size_t i = 0; i < objects.size(); ++i)
+	{
+		x.addU32(objects[i]->getID());
+		x.addU32(m_uberHashValues[i]);
+	}
+}
+
+// lane UBER-HASH: the object list in m_uberHashObjects (list order); the count of kHashObjectsPerJob runs
+size_t GameLogic::listHashObjects() const
+{
+	m_uberHashObjects.clear();
+	for (const Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		m_uberHashObjects.push_back(o);
+	}
+	if (m_hashObjectTapes.size() < m_uberHashObjects.size())
+	{
+		m_hashObjectTapes.resize(m_uberHashObjects.size());
+	}
+	return (m_uberHashObjects.size() + kHashObjectsPerJob - 1) / kHashObjectsPerJob;
+}
+
+// ---- reports --------------------------------------------------------------------------------------------------------------
+GameLogic::Report GameLogic::report() const
+{
+	Report r;
+	r.stopHits = m_notedStopHits; // QA-1: each runtime occurrence, including PORT-5's missing bird target
+	r.frame = m_frame;
+	r.objects = m_objectCount;
+	r.destroyed = m_destroyedTotal;
+	for (const std::vector<UpdateModule *> &vec : m_updates)
+	{
+		r.updateModules += vec.size();
+	}
+	r.sleepingModules = m_sleeping.size();
+	r.unportedCreated = m_modules.unportedCreated();
+	r.creationsWithoutDispatch = m_creationsWithoutDispatch;
+	r.weaponStatusSerialFrames = m_weaponStatusSerialFrames;
+	r.weaponStatusPooledFrames = m_weaponStatusPooledFrames;
+	r.errors = m_errors;
+	for (const Object *o = m_objectHead; o; o = o->getNextObject())
+	{
+		std::map<std::string, size_t> perObject;
+		for (const std::unique_ptr<BehaviorModule> &m : o->modules())
+		{
+			if (m->isHelper())
+			{
+				const ObjectHelperShell *h = static_cast<const ObjectHelperShell *>(m.get());
+				++r.helperShells[h->helperName()];
+				r.unportedUpdateCalls += h->calls();
+			}
+			else if (m->isUnported())
+			{
+				const std::string &cn = m->getModuleClassName();
+				UnportedClassStat &st = r.unportedModules[cn];
+				++st.modules;
+				++perObject[cn];
+				if (const UnportedUpdateModule *uu = dynamic_cast<const UnportedUpdateModule *>(m.get()))
+				{
+					st.interfaceMask = uu->interfaceMask();
+					r.unportedUpdateCalls += uu->calls();
+				}
+				else if (const UnportedBehaviorModule *ub = dynamic_cast<const UnportedBehaviorModule *>(m.get()))
+				{
+					st.interfaceMask = ub->interfaceMask();
+				}
+			}
+		}
+		for (const auto &kv : perObject)
+		{
+			++r.unportedModules[kv.first].objects;
+		}
+	}
+	// the stop lines
+	size_t unportedModules = 0;
+	for (const auto &kv : r.unportedModules)
+	{
+		unportedModules += kv.second.modules;
+	}
+	r.stops.push_back("[S-140] module runtime: " + std::to_string(m_modules.portedModuleCount()) + " of " + std::to_string(m_modules.classCount()) +
+		" registered classes have a runtime class; every other class is an UnportedModule that does nothing (" + std::to_string(unportedModules) + " live instances of " +
+		std::to_string(r.unportedModules.size()) + " classes, " + std::to_string(r.unportedUpdateCalls) + " calls)");
+	size_t helpers = 0;
+	for (const auto &kv : r.helperShells)
+	{
+		helpers += kv.second;
+	}
+	r.stops.push_back("[S-141] helper modules: " + std::to_string(helpers) + " live helper modules (SMC, Recovery, Repulsor, Defection, Guarding, WeaponStatus, FiringTracker) created in the retail order; the Recovery, Repulsor, Defection, Guarding and FiringTracker shells do nothing (the SMCHelper and the WeaponStatusHelper act: lanes PROD-1, PROJ-2)");
+	r.stops.push_back("[S-142] objects: creation steps not ported: the special power mask and "
+		"what else initObject (RW 0x693D0C, tier B edited, no decomp source) does beyond Object::friend_initObject; ported since (lane BACKLOG2 audit): the experience tracker (XP-1, RW 0x69A606), "
+		"partition registration (MODULES-2, the world entry RW 0x69A6C6), the radar step (RW 0x69A66D -> Radar::addObject RW 0x6D9042: RADAR-1 applies its rules to the live objects at "
+		"every draw; the radar lists are client state), initObject's upgrade refresh and command points (RW 0x693D38 / 0x693D51), the safe occlusion frame (OCCLUDE-1: RW 0x69A687)");
+	r.stops.push_back("[S-146] players: a Player carries the index, name, faction template, type, colour, money, default team and relationships only; energy, sciences, upgrades, build list, AI, command points and the spell book belong to the lanes that port them");
+	r.stops.push_back("[S-149] ActiveBody / HordeContain: the payload creation site (here: onCreate; RW 0x871B9B, HordeContain vslot 0x70, has no located caller), the members' team and facing are inference; ActiveBody's FX / OCL names are stored unresolved (lane DECOMP-1: GlobalData + 0xB4 / + 0xB8 are UnitDamagedThreshold / UnitReallyDamagedThreshold, GameData table RW 0xBFF580 rows RW 0xBFF980 / 0xBFF990; the DamagePercentToUnits trimming never runs in retail)");
+	for (const std::string &u : unportedPhaseWork())
+	{
+		r.stops.push_back("[S-143] " + u);
+	}
+	for (const std::string &u : m_economy->report())
+	{
+		r.stops.push_back(u); // lane ECON-1 (S-250 ..)
+	}
+	for (const std::string &u : m_combat->report())
+	{
+		r.stops.push_back(u); // lane COMBAT-1 (S-320 ..)
+	}
+	for (const std::string &u : m_experience->report()) // lane XP-1 (S-630 ..)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : CreateAHeroGame::stopLines()) // lane HERO-2 (S-1226)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : AttributeModifierPool::stopLines())
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : UpgradeModuleClasses::stopLines()) // lane UPGRADE-1 (S-480 ..)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : BuildStops::lines()) // lane BUILD-1 (S-300 ..)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : m_invisibility->report()) // lane STEALTH-1 (S-1040)
+	{
+		r.stops.push_back(u);
+	}
+	r.stops.push_back(DOTManager::stopLine()); // lane DECOMP-1 (S-1959)
+	for (const std::string &u : m_victory->report()) // lane COMBAT-2 (S-344)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : SkirmishAIManager::stopLines()) // lane AI-1 (S-410 ..)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : m_skirmishAI->report())
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : StructureStops::lines()) // lane COMBAT-2 (S-340 ..)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : PartitionManager::stopLines()) // lane MODULES-2 (S-1020)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : m_emotions->report()) // lane MODULES-2 (S-1021)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : EmotionTrackerUpdate::stopLines()) // lane MODULES-2 (S-1022)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : AreaScanModules::stopLines()) // lane MODULES-2 (S-1023)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : HitReactionBehavior::stopLines()) // lane MODULES-2 (S-1024)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : AIUpdateInterface::emotionStops()) // lane MODULES-3 (S-1027 / S-1028)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : NotifyCrushUpdate::stopLines()) // lane MODULES-3 (S-1029)
+	{
+		r.stops.push_back(u);
+	}
+	for (const std::string &u : m_notedStops)
+	{
+		r.stops.push_back(u);
+	}
+	if (m_scriptEngine->loaded()) // lane SCRIPT-1 (S-1180 ..)
+	{
+		for (const std::string &u : ScriptEngine::stopLines())
+		{
+			r.stops.push_back(u);
+		}
+		for (const std::string &u : m_scriptEngine->report())
+		{
+			r.stops.push_back(u);
+		}
+	}
+	for (const std::string &u : m_random.unverified())
+	{
+		r.stops.push_back("[S-080] logic RNG (" + std::string(m_random.algorithm() == RandomAlgorithm::ZH_CarryChain ? "ZH carry chain" : "RotWK game.dat LCG") + " selected explicitly): " + u);
+	}
+	if (!m_settings.unappliedFields.empty())
+	{
+		std::string names;
+		size_t n = 0;
+		for (const std::string &f : m_settings.unappliedFields)
+		{
+			if (n++ < 6)
+			{
+				names += (names.empty() ? "" : ", ") + f;
+			}
+		}
+		r.stops.push_back("[S-152] settings: " + std::to_string(m_settings.unappliedFields.size()) + " GameData / AIData / MultiplayerSettings fields are read by the INI loader and not applied (no full parse table yet; first: " + names + ")");
+	}
+	if (m_scriptEventsWithoutDispatch > 0)
+	{
+		r.stops.push_back("[S-1220] script events: no ScriptEventProc (LiveScripting) was installed; " + std::to_string(m_scriptEventsWithoutDispatch) + " engine dispatches (RW 0x7379CB) reached no script engine");
+	}
+	if (m_creationsWithoutDispatch > 0)
+	{
+		r.stops.push_back("[S-147] OnCreated: no LuaScriptEngine::sendObjectCreated (setObjectCreatedProc) was installed; " + std::to_string(m_creationsWithoutDispatch) + " objects were created without the script world entry and the OnCreated dispatch");
+	}
+	return r;
+}
+
+void GameLogic::initRankLevelLimit()
+{
+	// PORT-43: RW 0x62A20D (startNewGame's init helper RW 0x62A11A, called at RW 0x631555) sets GameLogic + 0x118 = 1000 (0x3E8);
+	// RW 0x631420 .. 0x631436 (startNewGame's tail helper RW 0x6311ED, called at RW 0x6315A7) tests RW 0x625456 (isInSkirmishOrMultiplayerGame,
+	// Economy::isMultiplayerGame) and on true copies GlobalData + 0xE94 (PowerLimit, row RW 0xC00C00, EconomySettings::powerLimit) into GameLogic + 0x118.
+	const EconomySettings &s = m_economy->settings();
+	if (!s.loaded)
+	{
+		throw std::logic_error("GameLogic::initRankLevelLimit: GameData's economy values are not loaded (EconomySettings::load)");
+	}
+	m_rankLevelLimit = m_economy->isMultiplayerGame() ? s.powerLimit : kDefaultRankLevelLimit;
+	m_rankLevelLimitScripted = false;
+}
+
+void GameLogic::setRankLevelLimit(int limit)
+{
+	// PORT-43: RW 0x7BB04E .. 0x7BB060 (called via RW 0x7BD1A8 from script action 279 PLAYER_SET_RANKLEVELLIMIT at RW 0x7CE020):
+	// cmp eax, 1; jge; mov eax, 1; mov [ecx + 0x118], eax.
+	m_rankLevelLimit = limit < 1 ? 1 : limit;
+	m_rankLevelLimitScripted = true;
+}
+
+void GameLogic::resetRankLevelLimitFromEconomy()
+{
+	const EconomySettings &s = m_economy->settings();
+	m_rankLevelLimit = (s.loaded && m_economy->isMultiplayerGame()) ? s.powerLimit : kDefaultRankLevelLimit;
+	m_rankLevelLimitScripted = false;
+}
+

@@ -1,0 +1,867 @@
+// OpenBFME retail tests for structures in combat (lane COMBAT-2). They run only when ROTWK_INSTALL and BFME2_INSTALL are set (otherwise SKIP): pure RotWK 2.01 + BFME2 1.06.
+// Same file-order rule as test_hud_combat_retail.cpp: the HUD, combat and structure tests share ONE retail world.
+//
+// A Gondor fighter horde (15 members, GondorSword: 40 SLASH every 5 frames) attacks the barracks equivalent of each of the seven factions until it is destroyed. The rows below are read by
+// hand from the 2.01 INI (INI.big + _patch201ini.big; the #defines of gamedata.ini resolved):
+//   template, body class, MaxHealth, armour (armor.ini: FactoryArmor SLASH 20%, ResourceArmor SLASH 50%, MordorBarracks has none: 100%), BountyValue, the StructureCollapseUpdate
+//   (every one: MinCollapseDelay = MaxCollapseDelay = 0, CollapseDamping 0.5, DestroyObjectWhenDone Yes; CollapseHeight in the row, the largest ACTIVE Geometry shape in the row when the
+//   field is smaller), or the DestroyDie of MordorBarracks.
+// Derived by hand:
+//   * a sword hit takes 40 * SLASH% of the structure's health (8 on a FactoryArmor structure), so a structure of H health needs ceil(H / hit) hits (+1 when the float percent leaves a
+//     residue: 20% parses to 0.19999999, a hit is 7.9999995 and 375 of them leave 1.8e-4 of a 3000 health structure);
+//   * after the killing hit the collapse starts: the first update (next frame) begins the fall, the velocity grows by gravity * (1 - damping) = 2.56 * 0.5 = 1.28 per frame (GameData
+//     Gravity -64 per second squared at 5 frames per second), so after n updates the fall is 1.28 * n * (n - 1) / 2 and the structure is destroyed at the first n with that >= the collapse
+//     height H: n = smallest with n * (n - 1) >= H / 0.64; it leaves the world n frames after its death frame (the destroy list runs at the end of that frame);
+//   * the bounty is BountyValue * the killer's player's bounty percent, paid once.
+#include "doctest.h"
+#include "StructureArena.h"
+
+#include "GameLogic/Combat/CombatNames.h"
+#include "GameLogic/Module/ConstructionModules.h"
+#include "GameLogic/ObjectTemplateInfo.h"
+#include "GameClient/LogicSnapshot.h"
+#include "GameLogic/System/ShroudManager.h"
+#include "GameLogic/Module/StructureModules.h"
+#include "GameLogic/VictoryConditions.h"
+#include "GameLogic/System/TerrainResourceManager.h"
+
+#include <cmath>
+#include <cstdio>
+
+using namespace structtest;
+
+namespace
+{
+struct StructRow
+{
+	const char *faction, *templ, *body;
+	float health;
+	float slashPercent; // the armour's SLASH percentage (100 when the template has no armour)
+	int bounty;
+	float collapseHeight; // the height the fall has to cover: max(CollapseHeight, the largest active Geometry shape)
+	bool collapses;       // StructureCollapseUpdate with DestroyObjectWhenDone (Mordor: DestroyDie)
+	int armorFrames;      // pinned from the run: the frame the structure died (see the comment at the check)
+};
+
+// the death frames (last column) are this engine's attack machine (S-325 / S-327), not binary facts. Lane PATH-2 moved them earlier (264 -> 258, 266 -> 258,
+// 430 -> 426, 62 -> 58): the attackers' approach distance adds the bounding SPHERES (RW obj + 0xBC), which are now RW 0xAD2860 / 0xAD2770 over every shape
+// of the barracks' geometry (multi-shape; a cylinder's sqrt(r^2 + (h/2)^2)), so the members start swinging from farther away.
+// Lane INTEG-1 (HORDE-2 + PATH-2 combined) moved them again (258 -> 256, 258 -> 256, 426 -> 422, 258 -> 256 Isengard, 258 -> 256 Angmar): HORDE-2's melee
+// readiness (RW 0x98FA8E) and its member reach tests measure the edge gap with RW 0x6634BF, which subtracts the bounding CIRCLES (RW obj + 0xB8 = GeometryInfo
+// + 0x10); RW 0xAD2860 sets that to the largest circle over every active shape, which PATH-2 ported. With the multi-shape circle the horde is ready at the
+// barracks earlier (with the single-shape circle in the horde code alone the frames would be 264 / 260 / 426 / 262 / 264). Engine pins, not retail values.
+// Lane PHYS-1: PHYS-1's crowd predicate exposes the unported allied clearing / attack-path machinery (S-166 / S-783). External per-member traces (review r2) reproduce
+// every round 2 death pin: the steady contributing member counts are 8 / 11 / 8 / 8 / 7 / 7 / 8 in row order, versus 15 with only the crowd test bypassed. Gondor
+// members 7, 8, 9, 10, 12, 13 and 14 remain idle behind allied goal reservations. Neither version puts a member centre inside a structure in these fixtures. These
+// remain OpenBFME timings, not retail timings. Round 3 (the attack path S-784, allied clearing S-785, the Amoeba's goal reservation following its steps RW 0x990AB8)
+// gives 446 / 326 / 726 / 496 / 66 / 126 / 446 with 9 / 12 / 9 / 7 / - / 7 / 9 steady contributors (`phys1 retail: the contributors of ...`); the members still idle
+// are in HORDE-2's Amoeba idle cycle and scoring. Round 4 (the request RW 0x6639CF wired into the horde approach state as temporary non-retail wiring, S-786): GoblinCave 126 -> 108 (9 contributors), the
+// others unchanged. Round 5 (RW 0x74A594's non-fleeing chain in the horde state, the temporary wiring removed, S-590): MordorBarracks 66 -> 74, GoblinCave 108 -> 118
+// (8 contributors); the others unchanged (their horde is ready before the chain runs). Review r5 fixes (the squared, clamped edge gain of RW 0x6CA525, KeepRequest,
+// the off-map refusal): MordorBarracks 74 -> 66, GoblinCave 118 -> 120 (9 contributors).
+// Round 6 (the per-unit melee machine RW 0x744B71: the members attack through 0xE1 / 0xE2 and request no path of their own (crushing members can take 0xE9), S-787; RW 0x7463E8 in the horde chain):
+// 446 -> 434, 326 -> 324, 726 -> 724, 496 -> 454, 66 -> 62, 120 -> 108, 446 -> 434 with 9 / 12 / 9 / 9 / - / 9 / 9 steady contributors.
+// Lane MODULES-2 merge: the retail logic random draws of the emotion trackers (one QuarrelProbability draw per tracker and frame, RW 0x8B5DF3) and of the
+// group bonus's first wake (RW 0x8937B5) move the random stream the melee machine reads: 434 -> 456, 324 -> 334, 724 -> 784, 454 -> 484, 62 -> 64,
+// 108 -> 118, 434 -> 456 (without those two draws the pins above come back unchanged).
+// Lane MOVE-2 r2: the horde's command hand-off (RW 0x89E169 -> slot 0x14 RW 0x87594C: the attack order first makes the members busy), the move hub's full
+// busy rule (RW 0x874749: the horde's isMoving or the member's isIdle) and the member order's active-member rule / leash (RW 0x877B69 / 0x877B4F) change which
+// members swing when: 456 -> 448, 334 -> 344, 784 -> 714, 484 -> 488, 64 -> 60, 118 -> 94, 456 -> 448. Engine pins.
+// Lane MOD-4: AISpecialPowerUpdate runs (the Gondor horde's stance and capture modules): the UpdateModule constructor (RW 0x653114) wakes it in the first frame where the
+// UnportedModule slept from its creation, which moves the update order the melee machine's draws follow: 456 -> 446, 334 -> 354, 784 -> 794, 484 -> 468,
+// 64 -> 62, 118 -> 112, 456 -> 446 (with AISpecialPowerUpdate unregistered the pins above come back unchanged). Engine pins.
+// Lane MOVE-2 r3 (the melee member pass: the contain runs the Amoeba update and moves the members to their melee destinations through the hub, RW 0x872EFC /
+// 0x870A1B / 0x877D89; blockedBy's step aside as the AI command RW 0x66C4CA; the stored orientation wrapped, RW 0x70C31E): 454 -> 468, 334 -> 344, 740 -> 714, 424 -> 460, 58 -> 76, 108 -> 128, 454 -> 468. Engine pins.
+const StructRow kRows[] = {
+	// pin: merge queue q41 (DECOMPFIX-1104B: AIMAIM-1's aim, RW 0x75232F, with BUMP-1's give-way rules and STARTRANGE-1's start range; measured once on the merged tree and at its merge point, NECRODIE-1 keeps it): 396 -> 474, 410 -> 400, 602 -> 668, 370 -> 406, 64 -> 62, 104 -> 112, 396 -> 474. Engine pins
+	// Merge queue q35 (#132's ground-structure melee reach: the members swing from the footprint's obstacle ring; measured once on the merged tree and at each
+	// merge point, SIMSMALL-1, #178 and #179 keep the archive's values): 406 -> 396, 432 -> 410, 612 -> 602, 404 -> 370, 72 -> 74, 122 -> 104, 406 -> 396. Engine pins
+	// Merge MOD-4 + AUDIO-4: the death frames re-measured on the merged tree (MOD-4's powers / creeps and LargeGroupAudioUpdate's logic random draws both move them). Engine pins
+	// Merge MOD-4 + AUDIO-4 + ANIM-1: the death frames re-measured on the merged tree (MOD-4's powers / creeps, LargeGroupAudioUpdate's logic random draws and
+	// ANIM-1's attack timing all move them). Engine pins
+	// Lane EXIT-1 (the hub's busy rule RW 0x87471B, the horde member update RW 0x66C748, maintainCurrentPosition RW 0x5E7CC7): the members reach the barracks in
+	// RW's straight member steps: 432 -> 356, 326 unchanged, 742 -> 590, 482 -> 420, 58 -> 62, 112 -> 118, 432 -> 356. Engine pins
+	// Merge EXIT-1 + MOVE-2 (EXIT-1's straight member steps with MOVE-2's melee member pass and the hand-off of the attack order): 356 -> 436, 326 -> 324,
+	// 590 -> 664, 420 -> 384, 62 -> 52, 118 -> 110, 356 -> 436; the hit counts are unchanged. Engine pins
+	// Lane MOVE-3 (the horde's own footprint RW 0x6ED071 in its attack path and destination checks, the member goal reservation RW 0x86EF13): 436, 324 -> 314,
+	// 664 -> 684, 384 -> 444, 52, 110, 436; the hit counts are unchanged. Engine pins
+	// MOVE-3 r2 and r3 (the exit's moveAlliesAwayFromDestination; the review fixes: a horde's line test radius 1 RW 0x6EE12D, the goal slot's angle, the patch
+	// cost's candidate cell, the raw segment's NaN rule): re-measured unchanged. Engine pins
+	// Lane IDLE-1 r2 (the AI updates in updates[0] and HordeContain in updates[1], RW 0x851E97 / 0x490AC4: every member's update now runs before its horde's member
+	// pass, and the hub leaves a member whose physics motion is disabled alone, RW 0x874724): 436 -> 438, 324 -> 344, 664 -> 604, 384 -> 344, 52 -> 54, 110 -> 112,
+	// 436 -> 438. Engine pins, not retail values.
+	// Merge of IDLE-1 r2 (22e29980) into MOVE-3 with MOVE-3 r4: re-measured on the reference PC, the IDLE-1 values above unchanged. Engine pins
+	// Lane PLAY-4 (the stances' guard, AIGuard.h: an idle Battle-stance horde guards its spot, whose idle and return states draw the logic random generator,
+	// RW 0x949630 / 0x94A571): MordorBarracks 54 -> 62, GoblinCave 112 -> 120, the others unchanged. Engine pins
+	// Lane TARGET-1 (RotWK's mood scan: the idle state sleeps until the next mood check, RW 0x7553AB, and the check's one-off random offset draws the logic
+	// generator, RW 0x6686F0): 438 -> 390, 344 -> 324, 604 -> 584, 344 -> 380, 62 -> 72, 120 -> 116, 438 -> 390; the hit counts are unchanged. Engine pins
+	// Lane ATTACKPATH-1 (the horde approach goal's helpers RW 0x6F2F8F / 0x746783 / 0x6FB67A: the goal is pulled back 0.7 * the horde's circle when the line from
+	// the target to that point is NOT blocked, the port had it the other way round; the walk back toward the horde and AdjustHordeMeleeDestination's ring):
+	// MordorBarracks 62 -> 60, GoblinCave 120 -> 104 (the two rows whose horde runs the chain before it is ready), the others unchanged. Engine pins
+	// Merge queue q23 (TARGET-1 + ATTACKPATH-1 + FLANK-1 on the merged tree, measured once): TARGET-1's values with ATTACKPATH-1's horde approach goal on the two
+	// rows whose horde runs the chain before it is ready: MordorBarracks 72 -> 60, GoblinCave 116 -> 96; the others are TARGET-1's. Engine pins
+	// Merge queue q24 (OFFMAP-1: RotWK's idle state RW 0x745A64 has no ZH frame <= 1 snap, so the Gondor horde and the barracks' fight start where the scene
+	// made them; measured once on the merged tree; without OFFMAP-1 the merged tree keeps q23's values): 390 -> 388, 324 -> 330, 584 -> 604, 380 -> 426,
+	// 60 -> 58, 96 -> 110, 390 -> 388. Engine pins
+	// Merge queue q26 (community #73's slot tables centred on their hordes and #74's spiral with BANNER-1 and the rest, measured once on the merged tree):
+	// 388 -> 406, 330 -> 422, 604 -> 660, 426 -> 404, 58 -> 72, 110 -> 122, 388 -> 406. Engine pins
+	{ "FactionMen", "GondorBarracks", "ActiveBody", 3000.0f, 20.0f, 75, 155.0f, true, 474 },
+	{ "FactionElves", "ElvenBarracks", "StructureBody", 3000.0f, 20.0f, 0, 100.0f, true, 400 }, // no BountyValue line; 422 -> 432 (see below)
+	{ "FactionDwarves", "DwarfBarracks", "ActiveBody", 5000.0f, 20.0f, 125, 155.0f, true, 668 }, // 660 -> 612: fix/horde-contain-no-follow: a horde's move or turn no longer carries its members, they walk to their slots (RW 0x871536)
+	{ "FactionIsengard", "IsengardUrukPit", "StructureBody", 3000.0f, 20.0f, 88, 89.0f, true, 406 },
+	{ "FactionMordor", "MordorBarracks", "StructureBody", 1500.0f, 100.0f, 0, 0.0f, false, 62 }, // 74 -> 64: lane PATH-REBUILD (the found paths rebuilt from their optimised nodes, RW 0x767B0E: the horde walks other lines); the hits are unchanged
+	{ "FactionWild", "GoblinCave", "ActiveBody", 1500.0f, 50.0f, 100, 25.0f, true, 112 },
+	{ "FactionAngmar", "AngmarBarracks", "ActiveBody", 3000.0f, 20.0f, 75, 155.0f, true, 474 },
+};
+
+// n * (n - 1) / 2 * 1.28 >= H, the first n
+int collapseUpdates(float height)
+{
+	int n = 1;
+	while (1.28 * n * (n - 1) / 2.0 < (double)height)
+	{
+		++n;
+	}
+	return n;
+}
+
+struct Outcome
+{
+	std::vector<std::uint32_t> hashes;
+	bool bodyOk = false;
+	std::string bodyClass;
+	float maxHealth = 0.0f;
+	int deathFrame = -1, goneFrame = -1;
+	unsigned long long applications = 0;
+	std::vector<float> drops;              // every positive health step of one frame
+	bool obstacleBefore = false;           // the footprint was an obstacle while the structure stood
+	bool obstacleAfterDeath = true;        // ... and is not any more on the frame it died
+	ObjectID obstacleIdAfterDeath = 0;     // the object whose footprint holds that cell then (lane MODCOMPAT-MOD1: a rebuild hole's)
+	ObjectID id = 0;                       // the structure
+	bool obstacleIsHole = false;           // ... and it is a rebuild hole (RebuildHoleBehavior)
+	bool rubbleState = false, rubbleCondition = false;
+	int cashBefore = 0, cashAfter = 0;
+	bool claimantBefore = false, claimantAfter = true;
+	unsigned long long collapsesBegun = 0, collapsesDone = 0;
+	int firstHitFrame = -1;
+	float perHitSeen = 0.0f;
+};
+
+Outcome fightStructure(const StructRow &row, float bountyPercent, bool recordHashes)
+{
+	SharedWorld &s = shared();
+	Outcome out;
+	Arena a(s, "FactionMen", row.faction);
+	a.player(0)->setBountyPercent(bountyPercent);
+	Object *horde = a.place("GondorFighterHorde", 0, 500.0f, 500.0f);
+	Object *b = a.place(row.templ, 1, 640.0f, 500.0f);
+	const ObjectID id = b->getID();
+	out.id = id;
+	a.logic.runLogicFrame();
+	a.logic.runLogicFrame();
+	BodyModuleInterface *body = b->getBodyModule();
+	REQUIRE(body != nullptr);
+	out.maxHealth = body->getMaxHealth();
+	for (const auto &m : b->modules())
+	{
+		if (dynamic_cast<const ActiveBody *>(m.get()))
+		{
+			out.bodyClass = dynamic_cast<const StructureBody *>(m.get()) ? "StructureBody" : "ActiveBody";
+		}
+	}
+	out.obstacleBefore = a.obstacleAt(640.0f, 500.0f);
+	for (const TerrainResourceManager::Claimant &c : a.logic.economy().resources().claimants())
+	{
+		out.claimantBefore = out.claimantBefore || c.id == id;
+	}
+	out.cashBefore = (int)a.player(0)->getMoney()->countMoney();
+	// the hits on this structure only (merge queue q35: with #132's melee reach the members strike the Wild cave's WildCaveHole in the frame the cave dies
+	// and leaves it, which the game-wide damage counter adds)
+	unsigned long long structureHits = 0;
+	a.logic.combat().setDamageTrace([&structureHits, id](const Object &victim, std::uint32_t, float, float) { structureHits += victim.getID() == id ? 1 : 0; });
+	horde->getAIUpdateInterface()->aiAttackObject(b, CMD_FROM_PLAYER);
+	if (recordHashes)
+	{
+		out.hashes.push_back(a.logic.computeStateHash());
+	}
+	float last = out.maxHealth;
+	for (int f = 0; f < 2000; ++f)
+	{
+		a.logic.runLogicFrame();
+		if (recordHashes)
+		{
+			out.hashes.push_back(a.logic.computeStateHash());
+		}
+		Object *o = a.logic.findObjectByID(id);
+		if (o && !o->isEffectivelyDead())
+		{
+			const float h = o->getBodyModule()->getHealth();
+			if (h < last)
+			{
+				out.drops.push_back(last - h);
+				out.firstHitFrame = out.firstHitFrame < 0 ? f : out.firstHitFrame;
+			}
+			last = h;
+		}
+		if (out.deathFrame < 0 && o && o->isEffectivelyDead())
+		{
+			out.deathFrame = f;
+			out.applications = structureHits;
+			out.obstacleAfterDeath = a.obstacleAt(640.0f, 500.0f);
+			out.obstacleIdAfterDeath = a.obstacleIdAt(640.0f, 500.0f);
+			if (const Object *holder = a.logic.findObjectByID(out.obstacleIdAfterDeath))
+			{
+				out.obstacleIsHole = holder->findModule("RebuildHoleBehavior") != nullptr;
+			}
+			out.rubbleState = o->getBodyModule()->getDamageState() == BODY_RUBBLE;
+			out.rubbleCondition = o->testModelCondition(CombatNames::modelCondition("RUBBLE"));
+			out.cashAfter = (int)a.player(0)->getMoney()->countMoney();
+			for (const TerrainResourceManager::Claimant &c : a.logic.economy().resources().claimants())
+			{
+				out.claimantAfter = out.claimantAfter && c.id != id;
+			}
+			if (out.claimantAfter)
+			{
+				out.claimantAfter = true;
+			}
+		}
+		if (!o)
+		{
+			out.goneFrame = f;
+			if (out.deathFrame < 0)
+			{
+				out.deathFrame = f; // destroyed in the frame it died (DestroyDie)
+				out.applications = structureHits;
+				out.cashAfter = (int)a.player(0)->getMoney()->countMoney();
+				out.obstacleAfterDeath = a.obstacleAt(640.0f, 500.0f);
+				out.obstacleIdAfterDeath = a.obstacleIdAt(640.0f, 500.0f);
+				if (const Object *holder = a.logic.findObjectByID(out.obstacleIdAfterDeath))
+				{
+					out.obstacleIsHole = holder->findModule("RebuildHoleBehavior") != nullptr;
+				}
+				out.rubbleState = true; // the body had reached RUBBLE (the object is gone: asserted through the counters)
+				out.rubbleCondition = true;
+				out.claimantAfter = true;
+				for (const TerrainResourceManager::Claimant &c : a.logic.economy().resources().claimants())
+				{
+					out.claimantAfter = out.claimantAfter && c.id != id;
+				}
+			}
+			break;
+		}
+	}
+	out.collapsesBegun = a.logic.combat().counters().collapsesBegun;
+	out.collapsesDone = a.logic.combat().counters().collapsesDone;
+	a.logic.combat().setDamageTrace(nullptr);
+	return out;
+}
+} // namespace
+
+
+TEST_CASE("p23 diag: a dwarven hearth heals a wounded porter")
+{
+	if (!hudtest::haveWorld("p23 diag")) { return; }
+	SharedWorld &s = shared();
+	Arena a(s, "FactionDwarves", "FactionMordor");
+	Object *hearth = a.place("DwarvenHearth", 0, 500.0f, 500.0f);
+	Object *worker = a.place("DwarvenPorter", 0, 560.0f, 500.0f);
+	a.logic.runLogicFrame();
+	a.logic.runLogicFrame();
+	REQUIRE(worker->getBodyModule() != nullptr);
+	worker->getBodyModule()->setInitialHealth(50);
+	const int pi = a.player(0)->getPlayerIndex();
+	std::printf("  diag P-23: hearth %p worker health %.0f/%.0f, allied %d, filter pass?\n", (void *)hearth, worker->getBodyModule()->getHealth(),
+		worker->getBodyModule()->getMaxHealth(), worker->getTeam()->getRelationship(a.player(0)->getDefaultTeam()) == ALLIES ? 1 : 0);
+	(void)pi;
+	for (int f = 0; f < 120; ++f)
+	{
+		a.logic.runLogicFrame();
+		if ((f % 20) == 0)
+		{
+			std::printf("  diag P-23 f%d health %.1f\n", f, worker->getBodyModule()->getHealth());
+		}
+	}
+	CHECK(worker->getBodyModule()->getHealth() > worker->getBodyModule()->getMaxHealth() * 0.5f); // tolerance: the aura tick phase decides the exact health; the check is that it heals well past half
+	// the same aura over a horde's members (the owner's soldiers): one member damaged inside the radius
+	Object *horde = a.place("DwarvenAxeThrowerHorde", 0, 500.0f, 560.0f);
+	a.logic.runLogicFrame();
+	REQUIRE(horde->getContain() != nullptr);
+	Object *member = nullptr;
+	if (const ContainModuleInterface::ContainedItemsList *l = horde->getContain()->getContainedItemsList())
+	{
+		for (Object *m : *l)
+		{
+			if (m && m->getBodyModule())
+			{
+				member = m;
+				break;
+			}
+		}
+	}
+	REQUIRE(member != nullptr);
+	member->getBodyModule()->setInitialHealth(50);
+	const float start = member->getBodyModule()->getHealth();
+	for (int f = 0; f < 120; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	std::printf("  diag P-23 horde member: %.1f -> %.1f\n", start, member->getBodyModule()->getHealth());
+	CHECK(member->getBodyModule()->getHealth() > start); // tolerance: the aura tick phase; only the direction is asserted
+	// the owner's case: a unit damaged by an ATTACK (lastDamageFrame set) must heal after the 4 s gate
+	Object *hurt = a.place("DwarvenPorter", 0, 560.0f, 500.0f);
+	a.logic.runLogicFrame();
+	REQUIRE(hurt->getBodyModule() != nullptr);
+	DamageInfo hit;
+	hit.m_input.m_damageType = DAMAGE_SLASH;
+	hit.m_input.m_amount = 250.0f;
+	hurt->getBodyModule()->attemptDamage(hit);
+	const float hurtStart = hurt->getBodyModule()->getHealth();
+	for (int f = 0; f < 120; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	std::printf("  diag P-23 attacked worker: %.1f -> %.1f\n", hurtStart, hurt->getBodyModule()->getHealth());
+	CHECK(hurt->getBodyModule()->getHealth() > hurtStart); // tolerance: the aura tick phase; only the direction is asserted
+	// the owner's visual area: a 440 decal (2.2 x the 200 heal radius). A porter at 300 (inside the decal, outside the aura) must tell.
+	Object *far = a.place("DwarvenPorter", 0, 800.0f, 500.0f);
+	a.logic.runLogicFrame();
+	REQUIRE(far->getBodyModule() != nullptr);
+	DamageInfo farHit;
+	farHit.m_input.m_damageType = DAMAGE_SLASH;
+	farHit.m_input.m_amount = 250.0f;
+	far->getBodyModule()->attemptDamage(farHit);
+	const float farStart = far->getBodyModule()->getHealth();
+	for (int f = 0; f < 120; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	std::printf("  diag P-23 worker at 300: %.1f -> %.1f\n", farStart, far->getBodyModule()->getHealth());
+}
+
+TEST_CASE("p23 fix: a hearth whose aura slept while the foundation was effectively dead heals after revival")
+{
+	if (!hudtest::haveWorld("p23 fix")) { return; }
+	// reported in play: the live Hearth never healed. The aura's update returned UPDATE_SLEEP_FOREVER while the placed structure was flagged
+	// effectively dead (a foundation), and neither construction completion nor the save restore woke it. The fix keeps the aura on its ping delay while
+	// dead and wakes it on load; this test reproduces the slept state and expects healing after the structure is alive again.
+	SharedWorld &s = shared();
+	Arena a(s, "FactionDwarves", "FactionMordor");
+	Object *hearth = a.place("DwarvenHearth", 0, 500.0f, 500.0f);
+	Object *worker = a.place("DwarvenPorter", 0, 560.0f, 500.0f);
+	a.logic.runLogicFrame();
+	REQUIRE(worker->getBodyModule() != nullptr);
+	hearth->friend_setEffectivelyDead(true); // the foundation frame
+	for (int f = 0; f < 40; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	hearth->friend_setEffectivelyDead(false);
+	a.logic.runLogicFrame();
+	worker->getBodyModule()->setInitialHealth(50);
+	const float start = worker->getBodyModule()->getHealth();
+	for (int f = 0; f < 120; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	std::printf("  diag P-23 revived: %.1f -> %.1f\n", start, worker->getBodyModule()->getHealth());
+	CHECK(worker->getBodyModule()->getHealth() > start); // tolerance: the aura tick phase; only the direction is asserted
+}
+
+TEST_CASE("p10 retail: each horde member presents its own shroud status at the vision edge (the logic snapshot, not the horde centre)")
+{
+	if (!hudtest::haveWorld("p10 retail")) { return; }
+	SharedWorld &s = shared();
+	hudtest::Rig r(s);
+	Player *enemy = r.game->players().findPlayerWithName("Player_2");
+	REQUIRE(enemy != nullptr);
+	const ICoord2D *hi = r.logic().aiWorld()->pathfinder().getExtent();
+	const Coord3D spot = r.freeSpot((float)hi->x * 10.0f * 0.5f, (float)hi->y * 10.0f * 0.5f, 350.0f);
+	Object *horde = r.make("GoblinFighterHorde", spot.x, spot.y, enemy);
+	r.frame(3);
+	REQUIRE(horde != nullptr);
+	ShroudManager *sm = r.logic().shroud();
+	REQUIRE(sm != nullptr);
+	const int pi = r.local ? r.local->getPlayerIndex() : 0; // the observer is the local player, not the horde's owner
+	sm->setDisplayed(true);
+	sm->shroudMapForPlayer(pi);
+	std::vector<Object *> members;
+	if (const ContainModuleInterface::ContainedItemsList *l = horde->getContain() ? horde->getContain()->getContainedItemsList() : nullptr)
+	{
+		members.assign(l->begin(), l->end());
+	}
+	REQUIRE(members.size() >= 2); // tolerance: the horde payload count is data; at least two members make the test meaningful
+	const Object *first = members.front();
+	sm->revealCircle(first->getPosition()->x, first->getPosition()->y, 15.0f, 1u << pi, true);
+	sm->reevaluateAll();
+	int clear = 0, shrouded = 0, records = 0, inWorld = 0;
+	std::string line;
+	for (Object *m : members)
+	{
+		const ObjectShroudStatus st = sm->clientObjectStatus(*m, pi);
+		clear += st <= OBJECTSHROUD_PARTIAL_CLEAR ? 1 : 0;
+		shrouded += st == OBJECTSHROUD_SHROUDED ? 1 : 0;
+		records += sm->hasRecord(*m) ? 1 : 0;
+		inWorld += m->isInWorld() ? 1 : 0;
+		int cx = 0, cy = 0;
+		sm->worldToCell(m->getPosition()->x, m->getPosition()->y, cx, cy);
+		line += " " + std::to_string((int)st) + "/" + std::to_string((int)sm->getCellStatus(pi, cx, cy));
+	}
+	std::printf("  info: P-10: %zu members, clear %d, shrouded %d, records %d, inWorld %d, statuses:%s; horde record %d inWorld %d status %d\n", members.size(), clear, shrouded,
+		records, inWorld, line.c_str(), sm->hasRecord(*horde) ? 1 : 0, horde->isInWorld() ? 1 : 0, (int)sm->clientObjectStatus(*horde, pi));
+	{
+		const std::shared_ptr<const LogicSnapshot> snap = LogicSnapshot::build(r.logic(), nullptr, false, 0, pi);
+		std::string snapLine;
+		int snapShrouded = 0;
+		for (Object *m : members)
+		{
+			const ObjectSnapshot *rec = snap->find(m->getID());
+			snapLine += " " + std::to_string(rec ? (rec->shroudedForLocal ? 4 : rec->objectShroud) : -1);
+			snapShrouded += rec && rec->shroudedForLocal ? 1 : 0;
+		}
+		const ObjectSnapshot *recH = snap->find(horde->getID());
+		std::printf("  info: P-10 snapshot: %d shrouded, statuses:%s; horde %d\n", snapShrouded, snapLine.c_str(), recH ? (recH->shroudedForLocal ? 4 : recH->objectShroud) : -1);
+	}
+	CHECK(clear >= 1); // tolerance: at least one clear cell; the exact count follows the shroud merge
+	CHECK(shrouded >= 1); // tolerance: at least one shrouded cell; the exact count follows the shroud merge
+}
+
+TEST_CASE("structure retail: a Gondor horde destroys the barracks of every faction: hits, collapse, rubble, pathfinder, bounty")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	for (const StructRow &row : kRows)
+	{
+		INFO(row.templ);
+		const Outcome o = fightStructure(row, 1.0f, false);
+		CHECK(o.bodyClass == row.body);
+		REQUIRE(o.maxHealth == row.health);
+		// the damage per hit: 40 * SLASH% (every drop of one frame is a whole number of hits, at most the 15 members' worth)
+		const float perHit = 40.0f * row.slashPercent / 100.0f;
+		REQUIRE_FALSE(o.drops.empty());
+		for (float d : o.drops)
+		{
+			const float hits = d / perHit;
+			CHECK_MESSAGE(std::fabs(hits - std::round(hits)) < 1e-3f, "a step of " << d << " is not a whole number of " << perHit << " hits");
+			CHECK(hits < 15.5f);
+		}
+		// the number of hits: ceil(H / hit), one more when the float residue keeps a sliver of health
+		const double need = std::ceil((double)row.health / (double)perHit - 1e-9);
+		CHECK_MESSAGE((double)o.applications >= need, row.templ << ": " << o.applications << " hits for " << need);
+		CHECK_MESSAGE((double)o.applications <= need + 1.0, row.templ << ": " << o.applications << " hits for " << need);
+		// no member swings faster than every 5 frames: the soonest the structure can die
+		CHECK(o.deathFrame >= (int)std::ceil(need / 15.0) * 5 - 5);
+		CHECK_MESSAGE(o.deathFrame == row.armorFrames, row.templ << " died at frame " << o.deathFrame); // the approach and the swing phases are the attack machine's (S-325 / S-327)
+		// the structure stood as an obstacle, and left the pathfinder in the frame it died; the Wild barracks (GoblinCave, cave.ini: RebuildHoleExposeDie
+		// HoleName WildCaveHole) leaves its hole there in that frame, and the hole enters the pathfinder (RW 0x889AAF -> RW 0x6E85E9, lane BFME2CAMP1)
+		CHECK(o.obstacleBefore);
+		CHECK(o.obstacleIdAfterDeath != o.id);
+		// lane MODCOMPAT-MOD1: the Goblin cave's RebuildHoleExposeDie (RW 0x889AAF) leaves its WildCaveHole at the cave's position with the cave's GeometryInfo
+		// (RW 0x699349) and swaps the footprints in the same death: the cave out of the pathfinder's map (RW 0x6E85FB), the hole in (RW 0x6E85E9)
+		const bool hole = std::string(row.templ) == "GoblinCave";
+		CHECK(o.obstacleAfterDeath == hole);
+		CHECK(o.obstacleIsHole == hole);
+		CHECK(o.rubbleState);
+		CHECK(o.rubbleCondition);
+		// the ground the structure claimed (TerrainResourceBehavior, every one but MordorBarracks) is released: it is no claimant after its death
+		CHECK(o.claimantBefore == (std::string(row.templ) != "MordorBarracks"));
+		CHECK(o.claimantAfter);
+		// the killer's player is paid BountyValue * 1.0 once
+		CHECK(o.cashAfter - o.cashBefore == row.bounty);
+		// the structure leaves the world when its fall is over: n frames after its death (the DestroyDie of Mordor's barracks: in the same frame)
+		if (row.collapses)
+		{
+			CHECK(o.collapsesBegun == 1);
+			CHECK(o.collapsesDone == 1);
+			CHECK_MESSAGE(o.goneFrame - o.deathFrame == collapseUpdates(row.collapseHeight), row.templ << " fell for " << (o.goneFrame - o.deathFrame) << " frames");
+		}
+		else
+		{
+			CHECK(o.collapsesBegun == 0);
+			CHECK(o.goneFrame == o.deathFrame);
+		}
+		std::printf("  info: Gondor horde vs %s: %llu hits, died at frame %d, gone at %d, claimant %d -> %d\n", row.templ, o.applications, o.deathFrame, o.goneFrame, (int)o.claimantBefore,
+			(int)o.claimantAfter);
+	}
+}
+
+TEST_CASE("structure retail: at the default bounty percent 0 a destroyed structure pays nothing")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Outcome o = fightStructure(kRows[4], 0.0f, false); // MordorBarracks: the shortest fight
+	REQUIRE(o.deathFrame > 0);
+	CHECK(o.cashAfter == o.cashBefore);
+}
+
+TEST_CASE("structure retail: the same structure fight twice gives the same state hash in every frame")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Outcome a = fightStructure(kRows[0], 1.0f, true);
+	const Outcome b = fightStructure(kRows[0], 1.0f, true);
+	REQUIRE(a.hashes.size() == b.hashes.size());
+	for (size_t i = 0; i < a.hashes.size(); ++i)
+	{
+		REQUIRE_MESSAGE(a.hashes[i] == b.hashes[i], "frame " << i);
+	}
+	CHECK(a.hashes.size() > 200);
+	CHECK(a.hashes[10] != a.hashes[a.hashes.size() - 1]);
+}
+
+// ---- the skirmish victory rules on real data ---------------------------------------------------------------------------------------------------------
+// GameData (gamedata.ini, 2.01): VictoryConditionStructureObjectFilter = NONE +STRUCTURE -IGNORE_FOR_VICTORY -UNATTACKABLE -ECONOMY_STRUCTURE -WALL_UPGRADE -WALL_HUB -WALL_SEGMENT
+// -DEFENSIVE_WALL -Inn -ShipWright -Outpost -SignalFire -CaptureFlag -ShireGreenDragon; VictoryConditionUnitObjectFilter = ANY -DOZER -NOT_AUTOACQUIRABLE -MordorWorker; no
+// SecondsBeforeBaseCheckActive (the game's default 5.0 seconds = 25 frames). Lane GAMEMODES-1: a skirmish / LAN game (TheGameLogic + 0x114 == 3) is judged by rule 3 (RW 0x809476):
+// defeated when no object passes the structure filter and none passes the unit filter, which (ANY with no + kind) accepts nothing, so the last structure decides. Rule 2 (RW
+// 0x8094A5, a game of another kind: a War of the Ring battle) keeps a player while a live object of KindOf DOZER that is not IGNORE_FOR_VICTORY remains (a GondorWorker is a DOZER;
+// MordorWorker has IGNORE_FOR_VICTORY and does not count). The victory update runs in phase 1 of every frame, so a structure or worker that dies in frame d is judged in frame d + 1.
+namespace
+{
+struct Victory
+{
+	int barracksDied = -1, workerDied = -1;
+	unsigned endFrame = 0, bobDefeatFrame = 0;
+	bool bobDefeatedAfterBarracks = false;
+	bool alliance = false, aliceWon = false, bobLost = false;
+	int events = 0;
+	bool bobSoldiersDead = false, bobDefeated = false;
+	std::vector<std::uint32_t> hashes;
+};
+
+Victory playVictory(const char *attackerFaction, const char *attackerHorde, const char *attackerBase, const char *loserFaction, const char *barracks, const char *worker, bool killWorker, bool recordHashes, int gameKind = 3)
+{
+	SharedWorld &s = shared();
+	Victory out;
+	Arena a(s, attackerFaction, loserFaction);
+	a.logic.economy().context().gameKind = gameKind; // lane GAMEMODES-1: the victory rule follows TheGameLogic + 0x114 (RW 0x808A93)
+	a.logic.victory().init();
+	Object *base = a.place(attackerBase, 0, 200.0f, 200.0f); // the attacker needs a structure of its own to stay in the game
+	(void)base;
+	Object *horde = a.place(attackerHorde, 0, 500.0f, 500.0f);
+	Object *b = a.place(barracks, 1, 640.0f, 500.0f);
+	Object *w = a.place(worker, 1, 700.0f, 540.0f);
+	const ObjectID bId = b->getID(), wId = w->getID();
+	a.logic.runLogicFrame();
+	a.logic.runLogicFrame();
+	horde->getAIUpdateInterface()->aiAttackObject(b, CMD_FROM_PLAYER);
+	bool attackedWorker = false;
+	VictoryConditions &v = a.logic.victory();
+	for (int f = 0; f < 2500 && !v.singleAllianceRemaining(); ++f)
+	{
+		a.logic.runLogicFrame();
+		if (recordHashes)
+		{
+			out.hashes.push_back(a.logic.computeStateHash());
+		}
+		const Object *bo = a.logic.findObjectByID(bId);
+		const Object *wo = a.logic.findObjectByID(wId);
+		if (out.barracksDied < 0 && (!bo || bo->isEffectivelyDead()))
+		{
+			out.barracksDied = (int)a.logic.getFrame();
+		}
+		// a GondorWorker has MaxHealth 999999 ("so they can't be killed", the INI says): the scripted kill (Object::kill, what a map script's KILL action does) removes it
+		if (out.barracksDied >= 0 && !attackedWorker && killWorker && (int)a.logic.getFrame() == out.barracksDied + 10)
+		{
+			if (Object *victim = a.logic.findObjectByID(wId))
+			{
+				victim->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL);
+				attackedWorker = true;
+			}
+		}
+		if (out.barracksDied >= 0 && out.workerDied < 0 && (!wo || wo->isEffectivelyDead()))
+		{
+			out.workerDied = (int)a.logic.getFrame();
+		}
+		if (out.barracksDied >= 0 && !out.bobDefeatedAfterBarracks && v.isDefeated(1))
+		{
+			out.bobDefeatedAfterBarracks = true;
+		}
+		if (!killWorker && out.barracksDied >= 0 && (int)a.logic.getFrame() > out.barracksDied + 40)
+		{
+			break; // the worker is not attacked: Bob must still be in the game 40 frames after his barracks fell
+		}
+	}
+	out.endFrame = v.endFrame();
+	out.alliance = v.singleAllianceRemaining();
+	out.aliceWon = v.hasAchievedVictory(a.player(0));
+	out.bobLost = v.hasBeenDefeated(a.player(1));
+	out.bobDefeated = a.player(1)->isDefeated();
+	out.bobDefeatFrame = a.player(1)->getDefeatFrame();
+	out.events = (int)v.events().size();
+	const Object *wo = a.logic.findObjectByID(wId);
+	out.bobSoldiersDead = !wo || wo->isEffectivelyDead();
+	return out;
+}
+} // namespace
+
+TEST_CASE("structure retail: a skirmish player whose last barracks fell is out at once, his living builder notwithstanding (rule 3, lane GAMEMODES-1)")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Victory v = playVictory("FactionMordor", "MordorFighterHorde", "MordorBarracks", "FactionMen", "GondorBarracks", "GondorWorker", false, false);
+	REQUIRE(v.barracksDied > 25);
+	CHECK(v.alliance);
+	CHECK(v.bobDefeated);
+	CHECK(v.endFrame <= (unsigned)v.barracksDied + 1);
+	CHECK(v.bobDefeatFrame == v.endFrame);
+	CHECK(v.aliceWon);
+	CHECK(v.bobSoldiersDead); // killPlayer took the worker
+	std::printf("  info: Mordor vs Men (skirmish): the barracks died at frame %d, Men were eliminated at frame %u\n", v.barracksDied, v.endFrame);
+}
+
+TEST_CASE("structure retail: rule 2 (a War of the Ring battle): a player whose barracks fell but who still has a builder stays in the game; the loss comes with the builder")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	// Men against Mordor: GondorBarracks + a GondorWorker (KindOf DOZER, counts) for the loser; game kind 1 (RW 0x779CB4: a War of the Ring battle) selects rule 2
+	const Victory v = playVictory("FactionMordor", "MordorFighterHorde", "MordorBarracks", "FactionMen", "GondorBarracks", "GondorWorker", true, false, 1);
+	REQUIRE(v.barracksDied > 25);
+	CHECK((!v.bobDefeatedAfterBarracks || v.workerDied >= 0));
+	REQUIRE(v.workerDied > v.barracksDied);
+	CHECK(v.alliance);
+	CHECK(v.endFrame == (unsigned)v.workerDied + 1); // judged by the update of the frame after the builder died
+	CHECK(v.bobDefeatFrame == v.endFrame);
+	CHECK(v.aliceWon);
+	CHECK(v.bobLost);
+	CHECK(v.bobDefeated);
+	CHECK(v.events == 2);
+	std::printf("  info: Mordor vs Men: barracks died at frame %d, the worker at %d, Men were eliminated at frame %u\n", v.barracksDied, v.workerDied, v.endFrame);
+}
+
+TEST_CASE("structure retail: rule 2 (a War of the Ring battle): nobody wins while the loser still has his barracks or a worker")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Victory v = playVictory("FactionMordor", "MordorFighterHorde", "MordorBarracks", "FactionMen", "GondorBarracks", "GondorWorker", false, false, 1);
+	REQUIRE(v.barracksDied > 25);
+	CHECK_FALSE(v.alliance);      // the worker (DOZER) keeps Men in the game 40 frames after their barracks fell
+	CHECK_FALSE(v.bobDefeated);
+	CHECK(v.events == 0);
+}
+
+TEST_CASE("structure retail: a MordorWorker is IGNORE_FOR_VICTORY: Mordor is eliminated with its last barracks and the worker dies with it")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Victory v = playVictory("FactionMen", "GondorFighterHorde", "GondorBarracks", "FactionMordor", "MordorBarracks", "MordorWorker", false, false);
+	REQUIRE(v.barracksDied > 25);
+	CHECK(v.alliance);
+	// MordorBarracks: DestroyDie, gone in the frame it died; VictoryConditions::update runs after the destroy list of the same frame (phase 5, RW 0x62EBCE:
+	// lane END-1 moved it there from phase 1), so the loss is judged in that frame
+	CHECK(v.endFrame == (unsigned)v.barracksDied);
+	CHECK(v.bobDefeatFrame == v.endFrame);
+	CHECK(v.bobDefeated);
+	CHECK(v.aliceWon);
+	CHECK(v.bobSoldiersDead); // killPlayer
+	std::printf("  info: Men vs Mordor: the barracks died at frame %d, Mordor was eliminated at frame %u\n", v.barracksDied, v.endFrame);
+}
+
+TEST_CASE("structure retail: the same victory game twice gives the same state hash in every frame")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	const Victory a = playVictory("FactionMen", "GondorFighterHorde", "GondorBarracks", "FactionMordor", "MordorBarracks", "MordorWorker", false, true);
+	const Victory b = playVictory("FactionMen", "GondorFighterHorde", "GondorBarracks", "FactionMordor", "MordorBarracks", "MordorWorker", false, true);
+	REQUIRE(a.hashes.size() == b.hashes.size());
+	for (size_t i = 0; i < a.hashes.size(); ++i)
+	{
+		REQUIRE_MESSAGE(a.hashes[i] == b.hashes[i], "frame " << i);
+	}
+	CHECK(a.hashes.size() > 30);
+}
+
+// ---- every template of the five body classes ------------------------------------------------------------------------------------------------------------
+// COMBAT-1 left 375 + 97 + 55 + 20 + 4 templates (StructureBody, InactiveBody, RespawnBody, DelayedDeathBody, SymbioticStructuresBody) with no body at all: they held no health and could
+// not be damaged. Every one of them is created now, holds the health of its data (an InactiveBody none: it is dead from the start) and a lethal hit leaves it dead (an InactiveBody only
+// to UNRESISTABLE damage, a DelayedDeathBody after its delay, a SymbioticStructuresBody through its symbiote).
+TEST_CASE("structure retail: every template with a StructureBody, InactiveBody, RespawnBody, DelayedDeathBody or SymbioticStructuresBody is created with a body that answers as retail's does")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	const char *classes[] = { "StructureBody", "InactiveBody", "RespawnBody", "DelayedDeathBody", "SymbioticStructuresBody" };
+	size_t perClass[5] = { 0, 0, 0, 0, 0 };
+	size_t created = 0, killable = 0, stayedDead = 0;
+	std::vector<std::string> problems;
+	Arena a(s, "FactionMen", "FactionMordor");
+	for (const ThingTemplate *t : s.world->things().templates())
+	{
+		const ThingTemplate *tt = t->getFinalOverride();
+		int which = -1;
+		for (const ThingTemplate::Nugget &n : tt->behaviorModules().nuggets())
+		{
+			for (int c = 0; c < 5; ++c)
+			{
+				if (n.name == classes[c])
+				{
+					which = c;
+				}
+			}
+		}
+		if (which < 0)
+		{
+			continue;
+		}
+		++perClass[which];
+		try
+		{
+			Object *o = a.logic.newObject(tt, a.player(1)->getDefaultTeam(), ObjectStatusMaskType{});
+			if (!o || !o->getBodyModule())
+			{
+				problems.push_back(tt->getName() + ": no body");
+				continue;
+			}
+			++created;
+			BodyModuleInterface *body = o->getBodyModule();
+			// the object's body is the LAST body module its template declares (RW 0x69A3C8): ArnorArvedui-like templates mix classes, so the class is taken from the body itself
+			if (dynamic_cast<InactiveBody *>(body))
+			{
+				which = 1;
+			}
+			else if (dynamic_cast<SymbioticStructuresBody *>(body))
+			{
+				which = 4;
+			}
+			else if (dynamic_cast<DelayedDeathBody *>(body))
+			{
+				which = 3;
+			}
+			else if (dynamic_cast<RespawnBody *>(body))
+			{
+				which = 2;
+			}
+			else if (dynamic_cast<StructureBody *>(body))
+			{
+				which = 0;
+			}
+			else
+			{
+				continue; // a plain ActiveBody / ImmortalBody declared after the listed class: COMBAT-1's
+			}
+			if (which == 1)
+			{
+				if (!o->isEffectivelyDead() || body->getHealth() != 0.0f)
+				{
+					problems.push_back(tt->getName() + ": an InactiveBody object must be dead with no health");
+				}
+				continue;
+			}
+			if (which == 4)
+			{
+				continue; // answers through its symbiote (nothing links it yet, S-343)
+			}
+			if (body->getMaxHealth() == 0.0f)
+			{
+				continue; // the data says MaxHealth 0 (FarmInterface and kin: a placement marker)
+			}
+			if (body->getHealth() != body->getInitialHealth() && body->getHealth() != body->getMaxHealth())
+			{
+				problems.push_back(tt->getName() + ": health " + std::to_string(body->getHealth()) + " of " + std::to_string(body->getMaxHealth()));
+				continue;
+			}
+			DamageInfo d;
+			d.m_input.m_damageType = DAMAGE_UNRESISTABLE;
+			d.m_input.m_amount = 1.0f;
+			const float before = body->getHealth();
+			o->attemptDamage(d);
+			if (!(body->getHealth() < before) && !(which == 3))
+			{
+				problems.push_back(tt->getName() + ": a hit did not hurt it");
+				continue;
+			}
+			++killable;
+			DamageInfo big;
+			big.m_input.m_damageType = DAMAGE_UNRESISTABLE;
+			big.m_input.m_amount = 1.0e9f;
+			o->attemptDamage(big);
+			if (o->isEffectivelyDead() || which == 3)
+			{
+				++stayedDead;
+			}
+			else
+			{
+				problems.push_back(tt->getName() + ": a lethal hit left it alive");
+			}
+		}
+		catch (const std::exception &e)
+		{
+			problems.push_back(tt->getName() + ": " + e.what());
+		}
+	}
+	for (const std::string &p : problems)
+	{
+		FAIL_CHECK(p);
+	}
+	CHECK(perClass[0] >= 370);
+	CHECK(perClass[1] >= 90);
+	CHECK(created >= 550);
+	CHECK(perClass[2] >= 50);
+	CHECK(perClass[3] >= 15);
+	CHECK(perClass[4] >= 4);
+	CHECK(killable > 400);
+	std::printf("  info: StructureBody %zu, InactiveBody %zu, RespawnBody %zu, DelayedDeathBody %zu, SymbioticStructuresBody %zu templates created with a body; %zu hurt, %zu died to a lethal hit\n", perClass[0],
+		perClass[1], perClass[2], perClass[3], perClass[4], killable, stayedDead);
+}
+
+// ---- income and command points freed with the structure -----------------------------------------------------------------------------------------------
+// MenFortressCitadel (the keep of the starting fortress, StructureBody + AutoDepositUpdate, MP_COUNT_FOR_VICTORY) pays its owner a fixed deposit at a fixed interval; AutoDepositUpdate
+// stops paying while the object has the model condition RUBBLE, POST_RUBBLE or POST_COLLAPSE (RW, ECON-1): from the moment its damage state is RUBBLE nothing is deposited any more.
+TEST_CASE("structure retail: the income of a destroyed keep stops with its rubble state (AutoDepositUpdate), and a HobbitWorkPit gives its command points back")
+{
+	if (!hudtest::haveWorld("structure retail"))
+	{
+		return;
+	}
+	SharedWorld &s = shared();
+	Arena a(s, "FactionMordor", "FactionMen");
+	Object *keep = a.place("MenFortressCitadel", 1, 600.0f, 600.0f);
+	const ObjectID id = keep->getID();
+	Player *owner = a.player(1);
+	a.logic.runLogicFrame();
+	const std::uint32_t start = owner->getMoney()->countMoney();
+	for (int f = 0; f < 600; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	const std::uint32_t earned = owner->getMoney()->countMoney() - start;
+	CHECK(earned > 0u); // the citadel pays
+	DamageInfo kill;
+	kill.m_input.m_damageType = DAMAGE_UNRESISTABLE;
+	kill.m_input.m_amount = 1.0e9f;
+	REQUIRE(a.logic.findObjectByID(id) != nullptr);
+	a.logic.findObjectByID(id)->attemptDamage(kill);
+	CHECK(a.logic.findObjectByID(id)->getBodyModule()->getDamageState() == BODY_RUBBLE);
+	a.logic.runLogicFrame();
+	const std::uint32_t atDeath = owner->getMoney()->countMoney();
+	for (int f = 0; f < 600; ++f)
+	{
+		a.logic.runLogicFrame();
+	}
+	CHECK(owner->getMoney()->countMoney() == atDeath); // nothing deposited after the rubble state
+	std::printf("  info: the citadel earned %u in 600 frames, nothing after its death\n", earned);
+	// command points: HobbitWorkPit (CommandPointBonus 10) adds to the player's bonus, its death takes it away at once (RW 0x8C1BB7 -> 0x68E114)
+	Object *pit = a.place("HobbitWorkPit", 1, 800.0f, 600.0f);
+	const int bonus = owner->commandPoints().getBonus();
+	REQUIRE(pit != nullptr);
+	CHECK(bonus >= 10);
+	pit->attemptDamage(kill);
+	CHECK(owner->commandPoints().getBonus() == bonus - 10);
+}

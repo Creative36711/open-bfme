@@ -1,0 +1,912 @@
+{
+ "_comment": "Policy of tools/sim/sim_audit.py. excluded: the REVIEWED list of translation units that are not simulation code (glob relative to engine/, or <build>/... for generated and staged sources, with the reason); every other source must be in OPENBFME_SIM_SOURCES. facade_files / facade_functions: the registered facade implementations where floating arithmetic and math calls are the implementation (pinned by tools/sim/test_sim_audit.py).",
+ "facade_files": [
+  "src/Common/System/NumericState.cpp",
+  "src/Common/NumericState.h",
+  "src/Common/System/DeterministicLibm.cpp",
+  "src/GameLogic/Sdk/LuauSimMath.cpp"
+ ],
+ "facade_functions": [
+  "SimMath::sqrtd",
+  "SimMath::sinCosDet",
+  "SimMath::atan2d",
+  "SimMath::cosd",
+  "SimMath::sind",
+  "SimMath::cosf32",
+  "SimMath::sinf32",
+  "SimMath::atanDetUnit",
+  "SimMath::acosDet"
+ ],
+ "excluded": [
+  {"glob": "src/GameClient/CreateAHeroStats.cpp", "reason": "Create-a-Hero client profile statistics file IO; never simulation state"},
+  {"glob": "src/GameClient/TutorialSettings.cpp", "reason": "lane BFME2CAMP1: GameData's Basic / Advanced tutorial records the main menu's OnTutorial reads (the map to start, its load screen and music); no logic state, the logic gets only the map name and the tutorial game mode"},
+  {
+   "glob": "src/Common/System/FloatFromChars.cpp",
+   "reason": "the vendored fast_float parser behind Common/FloatFromChars.h (decimal text to float / double, correctly rounded; no simulation arithmetic of ours); it is compiled with the simulation flags, and tools/sim/compare_float_chars.cpp checks it against the C++ library; libclang 18 cannot parse its SSE2 header (the reason it is the only file that includes the vendored headers)"
+  },
+  {
+   "glob": "src/GameNetwork/RelayBundleChannel.cpp",
+   "reason": "lane ONLINE-2: host-only integer transport framing, fragmentation, CRC and bounded sequence bookkeeping; it carries opaque relay bytes and is not simulation state or simulation arithmetic"
+  },
+  {
+   "glob": "src/GameNetwork/RelayFrameBundle.cpp",
+   "reason": "lane ONLINE-2: host-only integer canonical frame budgeting and OBFB byte codec; it carries opaque relay bytes and is not simulation state or simulation arithmetic"
+  },
+  {
+   "glob": "src/GodotDevice/LinuxRuntimeShims.cpp",
+   "reason": "lane DEP-2: the Linux GDExtension's own powf and getentropy (link-time --wrap so it needs no newer glibc): client code (audio, shaders, godot-cpp colours, a GUID); the simulation calls neither"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptSkirmishRules.cpp",
+   "reason": "lane RULES-1: the lobby Rules tab's gadgets (AptMpGameRules: rule rows, check boxes, the warning box): user interface, writes only the lobby's game setup"
+  },
+  {
+   "glob": "src/GameNetwork/GameSorter.cpp",
+   "reason": "lane MENUWORK-1: the LAN / online game lists' sort order (GameSorter, RW 0x9888B7): user interface, never read by the logic"
+  },
+  {
+   "glob": "src/GodotDevice/GodotHud6Draw.cpp",
+   "reason": "lane HUD-6: the device draw of the radial command bubbles and the help box (Godot canvas items): user interface, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptPalantirSideBar.cpp",
+   "reason": "lane HUD-6: the side command bar's frame calls into the Palantir movie (SetButtonState, FadeIn / FadeOut): user interface, reads the control bar, never changes the logic"
+  },
+  {
+   "glob": "src/GameClient/ControlBarRadialMenu.cpp",
+   "reason": "lane HUD-6: the radial command bubbles' layout and look in window pixels: user interface, reads the logic and the drawables; its presses go through ControlBar::pressButton"
+  },
+  {
+   "glob": "src/GameClient/FloatingText.cpp",
+   "reason": "client floating income labels: position, rise and fade on the presentation clock; reads income events and shroud, never changes simulation state"
+  },
+  {
+   "glob": "src/GameClient/TerrainResourceFeedback.cpp",
+   "reason": "lane OWNERFIX-2: the resource claim feedback (the placement's claimable percentage, its colour and decal mask, the selected resource building's claim decals): user interface, reads the logic's claim grid and shroud, never changes them"
+  },
+  {
+   "glob": "src/GameClient/CommandButtonHelp.cpp",
+   "reason": "lane HUD-6: the help box's text and layout of a command button: user interface, reads the logic (costs, upgrades), never changes it"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptHoverInventory.cpp",
+   "reason": "lane HOVER-1: the inventory of the Apt movies' hover areas (reads movie files): a tool for the client, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/CursorTooltip.cpp",
+   "reason": "lane HOVER-1: the menus' tool tips (Mouse::drawTooltip, GuiFX's ShowToolTip): user interface on the render clock, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/UnitHelpSource.cpp",
+   "reason": "lane HOVER-1: the help box's text over a hero portrait (name, level, health, damages, upgrades): user interface, reads the logic, never changes it"
+  },
+  {
+   "glob": "src/GameClient/InGameHelpBox.cpp",
+   "reason": "lane HUD-6: the help box movie's state machine and the hover provider: user interface on the render clock"
+  },
+  {
+   "glob": "src/GameClient/InGameHudHud6.cpp",
+   "reason": "lane HUD-6: the HUD's side bar gate, radial bubbles and help box wiring: user interface, never changes the logic"
+  },
+  {
+   "glob": "src/GameClient/DrawableIconUI.cpp",
+   "reason": "lane HUD-5: the drawable decorations (health bars, construction text, veterancy marks) as 2D draw operations: user interface, reads the logic and the drawables, never changes them"
+  },
+  {
+   "glob": "src/GameClient/GUI/PlayerStatusInfo.cpp",
+   "reason": "lane HUD-5: the players screen's Status rows (names, faction texts, team and status labels, colours for the movie): user interface, built from a resolved GameInfo and const queries of the live players, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/LoadScreenInfo.cpp",
+   "reason": "the loading screen's cards (names, faction texts, colours for the movie): user interface, built from a resolved GameInfo, never read by the logic"
+  },
+  {
+   "glob": "src/GodotDevice/GodotTiming.cpp",
+   "reason": "wall-clock diagnostics of the device layer (load and frame timings in reports): never simulation state"
+  },
+  {
+   "glob": "<build>/generated/*",
+   "reason": "generated sources: the byte tables of the embedded data files (EmbeddedData.gen.cpp, cmake/EmbedFiles.cmake) and the build's version strings (BuildVersion.gen.cpp, cmake/BuildVersion.cmake, lane RELEASE-1): no arithmetic"
+  },
+  {
+   "glob": "<build>/luau-openbfme/*",
+   "reason": "the staged Luau 0.744 library (lane SDK-2, the modding SDK's scripting): vendored, not ours to rewrite; a sim role script runs it in lockstep mode, whose rules are the patch layer's (engine/src/Libraries/Luau/README.md: the deterministic pow, no address-hashed table keys, no weak tables, allocation-paced collection; tools/luau_patch_check.py) and are pinned by tests/test_sdk2_luau.cpp; compiled with the simulation floating-point contract; not scanned by the AST check, like Lua 4's library"
+  },
+  {
+   "glob": "<build>/lua-ea/*",
+   "reason": "the staged Lua 4.0.1 library with EA's fork (C sources + leanumeric.cpp): its number arithmetic is the PC24 emulation of the retail VM by design (LUA-1, tools/lua_patch_check.py, tests/test_lua_runtime.cpp); not scanned by the AST check (stop S-230)"
+  },
+  {
+   "glob": "src/Libraries/Source/Apt/*",
+   "reason": "the EA Apt menu / UI player: client-side user interface, never part of the simulation state"
+  },
+  {
+   "glob": "src/GodotDevice/GodotPlacementGhost.cpp",
+   "reason": "lane BUILD-5: draws the placement ghost's drawables (W3DInstancer per icon, tint overlay, faction bib, W_Arrow): presentation only, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/PlacementIcons.cpp",
+   "reason": "lane BUILD-5: the placement ghost's drawables (RotWK W3DInGameUI's place icons, RW 0x69C5E6 / 0x6A2AE5): render-side drawables posed at the ghost's site; the legality answers only colour them and never reach the logic"
+  },
+  {
+   "glob": "src/GameClient/PlacementGhost.cpp",
+   "reason": "lane PLAY-1: the building placement ghost's look (the BUILD_PLACEMENT_CURSOR model state and the sub objects its draw script hides, RW 0x69C5E6 / 0x4B4379 / 0x4B4443): reads a ThingTemplate's draw module data for the device, never the logic"
+  },
+  {
+   "glob": "src/GameClient/ShroudFade.cpp",
+   "reason": "lane FOGFX-1: W3DShroud's fog level interpolation (RW 0x472CF2 / 0x472A96): the client's fade of the shroud texture's texels toward the levels of the presented snapshot's ShroudView; wall-clock driven, never reads or writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/LiveFX.cpp",
+   "reason": "lane FX-2: the live game's client effect player (FXList / particle playback of the logic's effect events, EnteringStateFX, ParticleSysBone systems, effect sounds): reads the logic and the drawables, draws only the CLIENT random stream, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/DrawableScriptTarget.cpp",
+   "reason": "lane FX-3: the draw scripts' view of the object's target (CurDrawableIsCurrentTargetKindof / CurDrawableGetCurrentTargetBearing, RW 0x73667D / 0x734A75): copies the logic's target record, answers only draw scripts, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/DrawableConstruction.cpp",
+   "reason": "lane RENDER-2: the construction look of a drawable (the build-up animation frame and the height offset of a structure being built, RW 0x4B51B5 / 0x4B686D): reads the object, writes only draw frames and render offsets, never simulation state"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGameWorldCampaign.cpp",
+   "reason": "lane CAMP-1: the GDExtension's campaign list, a campaign mission's load options (LiveGame::Options), the mission's end as the script engine reports it and the progress sidecar file; it reads logic state between frames and never writes it"
+  },
+  {
+   "glob": "src/GameClient/CreateAHeroHeroList.cpp",
+   "reason": "lane CAH-1: the profile's and the archives' Create-a-Hero files (list, save, delete, the unique id from the client's random device): menu data; a hero reaches the logic only through the game setup's record"
+  },
+  {
+   "glob": "src/GameClient/GUI/CreateAHero/AptMyHero.cpp",
+   "reason": "lane CAH-1: the hero the Create-a-Hero builder screen edits (slots, points, providers): user interface, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptCreateAHero.cpp",
+   "reason": "lane CAH-1: the Create-a-Hero builder screen (CreateAHero.apt and its pages): user interface, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/UserDataFolder.cpp",
+   "reason": "lane CAH-2: the user data folder from the install's gi.dat (the Create-a-Hero save folder): files, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptColorPicker.cpp",
+   "reason": "lane CAH-2: the ColorPicker render component of the menus (externs, texel pick): user interface, never simulation state"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGameWorldCheats.cpp",
+   "reason": "lane CHEAT-1: the panel's view of Cheat Mode: queues MSG_OPENBFME_CHEAT with the values the player chose (no arithmetic) and lists display data; the command's execution is GameLogic/CheatMode.cpp (simulation)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGameWorldScripts.cpp",
+   "reason": "lane SCRIPT-1: GameWorld's view of the map script engine (the client requests handed to the script camera director, the engine's report, a waypoint lookup): reads the logic, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/ScriptAudioLength.cpp",
+   "reason": "lane SCRIPT-3: HAS_FINISHED_AUDIO's audio length model (stop S-1187): reads the audio INI and the archives' audio headers and returns whole milliseconds by integer arithmetic (frames * 1000 / rate) to the logic's timer list; the audio headers' float helpers it includes are not called"
+  },
+  {
+   "glob": "src/GameClient/VideoPlayer.cpp",
+   "reason": "lane CAMP-1H: TheVideoPlayer's Video INI blocks, the movie file lookup and its VP6 header (the client's movie presentation and its audio events); no logic state"
+  },
+  {
+   "glob": "src/GameClient/VP6Decoder.cpp",
+   "reason": "lane CAMP-2: the movies' VP6 picture decoder and EA's movie container (client presentation on the render clock); no logic state"
+  },
+  {
+   "glob": "src/GameClient/LinearCampaign.cpp",
+   "reason": "lane CAMP-1: TheLinearCampaignManager's LinearCampaign INI blocks and the shell's campaign progress (which mission to load next); no logic state, the logic gets only the map name and the difficulty"
+  },
+  {
+   "glob": "src/GameClient/CameraAnimation.cpp",
+   "reason": "lane CAMANIM-1: the map's camera animations played by the tactical view (MOVE_CAMERA_BY_ANIMATION): track interpolation, slerp and Look_At on the client frame clock; the logic only records the client request and never reads any of it"
+  },
+  {
+   "glob": "src/GameClient/ScriptCameraDirector.cpp",
+   "reason": "lane SCRIPT-1: the client half of the script engine's camera / letterbox / caption / fade requests on the render clock; the logic only records the requests and never reads this state"
+  },
+  {
+   "glob": "src/GameClient/EndGame.cpp",
+   "reason": "lane END-1: the client half of the end of a game (the local player's end screen, messages and Eva, the human player's win / loss script library run over the logic snapshot, the score screen data copied when the game is left): reads the logic, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/LivingWorldScoreScreen.cpp",
+   "reason": "WOTR2 milestone 5: the War of the Ring score screen's data (TimeLine type 6) copied from the strategic logic's score keepers when the war is left: reads the logic, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/RTS3DSceneOcclusion.cpp",
+   "reason": "lane OCCLUDE-1: the behind-building markers' choice of drawables and their colours (RW 0x470B83 / 0x470176): reads objects while the logic snapshot is built and the snapshot in the renderer, writes only the snapshot and draw state, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/StealthLook.cpp",
+   "reason": "lane STEALTH-1: the stealth look of a drawable for the local player (hidden for an enemy, the friend's opacity pulse in client time, RW 0x6760F9): reads the logic snapshot, writes only draw opacity, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/AptCanvas.cpp",
+   "reason": "Apt canvas: UI drawing"
+  },
+  {
+   "glob": "src/GameClient/FontSubstitution.cpp",
+   "reason": "UI font substitution"
+  },
+  {
+   "glob": "src/GameClient/GdiFontMetrics.cpp",
+   "reason": "lane UI-6: the GDI text metrics (font file tables to tmAscent / tmExternalLeading) the menus and HUD place text with; UI drawing only"
+  },
+  {
+   "glob": "src/GameClient/OpenBFMEText.cpp",
+   "reason": "L10N-1: OpenBFME's own UI text catalog (tools/l10n/catalog/) and its placeholder formatting; presentation only, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GameText.cpp",
+   "reason": "localised UI text (the game's .str files)"
+  },
+  {
+   "glob": "src/Libraries/WWVegas/*",
+   "reason": "the W3D rendering and asset library (meshes, hierarchies, animations, shaders, textures): client-side drawing; animation poses are cosmetic here (the logic reads bone positions only through the draw-module contracts of the later lanes, which will be classified then)"
+  },
+  {
+   "glob": "src/GameEngineDevice/W3DDevice/*",
+   "reason": "the W3D device layer: draw modules, terrain meshes, height map UVs, asset catalog: client-side rendering"
+  },
+  {
+   "glob": "src/GameClient/MapObjectDrawables.cpp",
+   "reason": "draw module setup of map objects: client side"
+  },
+  {
+   "glob": "src/GameClient/TerrainAtlas.cpp",
+   "reason": "terrain texture atlas: rendering"
+  },
+  {
+   "glob": "src/GameClient/TerrainRoads.cpp",
+   "reason": "road geometry: rendering"
+  },
+  {
+   "glob": "src/GameClient/WaterGeometry.cpp",
+   "reason": "water mesh: rendering"
+  },
+  {
+   "glob": "src/GameClient/TGAFile.cpp",
+   "reason": "TGA image reader: textures"
+  },
+  {
+   "glob": "src/GameClient/MapWeather.cpp",
+   "reason": "weather particle parameters: rendering"
+  },
+  {
+   "glob": "src/GameClient/WeatherSetting.cpp",
+   "reason": "lane WEATHER-1: the Weather / WeatherData / CloudEffect INI data of the client's weather: rendering and audio"
+  },
+  {
+   "glob": "src/GameClient/SnowManager.cpp",
+   "reason": "lane WEATHER-1: TheSnowManager (falling snow / rain, its client random): rendering"
+  },
+  {
+   "glob": "src/GameClient/CloudEffect.cpp",
+   "reason": "lane WEATHER-1: TheCloudEffect (the darkening and lightning lights): rendering"
+  },
+  {
+   "glob": "src/GameClient/WeatherClient.cpp",
+   "reason": "lane WEATHER-1: the client weather of a game (client frames, the weather sound): rendering and audio"
+  },
+  {
+   "glob": "src/GodotDevice/GodotWeather.cpp",
+   "reason": "lane WEATHER-1: the weather in the Godot scene: rendering"
+  },
+  {
+   "glob": "src/GameClient/MapCache.cpp",
+   "reason": "map list cache (MapCache.ini equivalent): file I/O and listing"
+  },
+  {
+   "glob": "src/GameEngineDevice/Win32Device/*",
+   "reason": "BIG archive file system on Win32 handles: file I/O"
+  },
+  {
+   "glob": "src/Libraries/Compression/*",
+   "reason": "refpack / compression codecs: byte stream decoding"
+  },
+  {
+   "glob": "src/Libraries/file/*",
+   "reason": "text file and path helpers: file I/O"
+  },
+  {
+   "glob": "src/Common/System/ArchiveFile.cpp",
+   "reason": "archive file abstraction: file I/O"
+  },
+  {
+   "glob": "src/Common/System/ArchiveFileSystem.cpp",
+   "reason": "archive file system: file I/O"
+  },
+  {
+   "glob": "src/GameClient/AssetPacks.cpp",
+   "reason": "lane SDK-0: cosmetic asset packs (which model / texture files the render side draws): file I/O, never read by the simulation"
+  },
+  {
+   "glob": "src/Common/System/ModMount.cpp",
+   "reason": "lane MODS-1: the -mod mount (which mod archives and loose files load, their md5s): file I/O"
+  },
+  {
+   "glob": "src/Common/System/ModEngineFeatures.cpp",
+   "reason": "lane MODS-3: the table of known modified game programs (by md5) and the on / off switches of their features, set before a game starts: no arithmetic; the features themselves live in the audited simulation sources"
+  },
+  {
+   "glob": "src/Common/System/LooseFileScan.cpp",
+   "reason": "loose file scan: file I/O"
+  },
+  {
+   "glob": "src/Common/System/RetailArchivePolicy.cpp",
+   "reason": "which retail archives load (policy JSON): file I/O"
+  },
+  {
+   "glob": "src/Common/MD5.cpp",
+   "reason": "MD5 of files: integrity checking"
+  },
+  {
+   "glob": "src/Common/MiniJson.cpp",
+   "reason": "JSON reader of the embedded archive policies: tooling data"
+  },
+  {
+   "glob": "src/Common/AsciiString.cpp",
+   "reason": "string utility: no numeric simulation values"
+  },
+  {
+   "glob": "src/Common/LogicFrameClock.cpp",
+   "reason": "host pacing: decides how many logic frames run per wall-clock interval, never what a frame computes (the state hash is frame indexed)"
+  },
+  {
+   "glob": "src/Common/ShaderVaryings.cpp",
+   "reason": "lane SHADER-BUDGET-1: counts the varyings of a Godot shader code string (the commit gate and the runtime guard); text only, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/FXList.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/FXListObjectFilter.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/FXParticleSystem.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/FXPlayback.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/ClientEffects.cpp",
+   "reason": "lane FEAT-BLDFX-1: the client state the FXList nugget sinks leave (terrain scorches, dynamic decals, light pulses): presentation only, never read by the logic, not in the state hash"
+  },
+  {
+   "glob": "src/GameClient/CameraShaker.cpp",
+   "reason": "lane FEAT-BLDFX-1: CameraShakerVolume's camera rotations (the view's own fixed-seed generator, not the logic stream): presentation only, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/ParticleSys.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/ParticleDraw.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/GameClient/ParticleTexture.cpp",
+   "reason": "FX-1 client-side effects (FXList playback, particle systems, emitters): visual only, driven by the CLIENT random generator (GameClientRandom), never read back by the logic"
+  },
+  {
+   "glob": "src/Common/GameClientRandomVariable.cpp",
+   "reason": "the client (visual) random variables of the FX / particle code: a separate generator from the logic RNG (RandomValue.cpp), not part of the state hash"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/*",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/Gadget/*",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/Skirmish/SkirmishPreferences.cpp",
+   "reason": "MENU-1 Skirmish.ini: the player's profile names read and written by the Skirmish screen, client-side user interface; nothing reaches the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/Skirmish/LivingWorldSetupText.cpp",
+   "reason": "lane WOTR-2: the War of the Ring setup's territory and scenario description texts (game text labels formatted for the screen): client-side user interface, nothing reaches the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/Skirmish/SkirmishGameRecord.cpp",
+   "reason": "lane UI-6: the lobby's kept game in Skirmish.ini (RotWK's GameInfoToAsciiString / ParseAsciiStringToGameInfo text): menu preferences, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GUI/StillImageLoadScreen.cpp",
+   "reason": "MENU-1 the loading screen choice and the campaign's picture loading screen: client-side presentation, nothing reaches the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/Shell/*",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptGadgetLayer.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreen.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/GameWindow.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/GameWindowManager.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/GameWindowManagerScript.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/HeaderTemplate.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/Image.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GameClient/GUI/WindowManager.cpp",
+   "reason": "APT-4 GUI shell: windows, gadgets and Apt screens, client-side user interface; the only values it hands to the logic are the skirmish GameInfo, built by the (simulation-classified) src/GameClient/GUI/Skirmish sources"
+  },
+  {
+   "glob": "src/GodotDevice/GodotVideoStream.cpp",
+   "reason": "lane CAMP-2: VP6MovieStream, a movie's frames decoded into a texture on the render clock (client presentation); no logic state"
+  },
+  {
+   "glob": "src/GodotDevice/register_types.cpp",
+   "reason": "GDExtension class registration: engine glue, no game values"
+  },
+  {
+   "glob": "src/GodotDevice/GodotRetailFileSystem.cpp",
+   "reason": "reads the retail archives through Godot file access: file I/O"
+  },
+  {
+   "glob": "src/GodotDevice/GodotW3DModelBuilder.cpp",
+   "reason": "builds Godot meshes from W3D models: rendering"
+  },
+  {
+   "glob": "src/GodotDevice/GodotW3DMaterial.cpp",
+   "reason": "builds Godot materials / shaders from W3D shader state: rendering"
+  },
+  {
+   "glob": "src/GodotDevice/GodotW3DInstancer.cpp",
+   "reason": "instances and poses W3D models on the GPU: rendering (reads logic transforms, writes none)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotLogicClock.cpp",
+   "reason": "binds the host frame clock to the LogicFrameClock: host pacing (decides how many frames run, not what they compute)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotMapTerrain.cpp",
+   "reason": "builds the terrain meshes and textures from the map: rendering (reads TerrainLogic, writes none)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotMapObjectBuilder.cpp",
+   "reason": "builds the Godot scene nodes of the map's objects for display: rendering (reads the retail object world, creates no logic objects)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotAptPlayer.cpp",
+   "reason": "hosts the Apt menu player: user interface"
+  },
+  {
+   "glob": "src/GodotDevice/GodotMouse.cpp",
+   "reason": "decodes, animates and installs native cursor images for the shell and HUD: device-side presentation only; does not generate gameplay input or modify simulation state"
+  },
+  {
+   "glob": "src/GodotDevice/GodotPackedTexture.cpp",
+   "reason": "lane HUD-4: decodes the install's packed textures (.dds / .jpg + .png) for the Apt player and the HUD: drawing"
+  },
+  {
+   "glob": "src/GodotDevice/GodotPathfindView.cpp",
+   "reason": "a debug view that draws the pathfinder grid and a path of its own pathfinder instance: it writes no state of a running game"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGammaComposite.cpp",
+   "reason": "converts the 3D colour buffer around the transparent pass (gamma-space compositing, RENDER-3 / S-831): rendering only"
+  },
+  {
+   "glob": "src/GodotDevice/GodotPostEffects.cpp",
+   "reason": "the map's colour grade on the 3D colour buffer (LookupTablePostEffect, RENDER-4 / S-1650): rendering only"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGlowEffect.cpp",
+   "reason": "retail's glow pass on the 3D colour buffer and the effects-LOD gate on the post chain (GLOW-1 / S-5231): rendering only"
+  },
+  {
+   "glob": "src/GodotDevice/GodotFXPlayer.cpp",
+   "reason": "plays FXLists and particle systems on the GPU: client-side effects (FX-1)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotShaderBudget.cpp",
+   "reason": "lane SHADER-BUDGET-1: the device-side set_code guard that reports an over-budget shader; client rendering only, never read by the logic"
+  },
+  {
+   "glob": "src/Common/Audio/*",
+   "reason": "AUDIO-1, client audio: decoders, the audio INI blocks, the AudioManager and the simulated device; the logic only posts fire-and-forget requests through AudioApi and reads nothing back, so no audio state or arithmetic reaches the lockstep state"
+  },
+  {
+   "glob": "src/GameClient/Eva.cpp",
+   "reason": "AUDIO-1, the Eva announcer: client-side speech selection and cooldowns, driven by events the logic reports; it writes no logic state"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGameAudio.cpp",
+   "reason": "AUDIO-1, the Godot audio device (voices, buses, streams): client output only"
+  },
+  {
+   "glob": "src/GameClient/MusicScripts.cpp",
+   "reason": "AUDIO-2, the in-game music (the music map's scripts run on the client): reads the logic, keeps its own flags / counters / timers, drives the audio manager's music; writes no logic state, draws only from the audio random stream"
+  },
+  {
+   "glob": "src/GameClient/BeaconClientUpdate.cpp",
+   "reason": "CHAT-1, the multiplayer beacon's ClientUpdate module: decides on the client when a shown beacon pulses on the minimap and keeps an enemy's beacon hidden; never read by the logic (the beacon object itself is BeaconCommands.cpp, a simulation source)"
+  },
+  {
+   "glob": "src/GameClient/InGameChat.cpp",
+   "reason": "CHAT-1, the in-game chat window's rules (recipient masks, labels, line formats, scroll-back): client state and direct network commands, never frame data or logic state"
+  },
+  {
+   "glob": "src/GameClient/InGameUIMessages.cpp",
+   "reason": "CHAT-1, the InGameUI message lines (chat lines and GUI notices) and their fade on the client clock: presentation only, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/AnimationSoundClientBehavior.cpp",
+   "reason": "AUDIO-4, the footsteps (AnimationSoundClientBehavior and TheAnimationSoundModuleManager): a ClientBehavior module of the drawables; reads the drawables' animation frames and the listener, plays on the audio manager; never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/EvaDamage.cpp",
+   "reason": "EVADAMAGE-1, the client half of the drawable damage notice's Eva part (RW 0x67B4B7): picks the Eva event from the drawable's template and the attacker drawable's shroud look, keeps the drawable's far frame and reports to the Eva; applies recorded client events, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/SoundSelectorClientBehavior.cpp",
+   "reason": "DECOMP-2, the sound selector ClientBehavior modules (S-701): their module data and the voice picker's lookups; client presentation, reads the logic objects' model conditions and upgrades, writes no logic state, rolls only the voice picker's client random"
+  },
+  {
+   "glob": "src/GameClient/LiveGameAudio.cpp",
+   "reason": "AUDIO-2, the audio side of a live game: the owner resolver and player queries of the audio manager and the object ambient sounds; reads the logic, writes no logic state"
+  },
+  {
+   "glob": "src/GameClient/UnitVoiceResponse.cpp",
+   "reason": "AUDIO-2, the unit voice picker: client presentation (reads the selection and the logic, plays through AudioApi / Eva); its recently-said memory is client state keyed by object id, it writes no logic state"
+  },
+  {
+   "glob": "src/GameClient/TacticalView.cpp",
+   "reason": "the tactical view's projection and ray maths (client camera state: a click's ground point is chosen by the clicking peer and travels as message data)"
+  },
+  {
+   "glob": "src/GameClient/HudObjects.cpp",
+   "reason": "client-side picking (ray against object volumes) and selection predicates: input interpretation, never read by the logic"
+  },
+  {
+   "glob": "src/GameClient/DrawablePick.cpp",
+   "reason": "QA-1, the HUD's pick ray against the drawn W3D models (client input interpretation: the picked id travels as message data; a client cache of model triangles)"
+  },
+  {
+   "glob": "src/GameClient/HudContext.cpp",
+   "reason": "mouse.ini drag tolerances: client input settings"
+  },
+  {
+   "glob": "src/GameClient/MessageStream/HotKey.cpp",
+   "reason": "lane INPUT-1, the HotKeyTranslator (RW 0x75B068): a released key presses the command button its label marks; client input interpretation, the press goes through ControlBar::pressButton whose messages ControlBarCommandProcessing.cpp builds (manifested)"
+  },
+  {
+   "glob": "src/GameClient/MessageStream/MetaEvent.cpp",
+   "reason": "the CommandMap and the key / mouse button translator: client input interpretation, no simulation arithmetic"
+  },
+  {
+   "glob": "src/GameClient/InGameHud.cpp",
+   "reason": "the in-game HUD component: client user interface"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptPalantir.cpp",
+   "reason": "the Palantir screen: client user interface"
+  },
+  {
+   "glob": "src/GodotDevice/GodotInGameHud.cpp",
+   "reason": "the Godot HUD node: camera, input events and drawing of the device layer"
+  },
+  {
+   "glob": "src/GameClient/ControlBar.cpp",
+   "reason": "the control bar view model (button states, queue display, money): client user interface reading the logic; the messages a press builds are in ControlBarCommandProcessing.cpp (manifested)"
+  },
+  {
+   "glob": "src/GameClient/Radar.cpp",
+   "reason": "the radar picture: client user interface reading the logic"
+  },
+  {
+   "glob": "src/GameClient/CursorFile.cpp",
+   "reason": "the mouse cursor file decoder (RIFF / ICO bytes): client user interface"
+  },
+  {
+   "glob": "src/GameClient/CameraSettings.cpp",
+   "reason": "the GameData camera fields and the map's camera values: client camera input settings (CAM-1)"
+  },
+  {
+   "glob": "src/GameClient/TacticalCamera.cpp",
+   "reason": "the retail tactical camera (W3DView): client camera state, never read by the logic and not in the state hash; its float maths is not compared between peers (CAM-1)"
+  },
+  {
+   "glob": "src/GameClient/MessageStream/LookAtXlat.cpp",
+   "reason": "the LookAt translator: raw input to camera movement, client state; it emits no GameMessage (CAM-1)"
+  },
+  {
+   "glob": "src/GameClient/DrawableFade.cpp",
+   "reason": "lane PROJ-2: the drawable's fade (RW 0x85EE00 / 0x67309D / 0x675AB7: a launched projectile hidden for InvisibleFrames, then faded in; the fog fades): reads a completed frame's snapshot and template data, writes only the drawable's opacity and hidden flag, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/RenderInterpolation.cpp",
+   "reason": "lane SMOOTH-1: the drawable's render pose between two logic frames (lerp / slerp of the recorded and current object transform by the clock's alpha): reads the object, writes only the drawable's render transform, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/ClientEvents.cpp",
+   "reason": "lane SMOOTH-1 (S-810): the recorder of the simulation's client calls (drawable creation / destruction, model conditions, module and sub object visibility, placement) as ordered data-only events; it reads the object and writes only its event list. Its one answer to the simulation (showModule) is a template tag lookup, no arithmetic"
+  },
+  {
+   "glob": "src/GameClient/LogicSnapshot.cpp",
+   "reason": "lane SMOOTH-1 (S-810): the immutable render snapshot of a completed logic frame (copies of transforms, positions, construction state); reads the logic between frames, writes only the snapshot"
+  },
+  {
+   "glob": "src/GameClient/LiveGameRunner.cpp",
+   "reason": "lane SMOOTH-1 (S-810): LiveGame's render-side presentation (presented frame and alpha, client events applied in order, poses from one snapshot) and the logic worker's thread management; the frames themselves run in LiveGame::runFrameOwned (LiveGame.cpp, audited)"
+  },
+  {
+   "glob": "src/GameClient/FrameCensus.cpp",
+   "reason": "lane MP-3: the measurements' per-frame census (living battalions, troops, objects) counted on the simulation owner between frames when a frame driver asks for it; reads the logic, writes nothing, never read back by the game"
+  },
+  {
+   "glob": "src/GameNetwork/NetImpairment.cpp",
+   "reason": "lane MP-3 (NET-4): the network test harness's fault injector inside the transport (latency, jitter, loss, duplication, reordering, blackouts by wall clock and a seeded per-link RNG): it decides WHEN and WHETHER a datagram arrives, never what a logic frame contains"
+  },
+  {
+   "glob": "src/GameNetwork/Transport.cpp",
+   "reason": "lane MP-1: the UDP socket and the reliable per-peer delivery (resends, acks, the test harness's loss and delay): it decides WHEN a peer's bytes arrive, never what a logic frame contains (GameNetwork/Network.h decides that from the received data alone)"
+  },
+  {
+   "glob": "src/GodotDevice/GodotAptView3D.cpp",
+   "reason": "lane UI-2: the Godot viewer of an Apt View3D render object (a W3D model in a sub viewport composited into the menu); client presentation only"
+  },
+  {
+   "glob": "src/GameClient/OptionPreferences.cpp",
+   "reason": "lane UI-2: the player's Options.ini (ZH UserPreferences as RotWK's OptionPreferences); client settings only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/GlobalLanguage.cpp",
+   "reason": "lane UI-4: language.ini's Language block (fonts for the engine's own text); client presentation only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/Credits.cpp",
+   "reason": "lane UI-4: the main menu's credits roll (CreditsManager); shell UI only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/InGameHeroSelect.cpp",
+   "reason": "lane UI-4: the Palantir's hero bar (InGameHeroSelectInterface); HUD presentation and the selection messages it sends, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/BuffDraw.cpp",
+   "reason": "lane SPELL-4: the BuffNugget buffs a drawable shows (BuffManager / TBuff fade); client presentation only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/RadiusCursor.cpp",
+   "reason": "lane SPELL-4: the aiming marker of a command waiting for its target (InGameUI's RadiusCursorTemplate decal); client presentation only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/SelectionDecals.cpp",
+   "reason": "lane UI-4: the selection markers under selected objects (RadiusDecal); client presentation only, never read by the simulation"
+  },
+  {
+   "glob": "src/GameClient/AptView3D.cpp",
+   "reason": "lane UI-2: the animation clock of an Apt View3D render object (the end screen's rings, the shell's menu frame); client presentation only"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptMessageBox.cpp",
+   "reason": "lane UI-1: RotWK's message box (GuiFX.apt's MessageBox clip: its texts, Show / Hide, the button commands); client presentation only"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptDisconnectScreen.cpp",
+   "reason": "lane MP-2: DisconnectScreen.apt's engine side (texts, the movie's bar and kick-button functions, the Kick / Quit buttons handed to the host); the disconnect path itself (GameNetwork/DisconnectManager.cpp) is audited"
+  },
+  {
+   "glob": "src/GameNetwork/DesyncDump.cpp",
+   "reason": "lane MP-2: the desync dump file (RW 0x6290C7's DESYNC-*.txt): it writes the exchanged hash breakdowns and copies the replay; it reads no logic state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptSaveLoad.cpp",
+   "reason": "lane MP-2: SaveLoad.apt's replay page (the list the host gives, the chosen file handed back as a shell request); no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/LANAPI.cpp",
+   "reason": "lane MP-2: the LAN lobby (finding games, joining, the setup's options, chat, the start): sockets and time; what it produces is the NewGameMessage every peer starts from (encoded by NetPacket.cpp, audited)"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptLanLobby.cpp",
+   "reason": "lane MP-2: LanLobby.apt's engine side (the game list, the setup gadgets on the LAN lobby's model); no logic state"
+  },
+  {
+   "glob": "src/Common/Sha256.cpp",
+   "reason": "lane ONLINE-2: SHA-256 / HMAC-SHA256 of the online relay's session tickets (integer bit operations on bytes); never read by the simulation"
+  },
+  {
+   "glob": "src/GameNetwork/RelayProtocol.cpp",
+   "reason": "lane ONLINE-2: the relay envelope and the ticket bytes around transport packets: it decides where a datagram goes, never what a frame contains"
+  },
+  {
+   "glob": "src/GameNetwork/OnlineStart.cpp",
+   "reason": "lane ONLINE-2: the lobby service's START (JSON) read into the LobbyStart a LAN lobby gives: the NewGameMessage every peer starts from (encoded and resolved by audited code); no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/JoinBuild.cpp",
+   "reason": "lane JOINVER-1: an online player's build as players read it (version, official or not, system) and the join refusal of a game of another build, in plain words; display text only, no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/RelayProbe.cpp",
+   "reason": "lane ONLINEMENU-1: a player's link to the online relay measured before the game (UDP probes answered NOT_BOUND) for the staging room's Connections screen; display data, no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/OnlineLobbyClient.cpp",
+   "reason": "lane ONLINE-4: the online lobby service's client (HTTP requests queued for the host, JSON answers read into the staging room's game info); what it produces reaches the game only as the lobby's START (OnlineStart.cpp); no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/OnlineSocialClient.cpp",
+   "reason": "SOCIAL-1 (landed by lane ONLINEMENU-1): the lobby client's social calls (friends, presence, invites, friend chat, the inbox poll): HTTP requests queued for the host and JSON answers kept for the menus; nothing reaches the logic"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptMessenger.cpp",
+   "reason": "SOCIAL-1 (landed by lane ONLINEMENU-1): Messenger.apt's engine side (the friends and players lists, chat tabs, buttons); no logic state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptOnlineShell.cpp",
+   "reason": "lane ONLINE-4: OnlineShell.apt's engine side (sign-in, home, the server browser, the staging room's gadgets on the lobby game); no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/PlatformApiClient.cpp",
+   "reason": "lane ONLINEHUB-1: the online platform API's client (Quick Match tickets, tournaments, statistics, game results: HTTP requests queued for the host, JSON answers checked and kept for the menus); nothing reaches the logic (a Quick Match ends in an ordinary lobby room whose START is the input)"
+  },
+  {
+   "glob": "src/GameClient/GameRecords.cpp",
+   "reason": "lane ONLINEHUB-1: the local record of finished games (written after the score screen, read for the player's statistics pages and the results report); display data only, no logic state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptStats.cpp",
+   "reason": "lane ONLINEHUB-1: Stats.swf's engine side (the statistics page: faction cards and the list from the recorded games and the platform's community statistics); no logic state"
+  },
+  {
+   "glob": "src/GameClient/GUI/AptScreens/AptOnlineHub.cpp",
+   "reason": "lane ONLINEHUB-1: the online shell's TOURNAMENT page (Quick Match on the platform's matchmaker, the tournaments panel) and the STATS page's owner; a match ends in an ordinary lobby room whose START is the input; no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/RelayLog.cpp",
+   "reason": "lane ONLINE-2: reads the relay's command log and assembles the replay's frame command lists (the input the audited replay playback feeds through the lockstep path); no logic state"
+  },
+  {
+   "glob": "src/GameNetwork/RelayCommit.cpp",
+   "reason": "lane ONLINE-2: strict host-side durable relay record codec (OBRC framing and SHA-256); no simulation arithmetic or membership decisions"
+  },
+  {
+   "glob": "src/Common/System/WindowsCrashDump.cpp",
+   "reason": "local Windows crash diagnostics: exception contexts and minidumps, no simulation arithmetic or state"
+  },
+  {
+   "glob": "src/GameClient/GUI/Skirmish/RealTimeStats.cpp",
+   "reason": "lane OWNERFIX-3: the profile's RealTimeStats.ini (the skirmish map list's battle honors), read by the lobby and written by the score screen: menu preferences, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GUI/MenuNavigator.cpp",
+   "reason": "lane OPTS-6: keyboard and controller navigation of the menus (focus order, the focus frame, clicks posted through the window manager): client-side user interface, reads and writes no simulation state"
+  },
+  {
+   "glob": "src/GameClient/ObserverMetrics.cpp",
+   "reason": "CASTER-1: read-only broadcast statistics sampled between completed frames; writes only owned presentation counters, lists and graph history, never simulation state"
+  },
+  {
+   "glob": "src/GameEngineDevice/W3DDevice/GameClient/W3DVegetationSway.cpp",
+   "reason": "lane VISUAL-2: the tree sway of the W3DTreeDraw trees (W3DTreeBuffer's vegetation sway, the shader's SwayOffsets) from the script engine's breeze; client random only, never simulation state"
+  },
+  {
+   "glob": "src/GameNetwork/RelayAuth.cpp",
+   "reason": "lane AUTH-1 / ONLINE16-FIX: the relay envelope's packet authentication (session key and direction keys, keyed BLAKE2b tags, the replay window): network key and envelope code around transport packets, never what a frame contains"
+  },
+  {
+   "glob": "src/GameNetwork/RelayMembership.cpp",
+   "reason": "canonical membership snapshot codec and transactional input-order validator; no authority policy, simulation mutation or arithmetic; supplied frame validator checks opaque frame payloads before publication"
+  },
+  {
+   "glob": "src/GameNetwork/RelayFrameScheduler.cpp",
+   "reason": "lane NET-SYNC: host-side canonical seal policy (equal-delay / next-frame) over integer order arrival bookkeeping; it stamps opaque frame records and is not simulation state or simulation arithmetic"
+  },
+  {
+   "glob": "src/GameNetwork/RelayCanonicalInput.cpp",
+   "reason": "lane NET-SYNC: the OBCI ingress byte codec (per-slot order and beat messages); carries opaque relay bytes, no simulation state or arithmetic"
+  },
+  {
+   "glob": "src/GameNetwork/RelayCanonicalClient.cpp",
+   "reason": "lane NET-SYNC: client-side adapter from committed canonical records to the driver's per-frame command list; binds senders to slots and decodes opaque payloads, no simulation arithmetic"
+  },
+  {
+   "glob": "src/GameNetwork/LANLobby.cpp",
+   "reason": "lane MP-1: the host / join lobby datagrams before the game: it hands every peer the same NewGameMessage (the logic's input, encoded by NetPacket.cpp which is audited); no logic state"
+  },
+  {
+   "glob": "src/Main/openbfme_peer.cpp",
+   "reason": "lane MP-1: the headless peer process (argument parsing, the wall-clock loop, the report files) and its scripted test player, an input source like the HUD: its commands enter the logic only through the lockstep command list"
+  },
+  {
+   "glob": "src/GameNetwork/ScriptedPlayer.cpp",
+   "reason": "lane MP-1: the scripted test player (headless peer --script, the two-window demo): an input source like the HUD; its commands enter the logic only through the lockstep command list"
+  },
+  {
+   "glob": "src/GameNetwork/ProfileIdentity.cpp",
+   "reason": "lane MP-1: the immutable profile identity (build id, owned format versions, numeric mode, RNG, mounted archives' md5 in mount order) peers and replays compare before a game starts; never part of the logic state"
+  },
+  {
+   "glob": "src/GameClient/PalantirCommandUI.cpp",
+   "reason": "the Palantir's portrait choice (HUD-2): reads the selection and the templates' image names for the movie, never writes simulation state"
+  },
+  {
+   "glob": "src/GameClient/SpellBookUI.cpp",
+   "reason": "the spell book screens' engine side (lane SPELL-2): display reads of the logic and GameMessages it builds; never simulation state"
+  },
+  {
+   "glob": "src/GameClient/TreeTopple.cpp",
+   "reason": "lane SPELL-3: the client animation of a toppling map tree (ZH W3DTreeBuffer's fall, bounce and sink) driven by the logic's tree events; never simulation state"
+  },
+  {
+   "glob": "src/Common/System/PathIO.cpp",
+   "reason": "UTF-8 disk paths and host environment access at client I/O boundaries; never simulation state"
+  },
+  {
+   "glob": "src/Common/System/InstallLocator.cpp",
+   "reason": "lane RELEASE-1: finding and checking the player's game folders before anything is mounted (registry, Wine prefixes, the archive list); launcher code, never simulation state"
+  },
+  {
+   "glob": "src/Common/System/LogPrivacy.cpp",
+   "reason": "lane RELEASE-1: removes the home folder and the user name from log lines; text only, never simulation state"
+  },
+  {
+   "glob": "src/Common/System/ConsoleFilter.cpp",
+   "reason": "lane RELEASE-1: routes stdout / stderr through the log privacy filter; console text only, never simulation state"
+  },
+  {
+   "glob": "src/Common/System/BuildVersion.cpp",
+   "reason": "lane RELEASE-1: the version line of the logs and the main menu; text only"
+  },
+  {
+   "glob": "src/GodotDevice/GodotRelease.cpp",
+   "reason": "lane RELEASE-1: the Godot view of the install finder, the version and the session log file; client only, never simulation state"
+  },
+  {
+   "glob": "src/GameClient/GameLODManager.cpp",
+   "reason": "PLAY-2: the StaticGameLOD presets and the Options screen's advanced settings (render detail levels written to Options.ini); client-side user interface, never read by the logic"
+  },
+  {
+   "glob": "src/Common/System/SaveGame/SaveGameFile.cpp",
+   "reason": "lane SAVE-2: the .obfmesave container (header, the replay log bytes, an empty snapshot part) read and written around the game; no logic state"
+  },
+  {
+   "glob": "src/GameClient/CommandLogLoad.cpp",
+   "reason": "lane SAVE-2: the catch-up of a loaded save: installs the audited replay player (Common/Recorder.cpp) and runs LiveGame::advance until the saved frame, timing itself by the wall clock; it decides which commands run (the log's), never what a frame computes"
+  },
+  {
+   "glob": "src/GodotDevice/GodotGameWorldSave.cpp",
+   "reason": "lane SAVE-2: GameWorld's saves (writes the running recording's log to a file, lists the Save folder, starts a loaded save's catch-up and hands the game over with a continuing recording; the catch-up's audio is silenced, its queued effects dropped): client side, never part of the logic state"
+  },
+  {
+   "glob": "src/GameNetwork/OrdersIntoFog.cpp",
+   "reason": "ANTICHEAT-1's offline fog check: runs beside replay playback and only READS the simulation's state (object positions, the shroud) to report orders on objects the ordering player could not see; it never writes simulation state, sends no command and feeds nothing back (test_orders_into_fog: the state hash with and without the check is identical). Its findings are server-side reports, not game state, so they need no cross-machine determinism"
+  },
+  {
+   "glob": "src/GameNetwork/CommandStreamChecks.cpp",
+   "reason": "ANTICHEAT-1's D5 input rate and D6 command integrity checks: run beside replay playback (the same driver as OrdersIntoFog) and only READ the replay's commands and the simulation's object ownership to count commands per 5 s window and report malformed or foreign-object commands; they never write simulation state, send no command and feed nothing back (test_orders_into_fog_retail: playback through FogCheckDriver with them reproduces every recorded hash). Their findings are server-side reports, not game state"
+  },
+  {
+   "glob": "src/GameNetwork/ViewChecks.cpp",
+   "reason": "ANTICHEAT-1's D2 view focus check: runs beside replay playback and only READS the replay's client-reported VIEW records (camera / pointer, never simulation input) and the simulation's object positions and shroud to report a pointer resting on hidden enemies; it never writes simulation state, sends no command and feeds nothing back (test_orders_into_fog_retail: playback through FogCheckDriver with it reproduces every recorded hash). Its floats are report data, not game state"
+  }
+ ]
+}

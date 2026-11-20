@@ -1,0 +1,700 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+// See GameLogic/ScriptEngine/ScriptActions.h.
+
+#include "GameLogic/ScriptEngine/ScriptActions.h"
+#include "GameLogic/SelfDestruct.h"
+
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
+#include "Common/PlayerTemplate.h"
+#include "Common/Science.h"
+#include "Common/Team.h"
+#include "Common/Thing/ThingFactory.h"
+#include "GameClient/MapChunks.h"
+#include "GameLogic/AI/AICommandSink.h"
+#include "GameLogic/Damage.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Map/TerrainLogic.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/ScriptEngine/ScriptConditions.h"
+#include "GameLogic/ScriptEngine/ScriptEngine.h"
+#include "GameLogic/ScriptEngine/ScriptTemplates.h"
+#include "GameLogic/SimMath.h"
+#include "GameLogic/System/ShroudManager.h"
+
+#include <cstdint>
+#include <cstring>
+#include <set>
+
+namespace
+{
+
+const ScriptParameter &param(const ScriptActionRec &a, size_t i)
+{
+	static const ScriptParameter kEmpty;
+	return i < a.params.size() ? a.params[i] : kEmpty;
+}
+
+int ordinal(const char *name)
+{
+	return ScriptTemplates::findAction(name);
+}
+
+// Parameter::ParameterType values (the templates' parameter types)
+constexpr int PARAM_WAYPOINT = 7;
+constexpr int PARAM_CAMERA_POSITION = 51; ///< MOVE_CAMERA_TO's first parameter (a waypoint or named camera name in the corpus)
+
+// The actions recorded as client requests (S-1182): the camera, the screen, the UI, audio, movies and input. Retail runs them on TheTacticalView,
+// TheInGameUI, TheAudio ... from inside the logic frame; here the logic records them and the client applies them in frame order.
+const std::set<int> &clientActions()
+{
+	static const std::set<int> s = [] {
+		static const char *const names[] = {
+			"MOVE_CAMERA_TO", "MOVE_CAMERA_ALONG_WAYPOINT_PATH", "MOVE_CAMERA_ALONG_SPLINE_PATH", "MOVE_CAMERA_LOCATOR_ALONG_SPLINE_PATH",
+			"ROTATE_CAMERA", "RESET_CAMERA", "ZOOM_CAMERA", "PITCH_CAMERA", "ROLL_CAMERA", "ROTATE_CAMERA_LOCKED", "CAMERA_FOLLOW_NAMED",
+			"CAMERA_STOP_FOLLOW", "CAMERA_LOOK_TOWARD_OBJECT", "CAMERA_LOOK_TOWARD_WAYPOINT", "CAMERA_MOD_SET_FINAL_ZOOM", "CAMERA_MOD_SET_FINAL_PITCH",
+			"CAMERA_MOD_FREEZE_TIME", "CAMERA_MOD_FREEZE_ANGLE", "CAMERA_MOD_FINAL_LOOK_TOWARD", "CAMERA_MOD_LOOK_TOWARD", "CAMERA_MOD_SET_ROLLING_AVERAGE",
+			"CAMERA_MOD_FINAL_SPEED_MULTIPLIER", "CAMERA_MOD_FINAL_TIME_MULTIPLIER", "CAMERA_LETTERBOX_BEGIN", "CAMERA_LETTERBOX_END", "CAMERA_BW_MODE_BEGIN",
+			"CAMERA_BW_MODE_END", "CAMERA_MOTION_BLUR", "CAMERA_MOTION_BLUR_JUMP", "CAMERA_MOTION_BLUR_FOLLOW", "CAMERA_MOTION_BLUR_END_FOLLOW",
+			"CAMERA_FADE_ADD", "CAMERA_FADE_SUBTRACT", "CAMERA_FADE_SATURATE", "CAMERA_FADE_MULTIPLY", "CAMERA_SET_DEFAULT", "CAMERA_MOVE_HOME",
+			"CAMERA_TETHER_NAMED", "CAMERA_STOP_TETHER_NAMED", "CAMERA_ENABLE_SLAVE_MODE", "CAMERA_DISABLE_SLAVE_MODE", "CAMERA_ADD_SHAKER_AT",
+			"CAMERA_SET_AUDIBLE_DISTANCE", "SETUP_CAMERA", "SHOW_MILITARY_CAPTION", "DISPLAY_TEXT", "DISPLAY_CINEMATIC_TEXT", "DISPLAY_COUNTER",
+			"HIDE_COUNTER", "DISPLAY_COUNTDOWN_TIMER", "HIDE_COUNTDOWN_TIMER", "DISPLAY_NOTIFICATION_BOX", "DISPLAY_NOTIFICATION_BOX_WITH_OBJECT_TYPE_IMAGE_OVERRIDE",
+			"SHOW_MISSION_OBJECTIVE", "HIDE_MISSION_OBJECTIVE", "MARK_MISSION_OBJECTIVE_COMPLETED", "MARK_MISSION_OBJECTIVE_NOT_COMPLETED",
+			"PLAY_SOUND_EFFECT", "PLAY_SOUND_EFFECT_AT", "PLAY_SOUND_EFFECT_AT_TEAM", "SOUND_PLAY_NAMED", "SPEECH_PLAY", "MUSIC_SET_TRACK",
+			"MUSIC_SET_VOLUME", "SOUND_SET_VOLUME", "SPEECH_SET_VOLUME", // lane SCRIPT-3: RW 0x7BCAAE (TheAudio's script volume, client)
+			"REFRESH_RADAR", // lane BFME2CAMP1: RW 0x7BCC53: TheRadar (RW 0xDE4AB8) vslot 0x10(TheTerrainLogic), the client's radar redraw
+			"MUSIC_PLAY_TRACK_FINITE_TIMES", "MOVIE_PLAY_FULLSCREEN", "MOVIE_PLAY_RADAR", "PLAY_MOVIE_IN_GAME", "DISABLE_INPUT", "ENABLE_INPUT",
+			"HIDE_UI", "SHOW_UI", "DESELECT", "SELECT_OBJECT", "EVA_SET_ENABLED_DISABLED", "AUDIO_MAKE_SOUND_IMMUNE_TO_FADE", "AUDIO_FADE_VOLUME",
+			"AUDIO_RESTORE_VOLUME_ALL_TYPE", "AUDIO_OVERRIDE_VOLUME_TYPE", "AUDIO_RESTORE_VOLUME_TYPE", "AUDIO_SET_VOLUME_TYPE", "CAMEO_FLASH",
+			"NAMED_FLASH", "TEAM_FLASH", "ENABLE_HOUSE_COLOR", "DRAW_SKYBOX_BEGIN", "DRAW_SKYBOX_END", "SUSPEND_BACKGROUND_SOUNDS",
+			"RESUME_BACKGROUND_SOUNDS", "SET_VISUAL_SPEED_MULTIPLIER", "SHOW_WEATHER", "SCREEN_SHAKE", "SELECT_BUILDER_BUTTON_FLASH", "HERO_SELECT_BUTTON_FLASH",
+			"CLOSE_OBJECTIVES_SCREEN", "PLAYER_SELECT_SKILLSET", "MAP_SHROUD_AT_WAYPOINT",
+			// lane SCRIPT-2: the victory screen (RW 0x7BF05C: TheShell's victory window, no logic), the objectives button flash (RW 0x7BDF4E), the command
+			// bar edits (RW 0x7C6793 ...: TheControlBar). Lane BACKLOG3: the radar event actions are ported below (radarEventAction)
+			"VICTORY_SCREEN", "FLASH_OBJECTIVES_BUTTON", "FLASH_SPELL_STORE_BUTTON", "FLASH_PLANNING_MODE_BUTTON", // lane CAMPUI-1: RW 0x6D455F's other two slots "COMMANDBAR_REMOVE_BUTTON_OBJECTTYPE", "COMMANDBAR_ADD_BUTTON_OBJECTTYPE_SLOT",
+			"TOGGLE_AVI_CAPTURE", "ENABLE_OBJECT_SOUND", "DISABLE_OBJECT_SOUND",
+			// lane SCRIPT-4: RW 0x7BC604 doSetBorderShroud (BFME2 ScriptActions.cpp, tier A): TheDisplay vslot 0x138 with GlobalData ClearAlpha (+ 0xBE8) / ShroudAlpha
+			// (+ 0xBEA): the shroud border's fill (client, not saved)
+			"DISABLE_BORDER_SHROUD", "ENABLE_BORDER_SHROUD",
+			// lane CAMANIM-1: case 0x226 (RW 0x7CB8F4) -> RW 0x7BBB9D: TheCameraAnimationList's animation of that name (RW 0x7320BA) to TheTacticalView's
+			// slot 0x68 (RW 0x4864F9); client state only (GameClient/CameraAnimation.h)
+			"MOVE_CAMERA_BY_ANIMATION",
+			// lane MODCOMPAT-AI: RW 0x7CAFA5 case 0x14E: GlobalData + 0x950 = the real parameter (movss), the camera's far clip multiplier that
+			// setCameraTransform reads (RW 0x48B7B1: far = + 0x950 * 1800); nothing else in the logic (client, not saved)
+			"SET_CAMERA_CLIP_DEPTH_MULTIPLIER",
+		};
+		std::set<int> out;
+		for (const char *n : names)
+		{
+			const int o = ordinal(n);
+			if (o >= 0)
+			{
+				out.insert(o);
+			}
+		}
+		return out;
+	}();
+	return s;
+}
+
+bool positionOf(ScriptEngine &engine, const std::string &name, Coord3D &out, bool cameraFirst = false)
+{
+	// lane CAMPUI-1: MOVE_CAMERA_TO's parameter (type 51) is a named camera or a waypoint; RW 0x7BB540 (BFME2 0x7BAAE4, decomp ScriptActions.cpp)
+	// looks up both and the named camera's position wins
+	if (cameraFirst)
+	{
+		if (const NamedCamera *c = engine.findNamedCamera(name))
+		{
+			out = c->position;
+			return true;
+		}
+	}
+	if (const TerrainLogic *terrain = engine.logic().terrain())
+	{
+		if (const Waypoint *w = terrain->findWaypointByName(name))
+		{
+			out = w->location;
+			return true;
+		}
+	}
+	if (const NamedCamera *c = engine.findNamedCamera(name))
+	{
+		out = c->position;
+		return true;
+	}
+	return false;
+}
+
+// Lane BACKLOG3 (S-2452): the scripts' radar events. TARGET FACTS (RotWK game.dat, caveat S-001; BFME2 decomp ScriptActions.cpp /
+// ScriptActions_doObjectRadarCreateEvent.cpp, tier A for these addresses):
+//   RADAR_CREATE_EVENT (RW 0x7BC221): TheRadar->createEvent(the Coord3D parameter, the type parameter, 4.0f (RW 0xBD88C0)), then TheEva's event position (RW 0x5DD1F3);
+//   OBJECT_CREATE_RADAR_EVENT (RW 0x7BC250): the same at the named unit's position (Object + 0x38); nothing without the unit;
+//   TEAM_CREATE_RADAR_EVENT (RW 0x7C0B61): the team by name (getTeamNamed), only when it has a unit (RW 0x7A07D8: a member that is not dead, not Object + 0x94
+//   bit 0, not a STRUCTURE (KindOf bit 7), not a PROJECTILE (bit 25) and not IGNORE_FOR_VICTORY (bit 148)), at the members' average position (RW 0x7A0ECD).
+// The radar is the client's: the logic records the event (GameLogic::noteRadarEvent), Radar::noteLogicEvents applies it.
+void radarEventAction(ScriptEngine &engine, const ScriptActionRec &a, const std::string &name)
+{
+	GameLogic &logic = engine.logic();
+	const int type = param(a, 1).intValue;
+	Coord3D pos{ 0.0f, 0.0f, 0.0f };
+	if (name == "RADAR_CREATE_EVENT")
+	{
+		const ScriptParameter &p = param(a, 0);
+		pos = Coord3D{ p.x, p.y, p.z };
+	}
+	else if (name == "OBJECT_CREATE_RADAR_EVENT")
+	{
+		const Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		if (!o)
+		{
+			return;
+		}
+		pos = *o->getPosition();
+	}
+	else
+	{
+		const Team *team = ScriptConditions::team(engine, param(a, 0).stringValue);
+		if (!team)
+		{
+			return;
+		}
+		// the binary's bit numbers (RW 0x7A07D8 reads the template's KindOf words at + 0x108 and + 0x11A)
+		constexpr unsigned kStructure = 7, kProjectile = 25, kIgnoreForVictory = 148;
+		bool hasUnit = false;
+		float x = 0.0f, y = 0.0f, z = 0.0f;
+		int n = 0;
+		for (const Object *o = team->getFirstMember(); o; o = o->friend_teamNext())
+		{
+			hasUnit = hasUnit || (!o->isEffectivelyDead() && !o->isDestroyed() && !o->isKindOf(kStructure) && !o->isKindOf(kProjectile) && !o->isKindOf(kIgnoreForVictory));
+			// RW 0x7A0ECD: every member, SSE sums in member order, times 1 / n
+			x = SimMath::addf32(x, o->getPosition()->x);
+			y = SimMath::addf32(y, o->getPosition()->y);
+			z = SimMath::addf32(z, o->getPosition()->z);
+			++n;
+		}
+		if (!hasUnit)
+		{
+			return;
+		}
+		const float f = SimMath::divf32(1.0f, (float)n);
+		pos = Coord3D{ SimMath::mulf32(x, f), SimMath::mulf32(y, f), SimMath::mulf32(z, f) };
+	}
+	// a map's Coord3D parameter is outside data: a position that is not a number is refused by name (retail would hand it to the radar and to the view)
+	const auto finite = [](float v) {
+		std::uint32_t bits;
+		std::memcpy(&bits, &v, sizeof bits);
+		return (bits & 0x7F800000u) != 0x7F800000u; // neither an infinity nor a NaN (no float arithmetic: the exponent's bits)
+	};
+	if (!finite(pos.x) || !finite(pos.y) || !finite(pos.z))
+	{
+		logic.reportError("script action " + name + ": a radar event position that is not a finite number is refused");
+		return;
+	}
+	logic.noteRadarEvent(type, pos, GameLogic::RadarEventNotice::SCRIPT, -1);
+}
+
+// RW 0x7C595A (ZH ScriptActions::doCreateObject): CREATE_OBJECT (RW 0x7CBCE0: no name, RW 0xDC62B8) and UNIT_SPAWN_NAMED_LOCATION_ORIENTATION
+// (RW 0x7CE45B: the name parameter): a living object of that name refuses (the warning RW 0xC362FC); the team by name, made when missing
+// (RW 0x759FDA with 1, RW 0x7C597E); the template (RW 0x6D1305; none: nothing); the new object (RW 0x6D165E) named before it enters the
+// cache (RW 0x60A1D5); setOrientation(angle) (RW 0x70C31E), setPosition (RW 0x70C201) and the pathfinder (RW 0x6902F5) through the host
+void createOnTeamAtPosition(ScriptEngine &engine, const std::string &name, const std::string &templateName, const std::string &teamName,
+	const Coord3D &pos, float angle)
+{
+	GameLogic &logic = engine.logic();
+	Object *existing = name.empty() ? nullptr : engine.getUnitNamed(name);
+	if (existing && !existing->isEffectivelyDead())
+	{
+		engine.note("WARNING: Object with name " + name + " already exists.  Failed Create.");
+		return;
+	}
+	Team *team = ScriptConditions::team(engine, teamName, true);
+	if (!team)
+	{
+		engine.note("***WARNING: Team not found:*** " + teamName);
+		return;
+	}
+	const ThingTemplate *tt = logic.things().findTemplate(templateName);
+	if (!tt)
+	{
+		engine.note("***WARNING: object template not found:*** " + templateName);
+		return;
+	}
+	if (!engine.host())
+	{
+		engine.note("[S-1180] no object creation host: " + templateName);
+		return;
+	}
+	Object *obj = engine.host()->createObject(*tt, *team, pos, angle);
+	if (obj)
+	{
+		obj->friend_onBuildComplete(); // RW 0x7C595A: onBuildComplete (RW 0x68D252) after the position (a horde makes its members there)
+	}
+	if (obj && !name.empty())
+	{
+		obj->setName(name);
+	}
+}
+
+// RW 0x7C5B3B
+void createOnTeamAtWaypoint(ScriptEngine &engine, const std::string &name, const std::string &templateName, const std::string &teamName,
+	const std::string &waypointName)
+{
+	GameLogic &logic = engine.logic();
+	Object *existing = engine.getUnitNamed(name);
+	if (existing && !existing->isEffectivelyDead())
+	{
+		engine.note("WARNING: Object with name " + name + " already exists.  Failed Create.");
+		return;
+	}
+	Team *team = ScriptConditions::team(engine, teamName, true); // lane CAMP-1H: RW 0x7C5BC1 passes 1 (a missing team is made, an inactive one activated)
+	if (!team)
+	{
+		engine.note("***WARNING: Team not found:*** " + teamName);
+		return;
+	}
+	const Waypoint *wp = logic.terrain() ? logic.terrain()->findWaypointByName(waypointName) : nullptr;
+	if (!wp)
+	{
+		// RW 0x7C5C6C .. 0x7C5CD5: a waypoint name that is an object type places at the nearest such object (not ported)
+		engine.note("***WARNING: Waypoint not found (the object-type waypoint form is not ported):*** " + waypointName);
+		return;
+	}
+	const ThingTemplate *tt = logic.things().findTemplate(templateName);
+	if (!tt)
+	{
+		engine.note("***WARNING: object template not found:*** " + templateName);
+		return;
+	}
+	if (!engine.host())
+	{
+		engine.note("[S-1180] no object creation host: " + templateName);
+		return;
+	}
+	// the name goes on before the object enters the cache (RW 0x7C5D30: + 0x88, then RW 0x60A1D5); the host makes the full object (ZH
+	// ScriptActions::doCreateObject: newObject, position, pathfinder registration)
+	Object *obj = engine.host()->createObject(*tt, *team, wp->location, 0.0f);
+	if (obj)
+	{
+		obj->friend_onBuildComplete(); // RW 0x7C5B3B: onBuildComplete (RW 0x68D252) after the position
+	}
+	if (obj && !name.empty())
+	{
+		obj->setName(name); // the cache entry (Object::setName -> ScriptEngine::objectNamed)
+	}
+}
+
+} // namespace
+
+bool ScriptActions::isClientAction(int o)
+{
+	return clientActions().count(o) != 0;
+}
+
+void ScriptActions::clientRequest(ScriptEngine &engine, const ScriptActionRec &a)
+{
+	ScriptClientRequest r;
+	r.action = ScriptTemplates::action(a.resolved)->name;
+	r.params = a.params;
+	if (r.action == "HERO_SELECT_BUTTON_FLASH")
+	{
+		if (a.params.size() != 2)
+		{
+			engine.logic().reportError("HERO_SELECT_BUTTON_FLASH requires a template name and integer seconds");
+			return;
+		}
+		// RW 0x7BDD7A: signed 32-bit IMUL by the 30 Hz client rate, not the 5 Hz logic rate.
+		const std::uint32_t bits = 30u * (std::uint32_t)a.params[1].intValue;
+		const int frames = (int)(bits <= 0x7FFFFFFFu ? (std::int64_t)bits : (std::int64_t)bits - 0x100000000LL);
+		if (ObjectClientHooks *hooks = engine.logic().clientHooks())
+		{
+			hooks->flashHeroButton(a.params[0].stringValue, frames);
+		}
+	}
+	for (const ScriptParameter &p : a.params)
+	{
+		if ((p.type == PARAM_WAYPOINT || p.type == PARAM_CAMERA_POSITION) && !r.hasPosition)
+		{
+			r.hasPosition = positionOf(engine, p.stringValue, r.position, p.type == PARAM_CAMERA_POSITION);
+		}
+		if (p.type == 14 && r.objectId == 0) // a named unit: the client follows / sounds at it
+		{
+			if (const Object *o = engine.getUnitNamed(p.stringValue))
+			{
+				r.objectId = o->getID();
+			}
+		}
+	}
+	engine.addClientRequest(std::move(r));
+}
+
+// lane CAMPUI-1: the objective actions on TheMissionObjectiveTracker (MissionObjectiveTracker.h): SHOW / HIDE RW 0x7BDE35 / 0x7BDE57 -> setShown RW 0x835FAE,
+// MARK_..._COMPLETED / _NOT_COMPLETED RW 0x7BDE79 / 0x7BDE9B -> setCompleted RW 0x836097 (the parameter minus one); ENABLE / DISABLE_OBJECTIVES_SCREEN
+// RW 0x7BDF1C -> RW 0x8E89BD. The sound of a false -> true change (the local player's PlayerTemplate ObjectiveAddedSound + 0x1A8 / ObjectiveCompletedSound
+// + 0x1AC, the latter only after logic frame 3) goes to the client as MISSION_OBJECTIVE_SOUND(event name). Every one is also a client request as before
+// (the presentation: the Palantir's flash, the screen)
+static bool missionObjectiveAction(ScriptEngine &engine, const ScriptActionRec &a, const std::string &name)
+{
+	GameLogic &logic = engine.logic();
+	MissionObjectiveTracker &tracker = logic.missionObjectives();
+	if (name == "ENABLE_OBJECTIVES_SCREEN" || name == "DISABLE_OBJECTIVES_SCREEN")
+	{
+		tracker.setScreenEnabled(name == "ENABLE_OBJECTIVES_SCREEN");
+		return true;
+	}
+	const bool show = name == "SHOW_MISSION_OBJECTIVE", hide = name == "HIDE_MISSION_OBJECTIVE";
+	const bool done = name == "MARK_MISSION_OBJECTIVE_COMPLETED", undone = name == "MARK_MISSION_OBJECTIVE_NOT_COMPLETED";
+	if (!show && !hide && !done && !undone)
+	{
+		return false;
+	}
+	if (!tracker.hasList() || a.params.empty())
+	{
+		return true; // RW 0x7BDE35 ..: no tracker list, nothing
+	}
+	const int index = a.params[0].intValue - 1;
+	const bool changed = (show || hide) ? tracker.setShown(index, show) : tracker.setCompleted(index, done);
+	if (!changed || (done && logic.getFrame() <= 3))
+	{
+		return true;
+	}
+	const Player *local = logic.players().getLocalPlayer();
+	const PlayerTemplate *pt = local ? local->getPlayerTemplate() : nullptr;
+	const std::string &sound = pt ? (show ? pt->m_objectiveAddedSound : pt->m_objectiveCompletedSound) : std::string();
+	if (!sound.empty())
+	{
+		ScriptClientRequest r;
+		r.action = "MISSION_OBJECTIVE_SOUND";
+		ScriptParameter p;
+		p.type = 12; // a sound name (PLAY_SOUND_EFFECT's parameter type)
+		p.stringValue = sound;
+		r.params.push_back(p);
+		engine.addClientRequest(std::move(r));
+	}
+	return true;
+}
+
+// RW 0x7CAFA5
+void ScriptActions::execute(ScriptEngine &engine, const ScriptActionRec &a)
+{
+	if (!a.enabled)
+	{
+		return; // RW 0x7CAFB7: + 0x41 == 0
+	}
+	const ScriptTemplate *t = ScriptTemplates::action(a.resolved);
+	if (!t || !t->retailCase)
+	{
+		return; // retail's default: nothing
+	}
+	if (missionObjectiveAction(engine, a, t->name) && !isClientAction(a.resolved))
+	{
+		return; // lane CAMPUI-1: ENABLE / DISABLE_OBJECTIVES_SCREEN are logic only (their flag is saved, CHUNK_ObjectivesMenu)
+	}
+	if (isClientAction(a.resolved))
+	{
+		clientRequest(engine, a);
+		return;
+	}
+	GameLogic &logic = engine.logic();
+	const std::string &name = t->name;
+	if (name == "VICTORY" || name == "QUICKVICTORY")
+	{
+		engine.addEndRequest(true, name); // RW 0x7C45E0 / 0x7BE0A2 (the client's end screen)
+		// lane BFME2CAMP1: RW 0x7C45F8 / 0x7BE0C6: TheLinearCampaignManager RW 0x5EC0BA -> a current campaign's onCurrentMissionWon RW 0x5EBAEE (every
+		// call: a second VICTORY records the survivors again)
+		if (CampaignCarryover::State *carry = logic.campaignCarryover())
+		{
+			CampaignCarryover::onCurrentMissionWon(logic, logic.players(), *carry);
+		}
+		return;
+	}
+	if (name == "DEFEAT")
+	{
+		engine.addEndRequest(false, name); // RW 0x7BF15E
+		return;
+	}
+	if (name == "OPTIONS_SET_OCCLUSION_MODE")
+	{
+		// lane OCCLUDE-1: case 298 (RW 0x7CE207): TheGameLogic + 0x99 = (param 0's int (+ 8) != 0) through RW 0x7BD549; the renderer's occluded-object
+		// colours read it (GameLogic::getShowBehindBuildingMarkers)
+		logic.setShowBehindBuildingMarkers(param(a, 0).intValue != 0);
+		return;
+	}
+	if (name == "RADAR_CREATE_EVENT" || name == "OBJECT_CREATE_RADAR_EVENT" || name == "TEAM_CREATE_RADAR_EVENT")
+	{
+		radarEventAction(engine, a, name);
+		return;
+	}
+	if (name == "PLAYER_SET_RANKLEVELLIMIT") // PORT-43: case 279, RW 0x7CE020 -> RW 0x7BD1A8 -> RW 0x7BB04E(param 0 int)
+	{
+		logic.setRankLevelLimit(param(a, 0).intValue);
+		return;
+	}
+	if (name == "PLAYER_GRANT_SCIENCE" || name == "PLAYER_PURCHASE_SCIENCE") // RW 0x7CE037 / 0x7CE05C -> RW 0x7BD1BA / 0x7BD210(param 0 player, param 1 science)
+	{
+		// TheScienceStore by name (RW 0x5FEF8F; an unknown name does nothing), then every player of the parameter: grantScience (RW 0x6AE3A7) or
+		// attemptToPurchaseScience (RW 0x6AE36F)
+		const ScienceType st = TheScienceStore ? TheScienceStore->getScienceFromInternalName(param(a, 1).stringValue) : SCIENCE_INVALID;
+		if (st == SCIENCE_INVALID)
+		{
+			return;
+		}
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			if (name == "PLAYER_GRANT_SCIENCE")
+			{
+				p->science().grantScience(st);
+			}
+			else
+			{
+				p->science().attemptToPurchaseScience(st);
+			}
+		}
+		return;
+	}
+	if (name == "OBJECTLIST_ADDOBJECTTYPE" || name == "OBJECTLIST_REMOVEOBJECTTYPE") // RW 0x7CE11A / 0x7CE11E -> RW 0x759D77(param 0, param 1, add)
+	{
+		engine.objectListAdd(param(a, 0).stringValue, param(a, 1).stringValue, name == "OBJECTLIST_ADDOBJECTTYPE");
+		return;
+	}
+	if (name == "CREATE_NAMED_ON_TEAM_AT_WAYPOINT")
+	{
+		createOnTeamAtWaypoint(engine, param(a, 0).stringValue, param(a, 1).stringValue, param(a, 2).stringValue, param(a, 3).stringValue);
+		return;
+	}
+	if (name == "CREATE_OBJECT") // RW 0x7CBCE0 -> RW 0x7C595A("", param 0 type, param 1 team, param 2 position, param 3 angle)
+	{
+		const ScriptParameter &at = param(a, 2);
+		createOnTeamAtPosition(engine, std::string(), param(a, 0).stringValue, param(a, 1).stringValue, Coord3D{ at.x, at.y, at.z }, param(a, 3).realValue);
+		return;
+	}
+	if (name == "UNIT_SPAWN_NAMED_LOCATION_ORIENTATION") // RW 0x7CE45B -> RW 0x7C595A(param 0 name, param 1 type, param 2 team, param 3, param 4)
+	{
+		const ScriptParameter &at = param(a, 3);
+		createOnTeamAtPosition(engine, param(a, 0).stringValue, param(a, 1).stringValue, param(a, 2).stringValue, Coord3D{ at.x, at.y, at.z }, param(a, 4).realValue);
+		return;
+	}
+	if (name == "CREATE_UNNAMED_ON_TEAM_AT_WAYPOINT")
+	{
+		createOnTeamAtWaypoint(engine, std::string(), param(a, 0).stringValue, param(a, 1).stringValue, param(a, 2).stringValue);
+		return;
+	}
+	if (name == "PLAYER_SET_MONEY") // RW 0x7BCAFB (player, amount)
+	{
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			Money *m = p->getMoney();
+			m->withdraw(m->countMoney(), nullptr, true);
+			m->deposit((std::uint32_t)param(a, 1).intValue, nullptr, true);
+		}
+		return;
+	}
+	if (name == "PLAYER_GIVE_MONEY") // RW 0x7BCB5A (player, amount)
+	{
+		const std::int32_t amount = param(a, 1).intValue;
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			if (amount < 0)
+			{
+				p->getMoney()->withdraw((std::uint32_t)(-amount), nullptr, true);
+			}
+			else
+			{
+				p->getMoney()->deposit((std::uint32_t)amount, nullptr, true);
+			}
+		}
+		return;
+	}
+	if (name == "PLAYER_RELATES_PLAYER") // RW 0x7CC779: RW 0x7BC1C6(param 0, param 2's int, param 1): the first player of parameter 0 relates to parameter 1's
+	{
+		Player *p1 = ScriptConditions::firstPlayer(engine, param(a, 0).stringValue);
+		Player *p2 = ScriptConditions::firstPlayer(engine, param(a, 1).stringValue);
+		const int r = param(a, 2).intValue; // RELATION: 0 enemy, 1 neutral, 2 friend (ZH Parameter::RELATION)
+		if (p1 && p2 && r >= ENEMIES && r <= ALLIES)
+		{
+			p1->setPlayerRelationship(p2, (Relationship)r);
+		}
+		return;
+	}
+	if (name == "UNIT_SET_TEAM") // RW 0x7BF794 (the AI's team hook, vslot 0x54, is not ported)
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		Team *tm = ScriptConditions::team(engine, param(a, 1).stringValue, true); // lane CAMP-1H: RW 0x7BF7BF passes 1 (the team made / activated)
+		if (o && tm)
+		{
+			o->setTeam(tm);
+		}
+		return;
+	}
+	if (name == "PLAYER_TRANSFER_OWNERSHIP_PLAYER")
+	{
+		// lane BFME2CAMP1: RW 0x7BC0C3 (from, to): each parameter's player by its exact mask (RW 0x758F7C -> RW 0x6A85B6); both: the second takes the
+		// first's assets, transferAssetsFromThat(this = to, that = from, inherited 0) (RW 0x6AF598, GameLogic/SelfDestruct.h)
+		Player *to = ScriptConditions::playerOfMask(engine, param(a, 1).stringValue);
+		Player *from = ScriptConditions::playerOfMask(engine, param(a, 0).stringValue);
+		if (to && from)
+		{
+			SelfDestruct::transferAssetsFromThat(logic, *to, *from, false);
+		}
+		return;
+	}
+	if (name == "TEAM_TRANSFER_TO_PLAYER") // RW 0x7C9B79
+	{
+		Team *tm = ScriptConditions::team(engine, param(a, 0).stringValue);
+		Player *p = ScriptConditions::firstPlayer(engine, param(a, 1).stringValue);
+		if (tm && p && p->getDefaultTeam())
+		{
+			// INFERENCE (S-1180): retail gives the TEAM to the player (RW 0x7A00DA); the port moves its members to the player's default team, which
+			// runs the same owner change per object; the members then go idle (RW 0x5E821A)
+			engine.note("[S-1180] TEAM_TRANSFER_TO_PLAYER moves the members to the player's default team");
+			for (Object *o : ScriptConditions::members(*tm))
+			{
+				o->setTeam(p->getDefaultTeam());
+				AICommand idle;
+				idle.type = AICMD_IDLE;
+				idle.source = CMD_FROM_SCRIPT;
+				idle.object = o->getID();
+				idle.frame = logic.getFrame();
+				logic.aiCommands().issue(*o, idle);
+			}
+		}
+		return;
+	}
+	if (name == "NAMED_DELETE") // RW 0x7BBEF7: the object is removed without dying
+	{
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			logic.destroyObject(o);
+		}
+		return;
+	}
+	if (name == "NAMED_KILL") // RW 0x7BBF53
+	{
+		if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+		{
+			if (!o->isEffectivelyDead())
+			{
+				o->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL); // RW 0x7BBF6C: kill(8, 0)
+			}
+		}
+		return;
+	}
+	if (name == "TEAM_KILL" || name == "TEAM_DELETE") // RW 0x7C07ED / 0x7C0556
+	{
+		if (Team *tm = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			for (Object *o : ScriptConditions::members(*tm))
+			{
+				if (name == "TEAM_DELETE")
+				{
+					logic.destroyObject(o);
+				}
+				else if (!o->isEffectivelyDead())
+				{
+					o->kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL); // RW 0x7BCEDA (the TEAM_KILL member callback): kill(8, 0)
+				}
+			}
+		}
+		return;
+	}
+	if (name == "MOVE_NAMED_UNIT_TO" || name == "MOVE_TEAM_TO") // RW 0x7C84CC / 0x7BF4A3: aiMoveToPosition from the script
+	{
+		Coord3D pos;
+		if (!positionOf(engine, param(a, 1).stringValue, pos))
+		{
+			engine.note("***WARNING: Waypoint not found:*** " + param(a, 1).stringValue);
+			return;
+		}
+		std::vector<Object *> objs;
+		if (name == "MOVE_NAMED_UNIT_TO")
+		{
+			if (Object *o = engine.getUnitNamed(param(a, 0).stringValue))
+			{
+				objs.push_back(o);
+			}
+		}
+		else if (Team *tm = ScriptConditions::team(engine, param(a, 0).stringValue))
+		{
+			objs = ScriptConditions::members(*tm);
+		}
+		for (Object *o : objs)
+		{
+			if (o->isEffectivelyDead())
+			{
+				continue;
+			}
+			AICommand move;
+			move.type = AICMD_MOVE_TO_POSITION;
+			move.source = CMD_FROM_SCRIPT;
+			move.object = o->getID();
+			move.path.push_back(pos);
+			move.frame = logic.getFrame();
+			logic.aiCommands().issue(*o, move);
+		}
+		return;
+	}
+	if (name == "NAMED_FACE_WAYPOINT") // RW 0x7CA509: the AI turns to face the waypoint (RW 0x7C821E)
+	{
+		Object *o = engine.getUnitNamed(param(a, 0).stringValue);
+		Coord3D pos;
+		if (o && positionOf(engine, param(a, 1).stringValue, pos))
+		{
+			// INFERENCE (S-1180): the face command is not an AI command here; the object turns at once
+			engine.note("[S-1180] NAMED_FACE_WAYPOINT turns the object at once (retail: the AI's face-position command)");
+			const Coord3D *p = o->getPosition();
+			const double angle = SimMath::atan2d(SimMath::sseSub(pos.y, p->y), SimMath::sseSub(pos.x, p->x));
+			o->setOrientation(SimMath::fstpDword(angle)); // the stored float
+		}
+		return;
+	}
+	if (name == "PLAYER_DISABLE_BASE_CONSTRUCTION" || name == "PLAYER_ENABLE_BASE_CONSTRUCTION" || name == "PLAYER_DISABLE_UNIT_CONSTRUCTION" ||
+		name == "PLAYER_ENABLE_UNIT_CONSTRUCTION")
+	{
+		const bool enable = name.find("ENABLE") == 7;
+		const bool base = name.find("BASE") != std::string::npos;
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			if (base)
+			{
+				p->setCanBuildBase(enable);
+			}
+			else
+			{
+				p->setCanBuildUnits(enable);
+			}
+		}
+		return;
+	}
+	if (name == "MAP_REVEAL_AT_WAYPOINT" || name == "MAP_REVEAL_PERMANENTLY_AT_WAYPOINT" ||
+		name == "MAP_UNDO_REVEAL_PERMANENTLY_AT_WAYPOINT" || name == "MAP_REVEAL_IN_TRIGGER" ||
+		name == "MAP_REVEAL_PERMANENTLY_IN_TRIGGER" || name == "MAP_UNDO_REVEAL_PERMANENTLY_IN_TRIGGER")
+	{
+		engine.executeMapReveal(a);
+		return;
+	}
+	if (name == "MAP_REVEAL_ALL" || name == "MAP_REVEAL_ALL_PERM" || name == "MAP_REVEAL_ALL_UNDO_PERM" || name == "MAP_SHROUD_ALL")
+	{
+		ShroudManager *shroud = logic.shroud();
+		if (!shroud)
+		{
+			engine.note("[S-1180] " + name + ": the game has no shroud manager");
+			return;
+		}
+		for (Player *p : ScriptConditions::players(engine, param(a, 0).stringValue))
+		{
+			const int i = p->getPlayerIndex();
+			if (name == "MAP_REVEAL_ALL") shroud->revealMapForPlayer(i);
+			else if (name == "MAP_REVEAL_ALL_PERM") shroud->revealMapForPlayerPermanently(i);
+			else if (name == "MAP_REVEAL_ALL_UNDO_PERM") shroud->undoRevealMapForPlayerPermanently(i);
+			else shroud->shroudMapForPlayer(i);
+		}
+		return;
+	}
+	if (executeUnitAction(engine, a, name) || executeOrderAction(engine, a, name) || executeCampaignAction(engine, a, name) || executeSiegeAction(engine, a, name) ||
+		executeThreatFinderAction(engine, a, name)) // PORT 17 (issue #73): case 556, RW 0x7C68AA
+	{
+		return;
+	}
+	engine.noteUnportedAction(name);
+}

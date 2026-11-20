@@ -1,0 +1,1952 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+//
+// Mobile units on the pathfind grid: footprint size, goal and position reservation, the movement validity and destination checks,
+// destination adjustment, the request queue. Port of the RotWK pathfinder (target) with ZH AIPathfind.cpp as the structural donor.
+//
+// TARGET FACTS (RW game.dat; S-001 caveat applies to every address):
+//   * footprint size RW 0x6EAF79 (static, returns the diameter in cells), radius / centre RW 0x6ED071, cell of a position RW 0x6E8CE6
+//     (floor(pos * 0.1), plus 0.5 when the footprint is not centred);
+//   * validMovementPosition RW 0x6E8200, the movement struct builder RW 0x6EA04D, the cell test RW 0x6EA4E7;
+//   * checkForMovement RW 0x6EB792 (full) / 0x6EBAA0 (incremental over a previous footprint), its info struct RW 0x6E9119;
+//   * checkDestination RW 0x6F1584 with the blocker callback RW 0x6EB151;
+//   * reservations: slot records of the object's pathfind module (RW obj+0xA4: position slot, goal slot, kind-1 slot), updateGoal RW
+//     0x8E24D3 / removeGoal 0x8E2138 / updatePos 0x8E26B7 / release 0x8E1CC4 / register 0x8E231B / cell add 0x8E1DAD (head insertion into
+//     one of five occupant lists per cell info);
+//   * adjustDestination RW 0x6FE456 with the ring search 0x6FA2A4 and the per-cell test 0x6F66D9 / 0x6F83EB;
+//   * the request queue and processPathfindQueue RW 0x6F2364, 0x6ED0FB.
+// DONOR (ZH AIPathfind.cpp:4924-5650, 5648-5965, 9694-10112): the shape of the above where RW was not read. See docs/STOPS.md S-163 and
+// S-164 for what is not ported (kind-1 slot, rotated-rectangle fill, the partition grid).
+
+#include "GameLogic/AI/AIPathfind.h"
+#include "GameLogic/SimMath.h"
+#include "GameLogic/AI/AIPathfindStops.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+
+namespace
+{
+inline int realToIntFloor(float f)
+{
+	return SimMath::floorToInt(f);
+}
+
+// RW 0x8E1A99: an angle quantised to 12 steps (0 when it is not in [0, 11])
+int angleToCode(float a)
+{
+	const float twoPi = 6.28318530718f;
+	const float pi = 3.14159265359f;
+	while (a > pi) a = SimMath::subf32(a, twoPi);
+	while (a <= -pi) a = SimMath::addf32(a, twoPi);
+	if (a < 0.0f) a = SimMath::addf32(a, twoPi);
+	const float v = SimMath::divf32(SimMath::mulf32(a, 12.0f), twoPi);
+	if (v > 11.0f) return 0;
+	return SimMath::truncToInt32(SimMath::addf32(v, 0.5f));
+}
+} // namespace
+
+Pathfinder::UnitRecord &Pathfinder::unit(PathfindObjectID id)
+{
+	// performance (the same record): a unit already indexed is found through m_unitIndex, not the std::map of every unit (~32k nodes at 30k troops); it is
+	// asked on every transform change (updatePos) and goal update. Records are never erased; the index is rebuilt wherever the map is cleared or loaded,
+	// so an index entry is the map's record
+	if (UnitRecord *known = indexedUnit(id))
+	{
+		return *known;
+	}
+	UnitRecord &r = m_units[id];
+	if (id < (PathfindObjectID)kUnitIndexMax)
+	{
+		if (id >= m_unitIndex.size())
+		{
+			m_unitIndex.resize((size_t)id + 1, nullptr);
+		}
+		m_unitIndex[id] = &r;
+	}
+	return r;
+}
+
+const Pathfinder::UnitRecord *Pathfinder::findUnit(PathfindObjectID id) const
+{
+	if (m_searchShortcuts && id < (PathfindObjectID)kUnitIndexMax)
+	{
+		return id < m_unitIndex.size() ? m_unitIndex[id] : nullptr;
+	}
+	auto it = m_units.find(id);
+	return it == m_units.end() ? nullptr : &it->second;
+}
+
+ICoord2D Pathfinder::pathfindGoalCell(PathfindObjectID id) const
+{
+	ICoord2D c;
+	c.x = c.y = -1;
+	const UnitRecord *u = findUnit(id);
+	if (u && u->goal.occupied)
+	{
+		return u->goal.cell;
+	}
+	return c;
+}
+
+ICoord2D Pathfinder::curPathfindCell(PathfindObjectID id) const
+{
+	ICoord2D c;
+	c.x = c.y = -1;
+	const UnitRecord *u = findUnit(id);
+	if (u && u->pos.occupied)
+	{
+		return u->pos.cell;
+	}
+	return c;
+}
+
+bool Pathfinder::goalRegistered(PathfindObjectID id) const
+{
+	const UnitRecord *u = findUnit(id);
+	return u && u->goal.occupied && !u->goal.cells.empty();
+}
+
+bool Pathfinder::positionRegistered(PathfindObjectID id) const
+{
+	const UnitRecord *u = findUnit(id);
+	return u && u->pos.occupied && !u->pos.cells.empty();
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// footprint size
+// ---------------------------------------------------------------------------------------------------------
+int Pathfinder::footprintSize(const PathfindObject *obj) const
+{
+	// TARGET RW 0x6EAF79: the largest footprint is 4 * 2 + 1 for MONSTER, HORDE and SHIP templates, 2 * 2 + 1 otherwise
+	int maxR = 2;
+	if (obj->isKindOf(PK_MONSTER) || obj->isKindOf(PK_HORDE) || obj->isKindOf(PK_SHIP))
+	{
+		maxR = 4;
+	}
+	float d = SimMath::mulf32(obj->getGeometry().boundingCircleRadius(), 2.0f);
+	if (d > 10.0f && d < 20.0f)
+	{
+		d = 20.0f;
+	}
+	if (obj->getPathfindDiameter() > 0.0f)
+	{
+		d = obj->getPathfindDiameter();
+	}
+	int r = realToIntFloor(SimMath::addf32(SimMath::mulf32(d, 0.1f), 0.3f));
+	if (r == 0)
+	{
+		return 1;
+	}
+	if (r > 2 * maxR)
+	{
+		return 2 * maxR + 1;
+	}
+	return r;
+}
+
+void Pathfinder::getRadiusAndCenter(const PathfindObject *obj, int &iRadius, bool &center) const
+{
+	// TARGET RW 0x6ED071: the footprint size (RW 0x6EAF79) halved, centred when it is odd. Lane MOVE-3: it has no horde / ship branch; only the A* neighbour
+	// expansion (RW 0x6F9850's prologue, examineNeighboringCells) and the line test (RW 0x6EE12D, isLinePassable) narrow a HORDE or SHIP to radius 1, centred. The port took the narrow footprint for every caller,
+	// so a horde's destination adjustment (RW 0x6EE84E -> 0x6ED071), its goal and position reservation and the blocked repath tested a 3 x 3 footprint where
+	// RotWK tests the horde's own (9 x 9 cells for a bounding circle of 54: GondorFighterHorde's 30 x 45 box)
+	if (!obj)
+	{
+		center = true;
+		iRadius = 0;
+		return;
+	}
+	const int r = footprintSize(obj);
+	iRadius = r / 2;
+	center = (r & 1) != 0;
+}
+
+ICoord2D Pathfinder::worldToCellUnclamped(const Coord3D *pos, bool center)
+{
+	ICoord2D cell;
+	if (center)
+	{
+		cell.x = realToIntFloor(SimMath::mulf32(pos->x, 0.1f));
+		cell.y = realToIntFloor(SimMath::mulf32(pos->y, 0.1f));
+	}
+	else
+	{
+		cell.x = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos->x, 0.1f), 0.5f));
+		cell.y = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos->y, 0.1f), 0.5f));
+	}
+	return cell;
+}
+
+bool Pathfinder::worldToCell(const Coord3D *pos, bool center, ICoord2D *cell)
+{
+	if (center)
+	{
+		cell->x = realToIntFloor(SimMath::mulf32(pos->x, 0.1f));
+		cell->y = realToIntFloor(SimMath::mulf32(pos->y, 0.1f));
+	}
+	else
+	{
+		cell->x = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos->x, 0.1f), 0.5f));
+		cell->y = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos->y, 0.1f), 0.5f));
+	}
+	bool overflow = false;
+	if (cell->x < m_extent.lo.x) { overflow = true; cell->x = m_extent.lo.x; }
+	if (cell->y < m_extent.lo.y) { overflow = true; cell->y = m_extent.lo.y; }
+	if (cell->x > m_extent.hi.x) { overflow = true; cell->x = m_extent.hi.x; }
+	if (cell->y > m_extent.hi.y) { overflow = true; cell->y = m_extent.hi.y; }
+	return overflow;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// movement validity
+// ---------------------------------------------------------------------------------------------------------
+unsigned Pathfinder::validLocomotorSurfacesForCellType(PathfindCell::CellType t)
+{
+	// TARGET RW table 0xDA2444 indexed by the 4-bit cell type (`and 0xf` at every reader; bits are the LocomotorSurfaceType flags of Locomotor.h:
+	// GROUND 1, WATER 2, CLIFF 4, AIR 8, RUBBLE 0x10, OBSTACLE 0x20, IMPASSABLE 0x40, DEEP_WATER 0x80); lane WALL-5: entry 8 (RW 0xDA2464, the wall
+	// tops' rims) is 0; the bytes after it are other data (types 9 .. 15 are never written)
+	static const unsigned table[9] = { 0x09, 0x0A, 0x0C, 0x18, 0x28, 0x48, 0x48, 0x88, 0x00 };
+	const unsigned i = (unsigned)t & 0xFu;
+	return i < 9u ? table[i] : 0u;
+}
+
+PathfindMovement Pathfinder::makeMovement(const PathfindObject *obj, const PathfindLocomotorInfo &loco)
+{
+	// TARGET RW 0x6EA04D
+	PathfindMovement mv;
+	mv.surf = loco.validSurfaces;
+	mv.bC = loco.crusher;
+	if (obj)
+	{
+		mv.b4 = !obj->canPathThroughGates();
+		mv.b5 = !obj->isComputerControlled();
+		mv.i8 = obj->getSlopeLimitIndex() - 1;
+	}
+	else
+	{
+		mv.b4 = true; // no template: CanPathThroughGates reads 0
+		mv.b5 = true;
+	}
+	return mv;
+}
+
+bool Pathfinder::validMovementPosition(const PathfindMovement &mv, const PathfindCell *cell) const
+{
+	// TARGET RW 0x6E8200 (S-001 caveat)
+	if (!cell)
+	{
+		return false;
+	}
+	if (cell->getImpassableToPlayers() && mv.b5)
+	{
+		return false;
+	}
+	const PathfindCell::CellType t = cell->getType();
+	if (t == PathfindCell::CELL_RUBBLE)
+	{
+		if (cell->getLayer() != LAYER_GROUND)
+		{
+			return false; // type 3 only on the ground layer
+		}
+	}
+	else if (t == PathfindCell::CELL_OBSTACLE)
+	{
+		// with an ignore id of 0 an info-less obstacle cell passes (RW: obstacle id 0 == pathfinder+0x48 == 0)
+		const PathfindObjectID obs = cell->getObstacleID();
+		if (obs == m_ignoreObstacleID)
+		{
+			return true;
+		}
+	}
+	if ((mv.surf & validLocomotorSurfacesForCellType(t)) == 0)
+	{
+		return false;
+	}
+	if (mv.b4 && cell->getBit17())
+	{
+		return false;
+	}
+	if (mv.bC && !cell->getBit22() && t == PathfindCell::CELL_OBSTACLE)
+	{
+		return false;
+	}
+	if (mv.i8 >= 0 && cell->getSlopeGrade() > mv.i8)
+	{
+		return false;
+	}
+	return true;
+}
+
+bool Pathfinder::validMovementPosition(const PathfindObject *obj, const PathfindLocomotorInfo &loco, PathfindLayerEnum layer, const Coord3D *pos)
+{
+	const int x = SimMath::truncToInt32(SimMath::mulf32(pos->x, 0.1f));
+	const int y = SimMath::truncToInt32(SimMath::mulf32(pos->y, 0.1f));
+	const PathfindMovement mv = makeMovement(obj, loco);
+	const PathfindCell *cell = getCell(layer, x, y);
+	// lane WALLSEARCH-1: RW 0x6EA4E7 (BFME2 0x6E909F) tests the layer of a wall top only, exactly (RW 0x6EA52E .. 0x6EA547: no connect layer); the ground,
+	// a raised walkway and the ramp take any cell of their grid
+	if (cell && isWallLayer(layer) && cell->getLayer() != layer)
+	{
+		return false;
+	}
+	return validMovementPosition(mv, cell);
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// lane PATHPERF-1: the search memo (see AIPathfind.h)
+// ---------------------------------------------------------------------------------------------------------
+Pathfinder::SearcherFacts Pathfinder::searcherFacts(const PathfindObject *obj) const
+{
+	SearcherFacts f;
+	f.isHuman = !obj->isComputerControlled();
+	f.hasAI = obj->hasAI();
+	f.hasLocomotor = obj->hasLocomotor();
+	f.largeRect = obj->isKindOf(PK_LARGE_RECTANGLE_PATHFIND);
+	f.pathThroughInfantry = obj->isKindOf(PK_PATH_THROUGH_INFANTRY);
+	f.throughEachOther = obj->pathsThroughEachOther();
+	f.aiPriority = obj->aiPriority();
+	return f;
+}
+
+const Pathfinder::OccupantFacts *Pathfinder::occupantFacts(const PathfindObject *obj, PathfindObjectID id)
+{
+	OccupantFacts *f = &m_memoScratch;
+	if (m_searchShortcuts && m_memoActive && obj == m_memoObj && id < (PathfindObjectID)kUnitIndexMax)
+	{
+		if (id >= m_memo.size())
+		{
+			m_memo.resize((size_t)id + 1);
+		}
+		f = &m_memo[id];
+		if (f->gen == m_memoGen)
+		{
+			return f->o ? f : nullptr;
+		}
+	}
+	f->gen = m_memoGen;
+	f->reach = ReachMemo();
+	f->o = m_world ? m_world->findObjectByID(id) : nullptr;
+	if (!f->o)
+	{
+		return nullptr;
+	}
+	const PathfindObject &o = *f->o;
+	f->rel = obj->getRelationship(o);
+	f->parkedState = -1;
+	f->priorityKnown = false;
+	f->hasAI = o.hasAI();
+	f->hasLocomotor = o.hasLocomotor();
+	f->infantry = o.isKindOf(PK_INFANTRY);
+	f->largeRect = o.isKindOf(PK_LARGE_RECTANGLE_PATHFIND);
+	f->throughEachOther = o.pathsThroughEachOther();
+	f->container = o.getContainer();
+	return f;
+}
+
+// lane PATHPERF-2: secondsToReach from the memo's inputs. The speed is the costly part (Locomotor::getMaxSpeedForCondition reads the damage state, the
+// charge status and the crew), and nothing it reads changes during a search; the arithmetic is secondsToReach's own. With the shortcuts off every
+// answer is asked afresh (test_pathperf1_bench.cpp compares both ways)
+float Pathfinder::reachSeconds(const PathfindObject &o, ReachMemo &memo, float x, float y) const
+{
+	if (!m_searchShortcuts)
+	{
+		return o.secondsToReach(x, y);
+	}
+	if (memo.state == 0)
+	{
+		memo.state = o.reachInputs(memo.x, memo.y, memo.speed) ? 1 : 2;
+	}
+	if (memo.state == 2)
+	{
+		return o.secondsToReach(x, y);
+	}
+	const float dist = SimMath::length2d(SimMath::subf32(x, memo.x), SimMath::subf32(y, memo.y));
+	return memo.speed > 0.0f ? SimMath::divf32(dist, memo.speed) : 0.0f;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// checkForMovement (RW 0x6EB792 / 0x6EBAA0)
+// ---------------------------------------------------------------------------------------------------------
+bool Pathfinder::checkForMovement(const PathfindObject *obj, PathfindCheckMovement &info, const ICoord2D *prev)
+{
+	info.allyFixed = false;
+	info.allyPresent = false;
+	info.goalListNonEmpty = false;
+	info.terrainPenalty = 0;
+	if (!obj)
+	{
+		return true;
+	}
+	const SearcherFacts self = (m_memoActive && obj == m_memoObj) ? m_memoSelf : searcherFacts(obj);
+	const bool isHuman = self.isHuman;
+	const int n = info.radius + (info.center ? 1 : 0);
+	PathfindObjectID lastId = PATHFIND_INVALID_ID;
+	for (int i = info.cell.x - info.radius; i < info.cell.x + n; i++)
+	{
+		for (int j = info.cell.y - info.radius; j < info.cell.y + n; j++)
+		{
+			const PathfindCell *c = getCell(info.layer, i, j);
+			if (!c)
+			{
+				return false; // off the map
+			}
+			bool covered = false;
+			if (prev)
+			{
+				// the cell lies inside the previous footprint
+				const int px = prev->x, py = prev->y;
+				covered = i >= px - info.radius && i < px + n && j >= py - info.radius && j < py + n;
+			}
+			// terrain (always)
+			if (c->getType() == PathfindCell::CELL_BRIDGE_IMPASSABLE)
+			{
+				info.terrainPenalty++;
+			}
+			if (c->getImpassableToPlayers() && isHuman)
+			{
+				info.terrainPenalty++;
+			}
+			if ((info.flags & 8) && info.layer != c->getLayer())
+			{
+				bool bad;
+				if (info.layer == LAYER_GROUND)
+				{
+					bad = (int)c->getLayer() != 0x10;
+				}
+				else
+				{
+					bad = (int)info.layer >= 0x11 && (int)info.layer <= 0x40 && (int)c->getLayer() != 0x10;
+				}
+				if (bad) info.terrainPenalty++;
+			}
+			if ((info.flags & 4) && !validMovementPosition(info.mv, c))
+			{
+				info.terrainPenalty++;
+			}
+			if (covered)
+			{
+				continue;
+			}
+			if (c->hasOccupants(OCC_GROUND_GOAL))
+			{
+				info.goalListNonEmpty = true;
+			}
+			// the units standing on the cell (the position list, RW info+0x20)
+			for (const PathfindOccupant *node = c->occupants(OCC_POSITION); node; node = node->next)
+			{
+				// lane PERF-HD: the id tests below first (the facts are looked up by this id, so o->getID() == node->owner): the unit just seen in the
+				// neighbouring cell of the footprint skips the memo lookup
+				if (node->owner == info.ignoreId || node->owner == lastId)
+				{
+					continue;
+				}
+				const OccupantFacts *f = occupantFacts(obj, node->owner);
+				if (!f)
+				{
+					continue;
+				}
+				const PathfindObject *o = f->o;
+				if (o == obj || o->getID() == info.ignoreId || o->getID() == lastId)
+				{
+					continue;
+				}
+				lastId = o->getID();
+				const bool ally = f->rel == PATHFIND_ALLIES;
+				if (ally)
+				{
+					info.allyPresent = true;
+				}
+				const bool check = (info.transient && ally) || (!ally && (info.flags & 0x10)) || f->parked();
+				if (!check)
+				{
+					continue;
+				}
+				if (ally && self.throughEachOther && f->throughEachOther)
+				{
+					continue;
+				}
+				if (self.pathThroughInfantry && f->infantry)
+				{
+					continue;
+				}
+				if (ally && self.largeRect)
+				{
+					if (!f->largeRect)
+					{
+						info.goalListNonEmpty = false;
+						continue;
+					}
+				}
+				if (ally)
+				{
+					if (!f->hasAI)
+					{
+						return false;
+					}
+					if (info.flags & 2)
+					{
+						return false;
+					}
+					info.allyFixed = true;
+					if (!f->largeRect)
+					{
+						continue;
+					}
+					if (self.largeRect)
+					{
+						continue;
+					}
+					return false;
+				}
+				// an enemy
+				if (obj->canCrushOrSquish(*o))
+				{
+					continue;
+				}
+				if (!(info.flags & 0x11))
+				{
+					continue;
+				}
+				if (!self.hasAI)
+				{
+					return false;
+				}
+				if (m_uberLimits && obj->ignoresAsTarget(*o)) // lane UBER-PATH: Faithful keeps S-164
+				{
+					continue;
+				}
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// lane PERF-LOGIC: the per-search cell facts (see AIPathfind.h)
+// ---------------------------------------------------------------------------------------------------------
+namespace
+{
+enum : std::uint16_t
+{
+	kFactPenaltyMask = 7,    // the cell's terrain penalty (0 .. 4)
+	kFactGoal = 8,           // the ground goal list is not empty
+	kFactFail = 16,          // the occupant walk refuses the footprint
+	kFactAllyPresent = 32,   // allyPresent when the walk ended (or refused)
+	kFactAllyFixed = 64,     // allyFixed when the walk ended (or refused)
+	kFactClear = 128,        // the walk cleared goalListNonEmpty (a LARGE_RECTANGLE_PATHFIND searcher meeting an ally that is not one)
+	kFactClearLater = 256,   // ... and did so again after its first unit's own turn (the answer when that unit was the previous cell's last)
+};
+} // namespace
+
+// one cell's part of checkForMovement: its terrain penalty, and (for an uncovered cell) the goal flag and the occupant walk's outcome, the walk starting with no
+// last id. In the original walk the last id carries over from the previous uncovered cell, so a unit met at the end of one cell and again first in the next is
+// skipped there. Walking it again repeats only its sticky effects (the flags it set, the refusal it would have given the first time), except the one flag a
+// LARGE_RECTANGLE_PATHFIND searcher clears: so the walk records whether it cleared the flag at all and whether it did after the first unit's turn, and the ids
+// of its first and last unit; checkForMovementCached picks the one that applies
+Pathfinder::CellMoveFacts Pathfinder::cellMoveFacts(const PathfindObject *obj, const PathfindCheckMovement &info, const PathfindCell *c)
+{
+	const SearcherFacts &self = m_memoSelf;
+	unsigned pen = 0;
+	if (c->getType() == PathfindCell::CELL_BRIDGE_IMPASSABLE)
+	{
+		pen++;
+	}
+	if (c->getImpassableToPlayers() && self.isHuman)
+	{
+		pen++;
+	}
+	if ((info.flags & 8) && info.layer != c->getLayer())
+	{
+		bool bad;
+		if (info.layer == LAYER_GROUND)
+		{
+			bad = (int)c->getLayer() != 0x10;
+		}
+		else
+		{
+			bad = (int)info.layer >= 0x11 && (int)info.layer <= 0x40 && (int)c->getLayer() != 0x10;
+		}
+		if (bad) pen++;
+	}
+	if ((info.flags & 4) && !validMovementPosition(info.mv, c))
+	{
+		pen++;
+	}
+	CellMoveFacts r;
+	r.f = (std::uint16_t)pen;
+	r.first = PATHFIND_INVALID_ID;
+	r.last = PATHFIND_INVALID_ID;
+	if (c->hasOccupants(OCC_GROUND_GOAL))
+	{
+		r.f |= kFactGoal;
+	}
+	bool allyPresent = false, allyFixed = false, fail = false, clear = false, clearLater = false;
+	PathfindObjectID lastId = PATHFIND_INVALID_ID;
+	for (const PathfindOccupant *node = c->occupants(OCC_POSITION); node; node = node->next)
+	{
+		if (node->owner == info.ignoreId || node->owner == lastId)
+		{
+			continue;
+		}
+		const OccupantFacts *of = occupantFacts(obj, node->owner);
+		if (!of)
+		{
+			continue;
+		}
+		const PathfindObject *o = of->o;
+		if (o == obj || o->getID() == info.ignoreId || o->getID() == lastId)
+		{
+			continue;
+		}
+		lastId = o->getID();
+		const bool firstUnit = r.first == PATHFIND_INVALID_ID;
+		if (firstUnit)
+		{
+			r.first = lastId;
+		}
+		const bool ally = of->rel == PATHFIND_ALLIES;
+		if (ally)
+		{
+			allyPresent = true;
+		}
+		const bool check = (info.transient && ally) || (!ally && (info.flags & 0x10)) || of->parked();
+		if (!check)
+		{
+			continue;
+		}
+		if (ally && self.throughEachOther && of->throughEachOther)
+		{
+			continue;
+		}
+		if (self.pathThroughInfantry && of->infantry)
+		{
+			continue;
+		}
+		if (ally && self.largeRect)
+		{
+			if (!of->largeRect)
+			{
+				clear = true;
+				if (!firstUnit)
+				{
+					clearLater = true;
+				}
+				continue;
+			}
+		}
+		if (ally)
+		{
+			if (!of->hasAI || (info.flags & 2))
+			{
+				fail = true;
+				break;
+			}
+			allyFixed = true;
+			if (!of->largeRect || self.largeRect)
+			{
+				continue;
+			}
+			fail = true;
+			break;
+		}
+		if (obj->canCrushOrSquish(*o))
+		{
+			continue;
+		}
+		if (!(info.flags & 0x11))
+		{
+			continue;
+		}
+		if (!self.hasAI)
+		{
+			fail = true;
+			break;
+		}
+		if (m_uberLimits && obj->ignoresAsTarget(*o)) // lane UBER-PATH: Faithful keeps S-164
+		{
+			continue;
+		}
+		fail = true;
+		break;
+	}
+	r.last = lastId;
+	if (fail) r.f |= kFactFail;
+	if (allyPresent) r.f |= kFactAllyPresent;
+	if (allyFixed) r.f |= kFactAllyFixed;
+	if (clear) r.f |= kFactClear;
+	if (clearLater) r.f |= kFactClearLater;
+	return r;
+}
+
+bool Pathfinder::checkForMovementCached(const PathfindObject *obj, PathfindCheckMovement &info, const ICoord2D *prev)
+{
+	if (!obj || !m_searchShortcuts || !m_memoActive || obj != m_memoObj || m_blockOfMapCells.empty())
+	{
+		return checkForMovement(obj, info, prev);
+	}
+	CellFactsSlot &s = m_cellFacts[(info.flags & 4) ? 1 : 0];
+	if (!s.bound || s.memoGen != m_memoGen || s.flags != info.flags || s.transient != info.transient || s.ignoreId != info.ignoreId || s.layer != info.layer ||
+		s.mv.surf != info.mv.surf || s.mv.b4 != info.mv.b4 || s.mv.b5 != info.mv.b5 || s.mv.i8 != info.mv.i8 || s.mv.bC != info.mv.bC)
+	{
+		if (s.stamp.size() != m_blockOfMapCells.size())
+		{
+			s.stamp.assign(m_blockOfMapCells.size(), 0u);
+			s.facts.assign(m_blockOfMapCells.size(), CellMoveFacts());
+			s.gen = 0;
+		}
+		if (++s.gen == 0)
+		{
+			std::fill(s.stamp.begin(), s.stamp.end(), 0u);
+			s.gen = 1;
+		}
+		s.bound = true;
+		s.memoGen = m_memoGen;
+		s.flags = info.flags;
+		s.transient = info.transient;
+		s.ignoreId = info.ignoreId;
+		s.layer = info.layer;
+		s.mv = info.mv;
+	}
+	info.allyFixed = false;
+	info.allyPresent = false;
+	info.goalListNonEmpty = false;
+	info.terrainPenalty = 0;
+	const PathfindCell *base = m_blockOfMapCells.data();
+	const size_t cells = m_blockOfMapCells.size();
+	const int n = info.radius + (info.center ? 1 : 0);
+	PathfindObjectID lastId = PATHFIND_INVALID_ID;
+	CellMoveFacts scratch;
+	for (int i = info.cell.x - info.radius; i < info.cell.x + n; i++)
+	{
+		for (int j = info.cell.y - info.radius; j < info.cell.y + n; j++)
+		{
+			const PathfindCell *c = getCell(info.layer, i, j);
+			if (!c)
+			{
+				return false; // off the map
+			}
+			const CellMoveFacts *f;
+			// the ground grid's slot of (i, j), as getCell computes it; a raised layer's own cell lives in another array (compared, never subtracted)
+			const size_t k = (size_t)i * (size_t)m_stride + (size_t)j;
+			if (k < cells && c == base + k)
+			{
+				if (s.stamp[k] != s.gen)
+				{
+					s.facts[k] = cellMoveFacts(obj, info, c);
+					s.stamp[k] = s.gen;
+				}
+				f = &s.facts[k];
+			}
+			else
+			{
+				scratch = cellMoveFacts(obj, info, c); // a raised layer's own cell
+				f = &scratch;
+			}
+			const unsigned bits = f->f;
+			info.terrainPenalty += (int)(bits & kFactPenaltyMask);
+			if (prev)
+			{
+				const int px = prev->x, py = prev->y;
+				if (i >= px - info.radius && i < px + n && j >= py - info.radius && j < py + n)
+				{
+					continue; // the cell lies inside the previous footprint
+				}
+			}
+			if (bits & kFactGoal)
+			{
+				info.goalListNonEmpty = true;
+			}
+			// the original walk skips the cell's first unit when it is the last one met (see cellMoveFacts)
+			const bool skipFirst = f->first != PATHFIND_INVALID_ID && f->first == lastId;
+			if (bits & (skipFirst ? kFactClearLater : kFactClear))
+			{
+				info.goalListNonEmpty = false;
+			}
+			if (bits & kFactAllyPresent)
+			{
+				info.allyPresent = true;
+			}
+			if (bits & kFactAllyFixed)
+			{
+				info.allyFixed = true;
+			}
+			if (bits & kFactFail)
+			{
+				return false;
+			}
+			if (f->last != PATHFIND_INVALID_ID)
+			{
+				lastId = f->last;
+			}
+		}
+	}
+	return true;
+}
+
+// one cell's part of occupantCost: the occupants that add 8 whatever the cell, and the reach times of those that add 4 when the searcher is slower to the cell
+void Pathfinder::cellCostFacts(const PathfindObject *obj, const PathfindCell *c, int i, int j, std::uint16_t &fixed8, std::vector<float> &reach)
+{
+	const SearcherFacts &self = m_memoSelf;
+	fixed8 = 0;
+	for (const PathfindOccupant *node = c->occupants(OCC_GROUND_GOAL); node; node = node->next)
+	{
+		const OccupantFacts *f = occupantFacts(obj, node->owner);
+		if (!f || f->o == obj || f->container == obj)
+		{
+			continue;
+		}
+		if (f->rel == PATHFIND_ENEMIES)
+		{
+			continue; // skipEnemies (every caller of the cached form)
+		}
+		if (!f->hasAI)
+		{
+			continue;
+		}
+		if (self.aiPriority > f->aiPriority())
+		{
+			continue;
+		}
+		if (!self.hasLocomotor || !f->hasLocomotor || f->parked())
+		{
+			++fixed8;
+			continue;
+		}
+		const float qx = SimMath::mulf32((SimMath::addf32((float)i, 0.5f)), 10.0f), qy = SimMath::mulf32((SimMath::addf32((float)j, 0.5f)), 10.0f);
+		reach.push_back(reachSeconds(*f->o, f->reach, qx, qy));
+	}
+}
+
+int Pathfinder::occupantCostCached(const PathfindObject *obj, const PathfindCell *parent, int cx, int cy, int r, int n)
+{
+	if (!parent || !obj)
+	{
+		return 0;
+	}
+	if (!m_searchShortcuts || !m_memoActive || obj != m_memoObj || m_blockOfMapCells.empty())
+	{
+		return occupantCost(obj, parent, cx, cy, r, n, true);
+	}
+	if (!m_memoSelf.hasAI)
+	{
+		return 0; // every occupant is passed over
+	}
+	if (!m_cellCostBound || m_cellCostMemoGen != m_memoGen)
+	{
+		if (m_cellCost.size() != m_blockOfMapCells.size())
+		{
+			m_cellCost.assign(m_blockOfMapCells.size(), CellCostRecord());
+			m_cellCostGen = 0;
+		}
+		if (++m_cellCostGen == 0)
+		{
+			for (CellCostRecord &rec : m_cellCost)
+			{
+				rec.stamp = 0;
+			}
+			m_cellCostGen = 1;
+		}
+		m_cellCostBound = true;
+		m_cellCostMemoGen = m_memoGen;
+		m_cellCostReach.clear();
+	}
+	const int shift = r >= 4 ? 2 : (r > 1 ? 1 : 0);
+	const PathfindCell *base = m_blockOfMapCells.data();
+	const size_t cells = m_blockOfMapCells.size();
+	unsigned fixed = 0, slower = 0;
+	float selfT = -1.0f;
+	for (int i = cx - r; i < cx + n; i++)
+	{
+		for (int j = cy - r; j < cy + n; j++)
+		{
+			const PathfindCell *c = getCell(parent->getLayer(), i, j);
+			if (!c || !c->hasOccupants(OCC_GROUND_GOAL))
+			{
+				continue;
+			}
+			std::uint16_t fixed8 = 0;
+			const float *reach = nullptr;
+			size_t count = 0;
+			const size_t k = (size_t)i * (size_t)m_stride + (size_t)j; // the ground slot of (i, j), as in checkForMovementCached
+			if (k < cells && c == base + k)
+			{
+				CellCostRecord &rec = m_cellCost[k];
+				if (rec.stamp != m_cellCostGen)
+				{
+					rec.stamp = m_cellCostGen;
+					rec.start = (std::uint32_t)m_cellCostReach.size();
+					cellCostFacts(obj, c, i, j, rec.fixed8, m_cellCostReach);
+					rec.count = (std::uint16_t)(m_cellCostReach.size() - rec.start);
+				}
+				fixed8 = rec.fixed8;
+				reach = m_cellCostReach.data() + rec.start;
+				count = rec.count;
+			}
+			else
+			{
+				m_cellCostScratch.clear();
+				cellCostFacts(obj, c, i, j, fixed8, m_cellCostScratch); // a raised layer's own cell
+				reach = m_cellCostScratch.data();
+				count = m_cellCostScratch.size();
+			}
+			fixed += fixed8;
+			if (count != 0)
+			{
+				const float qx = SimMath::mulf32((SimMath::addf32((float)i, 0.5f)), 10.0f), qy = SimMath::mulf32((SimMath::addf32((float)j, 0.5f)), 10.0f);
+				if (selfT < 0.0f)
+				{
+					selfT = reachSeconds(*obj, m_memoSelfReach, qx, qy); // the first cell that compares (the original's lazy selfT)
+				}
+				for (size_t q = 0; q < count; ++q)
+				{
+					if (selfT > reach[q])
+					{
+						++slower;
+					}
+				}
+			}
+		}
+	}
+	return (int)(fixed * (8u >> shift) + slower * (4u >> shift));
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// checkDestination (RW 0x6F1584, blocker callback 0x6EB151)
+// ---------------------------------------------------------------------------------------------------------
+bool Pathfinder::blockerCallback(const PathfindObject *obj, const PathfindCell *cell, int *count, bool countAllies, PathfindObjectID ignoreId,
+	bool ignoreUnits, const PathfindMovement *rectMovement, bool isHuman)
+{
+	// TARGET RW 0x6EB151: true = the cell blocks the footprint
+	if (rectMovement && obj->isKindOf(PK_LARGE_RECTANGLE_PATHFIND))
+	{
+		if (!validMovementPosition(*rectMovement, cell))
+		{
+			return true;
+		}
+	}
+	const PathfindCell::CellType t = cell->getType(); // isHuman: the caller's !obj->isComputerControlled() (lane PATHPERF-1: asked once per footprint)
+	if (t == PathfindCell::CELL_BRIDGE_IMPASSABLE || (cell->getImpassableToPlayers() && isHuman) || t == PathfindCell::CELL_CLIFF)
+	{
+		return true;
+	}
+	if (t == PathfindCell::CELL_OBSTACLE)
+	{
+		// RW 0x6E80B5: an obstacle blocks unless it is the ignored one
+		return !(cell->getObstacleID() == ignoreId && ignoreId != PATHFIND_INVALID_ID);
+	}
+	if (t == PathfindCell::CELL_IMPASSABLE)
+	{
+		return true;
+	}
+	if (ignoreUnits)
+	{
+		return false;
+	}
+	const PathfindObject *top = obj->getTopContainer();
+	for (const PathfindOccupant *node = cell->occupants(OCC_GROUND_GOAL); node; node = node->next)
+	{
+		const PathfindObject *o = m_world ? m_world->findObjectByID(node->owner) : nullptr;
+		if (!o)
+		{
+			continue;
+		}
+		if (o == obj)
+		{
+			continue;
+		}
+		if (top && o->getTopContainer() == top)
+		{
+			continue;
+		}
+		if (o->getID() == ignoreId)
+		{
+			continue;
+		}
+		const PathfindRelationship rel = obj->getRelationship(*o);
+		if (rel == PATHFIND_ALLIES)
+		{
+			if (!obj->isKindOf(PK_HEAVY_MELEE_HITTER))
+			{
+				if (!countAllies)
+				{
+					return true;
+				}
+				if (count) ++*count;
+			}
+			else if (o->isKindOf(PK_HEAVY_MELEE_HITTER))
+			{
+				return true; // heavy hitters never share a goal cell
+			}
+		}
+		else if (o->isParked())
+		{
+			if (obj->canCrushOrSquish(*o))
+			{
+				continue;
+			}
+			if (!(obj->isKindOf(PK_PATH_THROUGH_INFANTRY) && o->isKindOf(PK_INFANTRY)))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool Pathfinder::checkDestination(const PathfindObject *obj, int cellX, int cellY, PathfindLayerEnum layer, int iRadius, bool centerInCell, int *out,
+	bool ignoreUnits)
+{
+	if (out)
+	{
+		*out = 0;
+	}
+	if (!obj)
+	{
+		// ZH: "obj == NULL means checking for any ground units present": the footprint is one cell, the terrain decides
+		const PathfindCell *cell = getCell(layer, cellX, cellY);
+		if (!cell)
+		{
+			return false;
+		}
+		const PathfindCell::CellType t = cell->getType();
+		return !(t == PathfindCell::CELL_BRIDGE_IMPASSABLE || t == PathfindCell::CELL_CLIFF || t == PathfindCell::CELL_OBSTACLE || t == PathfindCell::CELL_IMPASSABLE);
+	}
+	int r = iRadius;
+	bool c = centerInCell;
+	if (obj->isKindOf(PK_HORDE))
+	{
+		// RW: (layer == 1 && !flag && !TerrainLogic[+0xC8](cell centre)) keeps the footprint; the terrain query is not decoded
+		// (treated as false, S-164)
+		if (!(layer == LAYER_GROUND && !ignoreUnits))
+		{
+			r = 1;
+			c = true;
+		}
+	}
+	else if (obj->isKindOf(PK_HERO) && obj->isKindOf(PK_INFANTRY) && layer != LAYER_GROUND)
+	{
+		r = 1;
+		c = false;
+	}
+	const int n = r + (c ? 1 : 0);
+	const bool isHuman = !obj->isComputerControlled();
+	if (isHuman)
+	{
+		if (cellX - r < m_logicalExtent.lo.x || cellX + n > m_logicalExtent.hi.x || cellY - r < m_logicalExtent.lo.y || cellY + n >= m_logicalExtent.hi.y + 1)
+		{
+			return false;
+		}
+	}
+	const PathfindObjectID ignoreId = obj->hasAI() ? obj->getIgnoredObstacleID() : PATHFIND_INVALID_ID;
+	const bool aircraft = obj->hasAI() ? obj->isAircraftThatAdjustsDestination() : false;
+	const PathfindObjectID selfId = obj->hasAI() ? obj->getID() : PATHFIND_INVALID_ID;
+	if (!aircraft && obj->isKindOf(PK_LARGE_RECTANGLE_PATHFIND))
+	{
+		// the rotated rectangle of the unit (RW 0x6F0195, the polygon fill 0x6ECC06 is not decoded: the footprint is the box of
+		// the same size around the cell, S-164)
+		const PathfindGeometry &g = obj->getGeometry();
+		int w = (int)((g.majorRadius * 2.0f + 4.0f) * 0.1f);
+		int h = (int)((g.minorRadius * 2.0f + 4.0f) * 0.1f);
+		int count = 0, slots = 0;
+		if (obj->hordeFill(count, slots))
+		{
+			// lane MOVE-3: RW 0x6F18A0 .. 0x6F1902: a horde's box shrinks with its fill, (size - 2) * count / slots + 2 (fild / fidiv / fsub / fmul / fadd under
+			// the game's 24-bit precision control: float results for these small integers; _ftol2 truncates)
+			const float ratio = SimMath::divf32((float)count, (float)slots);
+			w = SimMath::truncToInt32(SimMath::addf32(SimMath::mulf32(SimMath::subf32((float)w, 2.0f), ratio), 2.0f));
+			h = SimMath::truncToInt32(SimMath::addf32(SimMath::mulf32(SimMath::subf32((float)h, 2.0f), ratio), 2.0f));
+		}
+		note(pathstops::kLargeRectFootprint);
+		const int x0 = cellX - w / 2, y0 = cellY - h / 2;
+		const PathfindMovement mv = makeMovement(obj, PathfindLocomotorInfo{ 0xFFFFFFFFu, false, false }); // the same for every cell (lane PATHPERF-1: built once)
+		for (int i = x0; i < x0 + (w > 0 ? w : 1); i++)
+		{
+			for (int j = y0; j < y0 + (h > 0 ? h : 1); j++)
+			{
+				const PathfindCell *cell = getCell(layer, i, j);
+				if (!cell) return false;
+				if (blockerCallback(obj, cell, out, false, ignoreId, ignoreUnits, &mv, isHuman)) return false;
+			}
+		}
+		return true;
+	}
+	for (int i = cellX - r; i < cellX + n; i++)
+	{
+		for (int j = cellY - r; j < cellY + n; j++)
+		{
+			const PathfindCell *cell = getCell(layer, i, j);
+			if (!cell)
+			{
+				return false;
+			}
+			if (aircraft)
+			{
+				// RW 0x9344B8: an aircraft goal held by another unit
+				bool blocked = false;
+				for (const PathfindOccupant *o = cell->occupants(OCC_AIR_GOAL); o; o = o->next)
+				{
+					if (o->owner != selfId) blocked = true;
+				}
+				if (blocked) return false;
+			}
+			else if (blockerCallback(obj, cell, out, false, ignoreId, ignoreUnits, nullptr, isHuman))
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// reservations
+// ---------------------------------------------------------------------------------------------------------
+ICoord2D Pathfinder::cellOfPosition(const PathfindObject &obj, const Coord3D &pos) const
+{
+	// RW 0x6ECFDE: worldToCell(pos, centre = (footprint size is odd)). lane OFFMAP-1: NOT clamped: RW 0x6ECFDE calls RW 0x6E8CE6, which only floors
+	// (disassembly read; BFME2 decomp pathfinder.cpp:2699 Rva002E7875WorldToCell, tier A). A position off the grid (a unit the map places outside it) gets a
+	// cell getCell has none for: the callers' getCell tests then skip it, as retail's do (RW 0x6F0889: the horde's cell missing -> false, dest unchanged). The
+	// port clamped (ZH worldToCell), so an off-map horde's members were adjusted onto row 0 of the grid
+	const int r = footprintSize(&obj);
+	ICoord2D cell;
+	const bool center = (r & 1) != 0;
+	if (center)
+	{
+		cell.x = realToIntFloor(SimMath::mulf32(pos.x, 0.1f));
+		cell.y = realToIntFloor(SimMath::mulf32(pos.y, 0.1f));
+	}
+	else
+	{
+		cell.x = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos.x, 0.1f), 0.5f));
+		cell.y = realToIntFloor(SimMath::addf32(SimMath::mulf32(pos.y, 0.1f), 0.5f));
+	}
+	return cell;
+}
+
+void Pathfinder::footprintCells(const PathfindObject &obj, const ICoord2D &cell, int angleCode, std::vector<ICoord2D> &out)
+{
+	out.clear();
+	int w, h;
+	if (obj.isKindOf(PK_LARGE_RECTANGLE_PATHFIND))
+	{
+		const PathfindGeometry &g = obj.getGeometry();
+		w = (int)((g.majorRadius * 2.0f + 4.0f) * 0.1f);
+		h = (int)((g.minorRadius * 2.0f + 4.0f) * 0.1f);
+		if (w < 1) w = 1;
+		if (h < 1) h = 1;
+		if (angleCode != 0)
+		{
+			note(pathstops::kLargeRectReservation);
+		}
+	}
+	else
+	{
+		w = h = footprintSize(&obj);
+	}
+	const int x0 = cell.x - w / 2;
+	const int y0 = cell.y - h / 2;
+	for (int i = x0; i < x0 + w; i++)
+	{
+		for (int j = y0; j < y0 + h; j++)
+		{
+			if (getCell(LAYER_GROUND, i, j))
+			{
+				ICoord2D c;
+				c.x = i;
+				c.y = j;
+				out.push_back(c);
+			}
+		}
+	}
+}
+
+void Pathfinder::releaseSlot(PathfindObjectID id, Slot &slot)
+{
+	// RW 0x8E1CC4: unlink the unit's node from each cell of the chain; a cell info with no node left is released
+	for (const ICoord2D &c : slot.cells)
+	{
+		PathfindCell *cell = getCell(slot.layer, c.x, c.y); // the slot's layer (review #63: a walkway's cells, not the ground under them)
+		if (cell)
+		{
+			cell->removeOccupant(m_pool, slot.kind, id);
+		}
+	}
+	slot.cells.clear();
+	slot.occupied = false;
+}
+
+void Pathfinder::registerSlot(PathfindObject &obj, Slot &slot)
+{
+	// RW 0x8E231B + 0x8E216E + 0x8E1DAD: the footprint box around the slot cell gets a node of the slot's kind
+	footprintCells(obj, slot.cell, slot.angleCode, slot.cells);
+	for (const ICoord2D &c : slot.cells)
+	{
+		PathfindCell *cell = getCell(slot.layer, c.x, c.y); // lane WALL-2: a raised walkway's cell when the slot is on one, else the ground grid's
+		cell->addOccupant(m_pool, slot.kind, obj.getID(), c);
+	}
+}
+
+void Pathfinder::updateGoal(PathfindObject &obj, const Coord3D *newGoalPos, PathfindLayerEnum layer)
+{
+	// the wrappers RW 0x68B3BD / 0x68B3AB (-> 0x8E28DB / 0x8E28AC) pass the goal slot's own angle (RW 0x8E1AEC on the unit record's goal slot + 0x24), so a
+	// heading reserved by RW 0x68B3CF survives a plain update; the orientation only replaces it in RW 0x8E24D3's same-cell rule
+	updateGoalAngle(obj, newGoalPos, goalAngle(obj.getID()), layer);
+}
+
+void Pathfinder::updateGoalAngle(PathfindObject &obj, const Coord3D *newGoalPos, float angle, PathfindLayerEnum layer)
+{
+	// TARGET RW 0x8E24D3 (lane MOVE-3: the angle argument, RW 0x68B3CF passes one)
+	if (!m_isMapReady)
+	{
+		return;
+	}
+	if (obj.isEffectivelyDead())
+	{
+		return; // RW 0x8E24D3: nothing when the object's + 0x458 bit 0 is set (lane MOVE-3)
+	}
+	UnitRecord &u = unit(obj.getID());
+	int angleCode = 0;
+	if (obj.isKindOf(PK_LARGE_RECTANGLE_PATHFIND))
+	{
+		angleCode = angleToCode(angle);
+	}
+	const ICoord2D c = cellOfPosition(obj, *newGoalPos);
+	if (obj.isKindOf(PK_LARGE_RECTANGLE_PATHFIND) && u.pos.occupied && c.x == u.pos.cell.x && c.y == u.pos.cell.y)
+	{
+		angleCode = angleToCode(obj.getOrientation());
+	}
+	if (u.goal.occupied && c.x == u.goal.cell.x && c.y == u.goal.cell.y && angleCode == u.goal.angleCode && layer == u.goal.layer)
+	{
+		return; // unchanged
+	}
+	if (obj.isKindOf(PK_HORDE))
+	{
+		// horde goals are never registered: the cell is only remembered
+		releaseSlot(obj.getID(), u.goal);
+		u.goal.occupied = true;
+		u.goal.cell = c;
+		u.goal.angleCode = angleCode;
+		u.goal.layer = layer;
+		// lane MOVE-3: then the horde contain interface's slot 0xC8 (RW 0x86EF13) reserves the members' goals at their slots around this goal: what a second horde's
+		// destination adjustment meets (the port skipped it: two hordes sent to one point stood on it together, community feedback FB-0006)
+		obj.onHordeGoalChanged();
+		return;
+	}
+	PathfindOccupantKind kind = OCC_GROUND_GOAL;
+	if (obj.hasAI())
+	{
+		if (obj.isDoingGroundMovement())
+		{
+			kind = OCC_GROUND_GOAL;
+		}
+		else if (obj.isAircraftThatAdjustsDestination())
+		{
+			kind = OCC_AIR_GOAL;
+		}
+		else
+		{
+			return;
+		}
+	}
+	if (u.goal.occupied)
+	{
+		releaseSlot(obj.getID(), u.goal);
+	}
+	u.goal.occupied = true;
+	u.goal.cell = c;
+	u.goal.angleCode = angleCode;
+	u.goal.layer = layer;
+	u.goal.kind = kind;
+	registerSlot(obj, u.goal);
+}
+
+void Pathfinder::removeGoal(PathfindObject &obj)
+{
+	// RW 0x8E2138
+	UnitRecord *u = indexedUnit(obj.getID());
+	if (!u)
+	{
+		auto it = m_units.find(obj.getID());
+		u = it == m_units.end() ? nullptr : &it->second;
+	}
+	if (u && u->goal.occupied)
+	{
+		releaseSlot(obj.getID(), u->goal);
+	}
+}
+
+void Pathfinder::updatePos(PathfindObject &obj)
+{
+	// TARGET RW 0x8E26B7: a ground unit holds its position cell, moving or not; only one that follows a path with a special node (AI vtable + 0x228,
+	// RW 0x66288A, the port's isStationary false) releases it (lane PATHPRIO-1: the comment said "only a stationary unit")
+	if (!m_isMapReady)
+	{
+		return;
+	}
+	UnitRecord &u = unit(obj.getID());
+	if (!obj.hasAI() || !obj.isDoingGroundMovement() || !obj.isStationary())
+	{
+		if (u.pos.occupied)
+		{
+			releaseSlot(obj.getID(), u.pos);
+		}
+		return;
+	}
+	const PathfindOccupantKind kind = obj.isKindOf(PK_HORDE) ? OCC_HORDE_POSITION : OCC_POSITION;
+	const int angleCode = obj.isKindOf(PK_LARGE_RECTANGLE_PATHFIND) ? angleToCode(obj.getOrientation()) : 0;
+	const ICoord2D c = cellOfPosition(obj, obj.getPosition());
+	const PathfindLayerEnum lyr = obj.getLayer();
+	if (u.pos.occupied && c.x == u.pos.cell.x && c.y == u.pos.cell.y && angleCode == u.pos.angleCode && lyr == u.pos.layer)
+	{
+		return;
+	}
+	if (u.pos.occupied)
+	{
+		releaseSlot(obj.getID(), u.pos);
+	}
+	if (!getCell(lyr, c.x, c.y))
+	{
+		return;
+	}
+	u.pos.occupied = true;
+	u.pos.cell = c;
+	u.pos.angleCode = angleCode;
+	u.pos.layer = lyr;
+	u.pos.kind = kind;
+	registerSlot(obj, u.pos);
+}
+
+void Pathfinder::removePos(PathfindObject &obj)
+{
+	// RW 0x8E215C
+	UnitRecord *u = indexedUnit(obj.getID());
+	if (!u)
+	{
+		auto it = m_units.find(obj.getID());
+		u = it == m_units.end() ? nullptr : &it->second;
+	}
+	if (u && u->pos.occupied)
+	{
+		releaseSlot(obj.getID(), u->pos);
+	}
+}
+
+void Pathfinder::removeUnitFromPathfindMap(PathfindObject &obj)
+{
+	// RW 0x8E2304 releases all the slots
+	removePos(obj);
+	removeGoal(obj);
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// destinations
+// ---------------------------------------------------------------------------------------------------------
+void Pathfinder::adjustCoordToCell(int cellX, int cellY, bool centerInCell, Coord3D &pos, PathfindLayerEnum layer)
+{
+	if (centerInCell)
+	{
+		pos.x = SimMath::mulf32((SimMath::addf32((float)cellX, 0.5f)), 10.0f);
+		pos.y = SimMath::mulf32((SimMath::addf32((float)cellY, 0.5f)), 10.0f);
+	}
+	else
+	{
+		// ZH / RW: (Real)cellX + 0.05 is a double sum, stored as float after the multiply
+		pos.x = (float)SimMath::mulD(SimMath::addD((double)cellX, 0.05), (double)10.0f);
+		pos.y = (float)SimMath::mulD(SimMath::addD((double)cellY, 0.05), (double)10.0f);
+	}
+	// ZH: TheTerrainLogic->getLayerHeight(pos.x, pos.y, layer) (lane WALL-1: a wall top's or a ramp's height; the terrain on the ground)
+	pos.z = m_terrain ? getLayerHeight(pos.x, pos.y, layer) : 0.0f;
+}
+
+namespace
+{
+// RW 0x6E95B2: a Bresenham walk of cells from `a` to `b` on `layer`; true (blocked) at the first cell other than `skip` whose type is neither CLEAR nor WATER or
+// that is pinched (cell dword bits 0-3 / bit 16). A cell off the grid ends the walk unblocked (RW returns 0 there).
+bool memberLineBlocked(Pathfinder &pf, ICoord2D a, ICoord2D b, PathfindLayerEnum layer, ICoord2D skip)
+{
+	int dx = b.x - a.x, dy = b.y - a.y;
+	dx = dx < 0 ? -dx : dx;
+	dy = dy < 0 ? -dy : dy;
+	const bool steep = dx < dy;
+	int d, diag, count, minor;
+	if (steep)
+	{
+		d = dx * 2 - dy;
+		diag = dx - dy;
+		count = dy;
+		minor = dx;
+	}
+	else
+	{
+		diag = dy - dx;
+		d = dy * 2 - dx;
+		count = dx;
+		minor = dy;
+	}
+	int xs1 = steep ? 0 : 1, ys1 = steep ? 1 : 0; // the straight step (d < 0)
+	int xs2 = 1, ys2 = 1;                         // the diagonal step
+	int x = a.x, y = a.y;
+	if (b.x < x)
+	{
+		xs1 = -xs1;
+		xs2 = -1;
+	}
+	if (b.y < y)
+	{
+		ys1 = -ys1;
+		ys2 = -1;
+	}
+	for (int k = 0; k < count + 1; ++k)
+	{
+		const PathfindCell *c = pf.getCell(layer, x, y);
+		if (!c)
+		{
+			return false;
+		}
+		if (x != skip.x || y != skip.y)
+		{
+			const PathfindCell::CellType t = c->getType();
+			if ((t != PathfindCell::CELL_CLEAR && t != PathfindCell::CELL_WATER) || c->getPinched())
+			{
+				return true;
+			}
+		}
+		int sx = xs2, sy = ys2, inc = diag;
+		if (d < 0)
+		{
+			sx = xs1;
+			sy = ys1;
+			inc = minor;
+		}
+		d += inc * 2;
+		x += sx;
+		y += sy;
+	}
+	return false;
+}
+} // namespace
+
+// RW 0x6EA5B2 with the scanner RW 0x6E87F9 builds in RW 0x6F0889: the member's footprint at `cell` (radius / centre of RW 0x6ED071)
+bool Pathfinder::memberFootprintFits(const PathfindMovement &mv, PathfindLayerEnum memberLayer, PathfindLayerEnum hordeLayer, const ICoord2D &hordeCell,
+	int radius, bool center, const ICoord2D &cell)
+{
+	const int n = radius + (center ? 1 : 0);
+	bool first = true;
+	float h0 = 0.0f;
+	for (int i = cell.x - radius; i < cell.x + n; ++i)
+	{
+		for (int j = cell.y - radius; j < cell.y + n; ++j)
+		{
+			const PathfindCell *c = getCell(memberLayer, i, j);
+			if (!c || c->getPinched())
+			{
+				return false;
+			}
+			// lane WALLHORDE-1: RW 0x6EA5B2's layer rule (BFME2 0x6E916A): a ramp cell always passes and a horde on the ramp takes any cell; a horde on the
+			// ground, a wall top (RW 0x6E82B3: 0x11 .. 0x40) or a raised walkway (RW 0x5E2F24: 2 .. 15) needs a cell of its own layer (the connect layer is
+			// not read)
+			const PathfindLayerEnum cl = c->getLayer();
+			if (hordeLayer != cl && cl != LAYER_RAMP &&
+				(hordeLayer == LAYER_GROUND || (hordeLayer != LAYER_RAMP && (isWallLayer(hordeLayer) || isRaisedLayer(hordeLayer)))))
+			{
+				return false;
+			}
+			if (!validMovementPosition(mv, c))
+			{
+				return false;
+			}
+			// RW: the terrain height at the cell's centre (cell * 10 + 5), on the cell's layer; the footprint is no more than 10 from its first cell
+			const float h = m_terrain ? getLayerHeight(SimMath::addf32((float)(i * 10), 5.0f), SimMath::addf32((float)(j * 10), 5.0f), c->getLayer()) : 0.0f;
+			if (first)
+			{
+				first = false;
+				h0 = h;
+			}
+			else if (SimMath::absD(SimMath::subD((double)h, (double)h0)) > 10.0)
+			{
+				return false;
+			}
+		}
+	}
+	// RW 0x76550F: the line to the horde's cell (RW 0x6E95B2, BFME2 0x6E8145) is tested on the ground layer and the layers from 0x10 (lane WALLHORDE-1: the
+	// ramp and the wall tops too, so a wall top horde's slots stay on its own piece)
+	if (isGroundLayer(hordeLayer) && (cell.x != hordeCell.x || cell.y != hordeCell.y))
+	{
+		if (memberLineBlocked(*this, cell, hordeCell, hordeLayer, hordeCell))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+bool Pathfinder::adjustHordeMemberDestination(const PathfindObject &member, const PathfindLocomotorInfo &loco, const PathfindObject &horde, Coord3D *dest)
+{
+	// RW 0x6F0889 (lane MOVE-2, read with Ghidra). INFERENCE: RW clears pathfinder + 0x48 first (taken as the ignored obstacle id)
+	m_ignoreObstacleID = PATHFIND_INVALID_ID;
+	// RW 0x6EF346: the horde's cell (RW 0x6ECFDE, the horde's own centre rule); no cell -> false, `dest` unchanged
+	const ICoord2D hordeCell = cellOfPosition(horde, horde.getPosition());
+	const PathfindLayerEnum hordeLayer = horde.getLayer();
+	if (!getCell(hordeLayer, hordeCell.x, hordeCell.y))
+	{
+		return false;
+	}
+	const PathfindMovement mv = makeMovement(&member, loco); // RW 0x6F08B2 .. 0x6F0902: the movement struct of RW 0x6EA04D's layout
+	int radius = 0;
+	bool center = false;
+	getRadiusAndCenter(&member, radius, center); // RW 0x6ED071
+	const PathfindLayerEnum memberLayer = member.getLayer();
+	ICoord2D cell;
+	worldToCell(dest, center, &cell); // RW 0x6E8CE6
+	if (memberFootprintFits(mv, memberLayer, hordeLayer, hordeCell, radius, center, cell))
+	{
+		return true;
+	}
+	ICoord2D last{ -1, -1 };
+	const Coord3D &hp = horde.getPosition();
+	for (int i = 1; i < 16; ++i)
+	{
+		// RW 0x6F097E .. 0x6F09CD: t = i * 1/16 (SSE); x = horde.x * t + dest.x * (1 - t), y = dest.y * (1 - t) + horde.y * t
+		const float t = SimMath::mulf32((float)i, 0.0625f);
+		const float s = SimMath::subf32(1.0f, t);
+		const float x = SimMath::addf32(SimMath::mulf32(hp.x, t), SimMath::mulf32(dest->x, s));
+		const float y = SimMath::addf32(SimMath::mulf32(s, dest->y), SimMath::mulf32(t, hp.y));
+		const Coord3D p{ x, y, 0.0f };
+		ICoord2D c;
+		worldToCell(&p, center, &c); // RW floors x * 0.1 (+ 0.5 off centre) under the 24 bit FPU precision: the float32 product
+		if (c.x == last.x && c.y == last.y)
+		{
+			continue;
+		}
+		last = c;
+		if (memberFootprintFits(mv, memberLayer, hordeLayer, hordeCell, radius, center, c))
+		{
+			dest->x = x;
+			dest->y = y;
+			dest->z = m_terrain ? getLayerHeight(x, y, getLayerAt(x, y, dest->z)) : dest->z; // RW 0x680A75 (the destination's layer) then the layer height
+			return true;
+		}
+	}
+	adjustCoordToCell(hordeCell.x, hordeCell.y, center, *dest, hordeLayer); // RW 0x6EA0CB -> 0x6E8E19, the member's centre rule on the horde's cell
+	return false;
+}
+
+void Pathfinder::snapPosition(PathfindObject &obj, Coord3D *pos)
+{
+	// RW 0x6F3F95 (VERIFIED the same as ZH by the earlier analysis)
+	int iRadius;
+	bool center;
+	getRadiusAndCenter(&obj, iRadius, center);
+	ICoord2D cell;
+	Coord3D adjustDest = *pos;
+	worldToCell(&adjustDest, center, &cell);
+	adjustCoordToCell(cell.x, cell.y, center, *pos, LAYER_GROUND);
+}
+
+void Pathfinder::snapClosestGoalPosition(PathfindObject &obj, Coord3D *pos)
+{
+	// RW 0x6F3FCD..0x6F43A2 (the CritterDesync strings): a ZH snapClosestGoalPosition
+	int iRadius;
+	bool center;
+	getRadiusAndCenter(&obj, iRadius, center);
+	// lane WARG-1: RW 0x6F3F95 takes the cell with RW 0x6E8CE6, which does not clamp: an off-map goal (a script's staging waypoint outside the map) stays off the
+	// map, its cell has no grid cell, every check below fails and the goal is the off-grid cell's centre. The port's clamped worldToCell moved it onto row 0
+	// of the map, and a unit off the map then searched toward the map's edge instead of taking computePath's quick path (both ends off the map, RW 0x665E0B)
+	const ICoord2D cell = worldToCellUnclamped(pos, center);
+	PathfindLayerEnum layer = LAYER_GROUND;
+	adjustCoordToCell(cell.x, cell.y, center, *pos, LAYER_GROUND);
+	if (checkDestination(&obj, cell.x, cell.y, layer, iRadius, center))
+	{
+		return;
+	}
+	for (int i = cell.x - 1; i < cell.x + 2; i++)
+	{
+		for (int j = cell.y - 1; j < cell.y + 2; j++)
+		{
+			if (checkDestination(&obj, i, j, layer, iRadius, center))
+			{
+				adjustCoordToCell(i, j, center, *pos, layer);
+				return;
+			}
+		}
+	}
+	if (iRadius == 0)
+	{
+		for (int i = cell.x - 1; i < cell.x + 2; i++)
+		{
+			for (int j = cell.y - 1; j < cell.y + 2; j++)
+			{
+				PathfindCell *newCell = getCell(layer, i, j);
+				if (newCell)
+				{
+					bool goalFree = true;
+					for (const PathfindOccupant *o = newCell->occupants(OCC_GROUND_GOAL); o; o = o->next)
+					{
+						if (o->owner != obj.getID()) goalFree = false;
+					}
+					if (goalFree)
+					{
+						adjustCoordToCell(i, j, center, *pos, layer);
+						return;
+					}
+				}
+			}
+		}
+		for (int i = cell.x - 1; i < cell.x + 2; i++)
+		{
+			for (int j = cell.y - 1; j < cell.y + 2; j++)
+			{
+				PathfindCell *newCell = getCell(layer, i, j);
+				if (newCell && !newCell->hasOccupants(OCC_POSITION))
+				{
+					adjustCoordToCell(i, j, center, *pos, layer);
+					return;
+				}
+			}
+		}
+	}
+}
+
+float Pathfinder::goalAngle(PathfindObjectID id) const
+{
+	// RW 0x68B425 -> 0x8E1C0D -> 0x8E1AEC (lane MOVE-3): the goal slot's angle code times pi / 6 (RW 0xBDE914, fild / fmul), 0 (RW 0xC1B594) for code 0 or no goal
+	auto it = m_units.find(id);
+	if (it == m_units.end() || it->second.goal.angleCode == 0)
+	{
+		return 0.0f;
+	}
+	return SimMath::mulf32((float)it->second.goal.angleCode, 0.5235988f);
+}
+
+PathfindLayerEnum Pathfinder::goalLayer(PathfindObjectID id) const
+{
+	// RW 0x68B43B: the slot record's layer (+ 0x28); ground (1) for an object without a pathfind record
+	auto it = m_units.find(id);
+	return it == m_units.end() ? LAYER_GROUND : it->second.goal.layer;
+}
+
+bool Pathfinder::goalPosition(PathfindObject &obj, Coord3D *pos)
+{
+	int iRadius;
+	bool center;
+	getRadiusAndCenter(&obj, iRadius, center);
+	const ICoord2D cell = pathfindGoalCell(obj.getID());
+	// RW 0x8E1BD4 (tier A, BFME2 ObjectRvaSmallGetters.cpp): failure leaves the caller's output untouched.
+	if (cell.x < 0 || cell.y < 0) return false;
+	adjustCoordToCell(cell.x, cell.y, center, *pos, LAYER_GROUND);
+	return true;
+}
+
+bool Pathfinder::checkForAdjust(PathfindObject &obj, const PathfindLocomotorInfo &loco, bool isHuman, int cellX, int cellY, PathfindLayerEnum layer,
+	Coord3D *dest, bool &candidate)
+{
+	// TARGET RW 0x6F66D9 (steps 1-8 of the analysis); the group-height step is not ported. Lane WALL-1 (INFERENCE, S-4840): the required-layer step keeps the
+	// adjusted destination on the destination's layer (a cell of that layer or one connecting to it)
+	candidate = false;
+	PathfindCell *cellP = getCell(layer, cellX, cellY);
+	if (cellP == nullptr) return false;
+	if (!m_wallPieces.empty() && !cellP->allowsLayer(layer)) return false;
+	if (cellP->getType() == PathfindCell::CELL_CLIFF) return false; // no final destinations on cliffs
+	int iRadius;
+	bool center;
+	getRadiusAndCenter(&obj, iRadius, center);
+	if (isHuman)
+	{
+		// the footprint must lie inside the logical extent (the computer may move off it)
+		const int n = iRadius + (center ? 1 : 0);
+		if (cellX - iRadius < m_logicalExtent.lo.x || cellY - iRadius < m_logicalExtent.lo.y || cellX + n > m_logicalExtent.hi.x || cellY + n >= m_logicalExtent.hi.y + 1)
+		{
+			return false;
+		}
+	}
+	if (!checkDestination(&obj, cellX, cellY, layer, iRadius, center))
+	{
+		return false;
+	}
+	Coord3D adjustDest;
+	adjustCoordToCell(cellX, cellY, center, adjustDest, cellP->getLayer());
+	bool pathExists, adjustedPathExists;
+	if (obj.isKindOf(PK_AIRCRAFT))
+	{
+		pathExists = true;
+		adjustedPathExists = true;
+	}
+	else
+	{
+		// RW 0x6F6AE4 / 0x6F6B26 / 0x6F6B59 -> 0x6F5BB0 (lane QPATH-1); the last two give no set (the AI's: the port's caller passes that same set)
+		pathExists = quickDoesPathExist(obj, &obj.getPosition(), dest, &loco);
+		adjustedPathExists = quickDoesPathExist(obj, &obj.getPosition(), &adjustDest, &loco);
+		if (!pathExists)
+		{
+			if (quickDoesPathExist(obj, dest, &adjustDest, &loco))
+			{
+				adjustedPathExists = true;
+			}
+		}
+	}
+	if (!adjustedPathExists)
+	{
+		return false;
+	}
+	*dest = adjustDest;
+	return true;
+}
+
+bool Pathfinder::adjustDestination(PathfindObject &obj, const PathfindLocomotorInfo &loco, Coord3D *dest, const Coord3D *groupDest)
+{
+	// TARGET RW 0x6FE456: ring search 0x6FA2A4 over checkForAdjust. The ring visits the centre, then layers of 4, 12, 20 ... cells; a layer
+	// is scanned completely once a valid cell was found in it and the one nearest the centre wins (strict <, so the first of equals);
+	// `limit` is charged for the whole layer up front. ZH returned the first valid cell.
+	if (obj.isKindOf(PK_PROJECTILE))
+	{
+		return true; // missiles can go wherever they want to
+	}
+	if (groupDest)
+	{
+		note(pathstops::kGroupDestination);
+	}
+	const bool isHuman = !obj.isComputerControlled();
+	int iRadius;
+	bool center;
+	getRadiusAndCenter(&obj, iRadius, center);
+	// lane WARG-1: RW 0x6FE456 takes the cell with RW 0x6E8CE6, which does not clamp: the ring search of an off-map destination looks around its off-grid cell
+	// (the cells off the grid fail checkForAdjust), not around a clamped one on the map's edge row
+	const ICoord2D cell = worldToCellUnclamped(dest, center);
+	// RW 0x680A75 (TerrainLogic::getLayerForDestination): the destination's own layer (lane WALL-1: a wall top's or a ramp's; the ground elsewhere)
+	const PathfindLayerEnum layer = getLayerAt(dest->x, dest->y, dest->z);
+	bool candidate = false;
+	Coord3D found = *dest;
+	if (checkForAdjust(obj, loco, isHuman, cell.x, cell.y, layer, &found, candidate))
+	{
+		*dest = found;
+		return true;
+	}
+	int limit = m_config.adjustDestinationLimit;
+	int d = 1;
+	int ring = 4;
+	// RW 0x6FA34D / 0x6FA350: the offsets start at the centre once, before the loop (head RW 0x6FA363, back edge RW 0x6FA509), so each layer goes on from
+	// where the last one ended: the spiral around the centre (BFME2 decomp Pathfinder::rva002F92BC, IterateCircular1). Reset per layer, every layer would
+	// start again at the centre and reach d cells toward +x / +y but one toward -x / -y.
+	int x = 0, y = 0;
+	while (limit > 0)
+	{
+		limit -= ring + 2;
+		int best = 0;
+		ICoord2D bestCell;
+		Coord3D bestDest = *dest;
+		auto visit = [&]() {
+			const int d2 = x * x + y * y;
+			if (best == 0 || d2 < best)
+			{
+				Coord3D trial = *dest;
+				bool cand = false;
+				if (checkForAdjust(obj, loco, isHuman, cell.x + x, cell.y + y, layer, &trial, cand))
+				{
+					best = d2;
+					bestCell.x = cell.x + x;
+					bestCell.y = cell.y + y;
+					bestDest = trial;
+				}
+			}
+		};
+		for (int k = 0; k < d; k++) { x++; visit(); }
+		for (int k = 0; k < d; k++) { y++; visit(); }
+		for (int k = 0; k < d + 1; k++) { x--; visit(); }
+		for (int k = 0; k < d + 1; k++) { y--; visit(); }
+		if (best != 0)
+		{
+			*dest = bestDest;
+			return true;
+		}
+		d += 2;
+		ring += 8;
+	}
+	return false;
+}
+
+bool Pathfinder::checkForPossible(const PathfindMovement &mv, int fromZone, bool center, const PathfindLocomotorInfo &loco, int cellX, int cellY, PathfindLayerEnum layer,
+	Coord3D *dest, bool startingInObstacle)
+{
+	(void)loco;
+	PathfindCell *goalCell = getCell(layer, cellX, cellY);
+	if (!goalCell) return false;
+	const PathfindCell::CellType t = goalCell->getType();
+	if (t == PathfindCell::CELL_IMPASSABLE || t == PathfindCell::CELL_OBSTACLE || t == PathfindCell::CELL_BRIDGE_IMPASSABLE) return false;
+	int zone2 = m_zoneManager.getEffectiveZone(mv, false, goalCell->getZone());
+	(void)startingInObstacle;
+	if (fromZone == zone2)
+	{
+		adjustCoordToCell(cellX, cellY, center, *dest, layer);
+		return true;
+	}
+	return false;
+}
+
+bool Pathfinder::adjustToPossibleDestination(PathfindObject &obj, const PathfindLocomotorInfo &loco, Coord3D *dest)
+{
+	// RW 0x6F3C87 (ZH adjustToPossibleDestination with the RW ring order)
+	int radius;
+	bool center;
+	getRadiusAndCenter(&obj, radius, center);
+	ICoord2D goalCellNdx;
+	if (worldToCell(dest, center, &goalCellNdx))
+	{
+		return false; // outside of bounds
+	}
+	// lane WALLSEARCH-1: getLayerForDestination with the object (RW 0x6F3C87 -> RW 0x680A75(obj, dest); BFME2 0x6F287A): a wall top's or the ramp's layer
+	const PathfindLayerEnum destinationLayer = getLayerAt(obj, *dest);
+	PathfindCell *goalCell = getCell(destinationLayer, goalCellNdx.x, goalCellNdx.y);
+	Coord3D from = obj.getPosition();
+	PathfindCell *parentCell = getClippedCell(obj.getLayer(), &from);
+	if (parentCell == nullptr || goalCell == nullptr)
+	{
+		return false;
+	}
+	const PathfindMovement mv = makeMovement(&obj, loco);
+	int zone1 = m_zoneManager.getEffectiveZone(mv, false, parentCell->getZone());
+	int zone2 = m_zoneManager.getEffectiveZone(mv, false, goalCell->getZone());
+	if (zone1 == zone2)
+	{
+		if (checkDestination(&obj, goalCellNdx.x, goalCellNdx.y, destinationLayer, radius, center))
+		{
+			return true;
+		}
+	}
+	int limit = m_config.adjustToPossibleLimit;
+	int d = 1;
+	int ring = 4;
+	// RW 0x6F3E0E / 0x6F3E14: the spiral's cell starts at the goal cell once, before the loop (head RW 0x6F3E24, back edge RW 0x6F3F86), as in
+	// adjustDestination (BFME2 decomp Pathfinder::adjustToPossibleDestination: "one spiral counter spans all four legs")
+	int x = 0, y = 0;
+	while (limit > 0)
+	{
+		limit -= ring + 2;
+		bool done = false;
+		auto visit = [&]() {
+			if (!done && checkForPossible(mv, zone1, center, loco, goalCellNdx.x + x, goalCellNdx.y + y, destinationLayer, dest, false))
+			{
+				if (checkDestination(&obj, goalCellNdx.x + x, goalCellNdx.y + y, destinationLayer, radius, center))
+				{
+					done = true;
+				}
+			}
+		};
+		for (int k = 0; k < d && !done; k++) { x++; visit(); }
+		for (int k = 0; k < d && !done; k++) { y++; visit(); }
+		for (int k = 0; k < d + 1 && !done; k++) { x--; visit(); }
+		for (int k = 0; k < d + 1 && !done; k++) { y--; visit(); }
+		if (done)
+		{
+			return true;
+		}
+		d += 2;
+		ring += 8;
+	}
+	return false;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// queue
+// ---------------------------------------------------------------------------------------------------------
+void Pathfinder::setUberLimits(bool on)
+{
+	m_uberLimits = on;
+	m_pool.setGrowthLimit(on ? (int)kCellInfoPoolMax : 0); // review of #62: the Faithful pool keeps its configured size and fails when full, as on main
+	const int len = on ? (int)kUberQueueLength : (int)PATHFIND_QUEUE_LEN;
+	m_queue1.setLength(len);
+	m_queue2.setLength(len);
+}
+
+bool Pathfinder::queueForPath(PathfindObjectID id)
+{
+	// TARGET RW 0x6ED0FB: a linear duplicate scan (a duplicate returns true), a full ring returns false
+	if (!m_queue1.push(id))
+	{
+		note(pathstops::kQueueFull);
+		return false;
+	}
+	return true;
+}
+
+bool Pathfinder::queueBlockedRepath(PathfindObjectID id)
+{
+	// TARGET RW 0x6ED12F: the same ring routine on the second ring
+	if (!m_queue2.push(id))
+	{
+		note(pathstops::kQueueFull);
+		return false;
+	}
+	return true;
+}
+
+void Pathfinder::setLogicalExtentFromTerrain()
+{
+	if (!m_terrain) return;
+	float lx, ly, hx, hy;
+	m_terrain->getExtent(lx, ly, hx, hy);
+	m_logicalExtent.lo.x = realToIntFloor(SimMath::mulf32(lx, 0.1f));
+	m_logicalExtent.hi.x = realToIntFloor(SimMath::mulf32(hx, 0.1f));
+	m_logicalExtent.lo.y = realToIntFloor(SimMath::mulf32(ly, 0.1f));
+	m_logicalExtent.hi.y = realToIntFloor(SimMath::mulf32(hy, 0.1f));
+	m_logicalExtent.hi.x--;
+	m_logicalExtent.hi.y--;
+}
+
+void Pathfinder::processPathfindQueue(PathfindRequestHandler &handler)
+{
+	note(pathstops::kQueueTime);
+	// TARGET RW 0x6F2364: the zone update (every call), the extent, then ONE counter of cells allocated, reset once. Budget = GameData
+	// MaxPathfindCellsPerFrame (x100 while the logic frame is below 5 * LOGICFRAMES = 25). Pass 1 drains the blocked-repath ring (AI vtable
+	// +0x234) while the counter is below half the budget; pass 2 drains the request ring (AI vtable +0x230) while it is below the budget.
+	// An id is taken off its ring before the call; an id whose object is gone is dropped; what the budget does not reach stays queued.
+	if (!m_isMapReady)
+	{
+		return;
+	}
+	m_zoneManager.updateDirty(gridView(), PathfindRegion{ m_extent.lo, m_extent.hi });
+	setLogicalExtentFromTerrain();
+	m_cumulativeCellsAllocated = 0;
+	int budget = m_config.cellsPerFrame;
+	if (m_uberLimits)
+	{
+		// lane PATHPERF-4 (Uber only): a burst (a mass order) starts at kUberBurstQueue waiting requests and lasts until the queue is down to
+		// kUberBurstEnd; the steady repaths of a fight never start one
+		const size_t queued = m_queue1.size() + m_queue2.size();
+		m_uberBurst = m_uberBurst ? queued > (size_t)kUberBurstEnd : queued >= (size_t)kUberBurstQueue;
+		if (m_uberBurst)
+		{
+			budget *= kUberBudgetScale;
+		}
+	}
+	if (m_world && m_world->getFrame() < 25u)
+	{
+		budget *= 100;
+	}
+	const int half = budget / 2;
+	auto capSearch = [&]() { // lane PERF-HD (Uber only): the search may count what the call has left, at least kUberSearchFloor
+		m_uberSearchCap = m_uberLimits ? std::max((int)kUberSearchFloor, budget - m_cumulativeCellsAllocated) : 0x7fffffff;
+		m_uberSearchAllocs = 0;
+	};
+	while (half > 0 && !m_queue2.empty() && m_cumulativeCellsAllocated < half)
+	{
+		const PathfindObjectID id = m_queue2.pop();
+		if (m_world && m_world->findObjectByID(id))
+		{
+			capSearch();
+			handler.doBlockedRepath(id);
+		}
+	}
+	while (m_cumulativeCellsAllocated < budget && !m_queue1.empty())
+	{
+		const PathfindObjectID id = m_queue1.pop();
+		if (m_world && m_world->findObjectByID(id))
+		{
+			capSearch();
+			handler.doPathfind(id);
+		}
+	}
+	m_uberSearchCap = 0x7fffffff;
+}

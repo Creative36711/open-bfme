@@ -1,0 +1,26 @@
+# Lane AUTOREL-1 r6: the binary files the public tree may hold (tools/release/autorelease.py audit-tree). The public tree is text only:
+# every file synced to the public repository must be UTF-8 text with no NUL byte. Any other file (an image, a font, prebuilt data, a
+# container or a compressed file of any kind) stops the sync before anything is pushed, unless it is listed here. A listed file must
+# have exactly this sha256; a listed container must also decode completely and pass the audit, its metadata included (no comments,
+# extra fields, links, PAX headers or owner names; member names without private paths).
+# Format: <sha256>  <path>  <reason>     (two spaces between the fields). Generate test fixtures at test time instead of listing them.
+# Lane UI-5: the launcher's fonts (the owner's "Parchment & Steel" design): Cinzel, Cormorant Garamond and Inter from the Google Fonts
+# repository (github.com/google/fonts, ofl/), under the SIL Open Font License 1.1 (launcher/fonts/OFL-*.txt, NOTICE). The launcher's
+# pack carries exactly these files (tools/release/audit_package.py, LAUNCHER_PCK_RULES "font").
+f4d83d34d1f6c741193e4acf4b3dff9531e5a67b6aa65228d00a7db72a4e0f34  launcher/fonts/Cinzel.ttf  Cinzel variable font (titles), SIL OFL 1.1, launcher/fonts/OFL-Cinzel.txt
+b20b7d9626dd956b2c5e558692ad328b1f19e3275e2782db4fa07670d83f35e0  launcher/fonts/CormorantGaramond.ttf  Cormorant Garamond variable font (parchment text), SIL OFL 1.1, launcher/fonts/OFL-CormorantGaramond.txt
+0f48ea6abb2084537854f7174c470991a463b13036309e3b50a81511611c530d  launcher/fonts/CormorantGaramond-Italic.ttf  Cormorant Garamond Italic variable font (the subtitle), SIL OFL 1.1, launcher/fonts/OFL-CormorantGaramond.txt
+29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031  launcher/fonts/Inter.ttf  Inter variable font (the launcher's text), SIL OFL 1.1, launcher/fonts/OFL-Inter.txt
+# Lane NETLAG-1 (merge queue q15): the replay the previous build recorded (a 2-player LAN game of openbfme_peer on the public map, no retail data inside: the header holds archive names and hashes), played by test_netlag1.cpp
+835ba2561d1edf8210f4824581c002f46b0b4048aec5b0d9d48ef32d9dd9cce3  engine/tests/data/netlag1/prelane_runahead2.replay  OpenBFME replay recorded by the merged tree of merge queue q19 with NETLAG-1's command-delay sources reverted, the test fixture of the older-engine replay compatibility
+568dbd411c38ec8620573c72a11532520d8e493a3d12843d15a235734119afbc  godot/assets/platform_icons/windows.png  PLATFORMICON-1: our own plain windows glyph (tools/platformicon/make_icons.py), not a vendor logo
+2605cfd71c81904bd108b85264d26470a95821df4dbdbc165a849e4ab14817f6  godot/assets/platform_icons/linux.png  PLATFORMICON-1: our own plain linux glyph (tools/platformicon/make_icons.py), not a vendor logo
+960dafa506b2265db5e75af6b5eda6ee4a089cf2e910b06e3bc6223dac27edae  godot/assets/platform_icons/macos.png  PLATFORMICON-1: our own plain macos glyph (tools/platformicon/make_icons.py), not a vendor logo
+50aad4c1fbfe0d5161af538d71cb80076d7f603b0551befd9fb9c86f2875c350  godot/assets/app_icon/openbfme.ico  OWNERFIX-3: the OpenBFME application icon (the ring, the project's own artwork from the previous codebase's openbfme.ico; generated / checked by tools/release/app_icon.py)
+4996c420dbf287913966d3dfa993407b104a8d800fc251e3e2426a3dd3a3c827  godot/assets/app_icon/openbfme.icns  OWNERFIX-3: generated macOS ring icon with transparent exterior (tools/release/app_icon.py)
+50aad4c1fbfe0d5161af538d71cb80076d7f603b0551befd9fb9c86f2875c350  launcher/assets/app_icon/openbfme.ico  OWNERFIX-3: the OpenBFME application icon (the ring, the project's own artwork from the previous codebase's openbfme.ico; generated / checked by tools/release/app_icon.py)
+4996c420dbf287913966d3dfa993407b104a8d800fc251e3e2426a3dd3a3c827  launcher/assets/app_icon/openbfme.icns  OWNERFIX-3: generated macOS ring icon with transparent exterior (tools/release/app_icon.py)
+32180a4153977ed292bd00626a8232380b929e2dee4a9ee66d4a13b75ab1a48d  godot/assets/brand/poweredby_openbfme.png  POWEREDBY-1: the owner-provided OpenBFME seal that replaces GameSpy's on the online login screen (tools/release/audit_package.py PINNED_GAME_BRANDING pins its export)
+d971adf3712e2c866c5aa4c5657ceb21ba8adf88ecc08af2c766b9eb72f6b3aa  godot/assets/app_icon/openbfme-macos.ico  MACICON-1: transparent-background cutout of the project-owned ring icon, for macOS; PNG frames generated with Godot
+05d9cd1acc3b3ee50d1003c747ea916ed9d24b72ca2958af7c271e5f200f2364  engine/tests/data/wotr/lanwar_v6_saved.bin  OpenBFME strategic save block (LivingWorldLogic version 6) of the synthetic LAN war netGame(5), written by lane/wotr2 66ef6b753 (saved), the test fixture of the version-6 load (test_wotr8_net.cpp)
+317c2e6ac1bdfaca0ef6cb103bb0191bb7fb84c2a0b5de3d75418e7ebd1779b5  engine/tests/data/wotr/lanwar_v6_pending.bin  OpenBFME strategic save block (LivingWorldLogic version 6) of the synthetic LAN war netGame(5), written by lane/wotr2 66ef6b753 (pending), the test fixture of the version-6 load (test_wotr8_net.cpp)

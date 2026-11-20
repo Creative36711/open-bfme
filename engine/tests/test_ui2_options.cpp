@@ -1,0 +1,112 @@
+// OpenBFME unit tests. GPL-3.0.
+// Lane UI-2: the player's Options.ini (ZH UserPreferences as RotWK's OptionPreferences), saved by AptOptions::Save with the other entries of the file.
+// Lane OPTS-2: the OpenBFME soft particle setting (owner decision: soft by default) moved to the OpenBFME screen as OpenBFMESoftParticles. The retail Save / Cancel
+// close the screen (RW 0x91EA39 -> 0x62215B). The retail-data test SKIPs loudly without the installs.
+
+#include "doctest.h"
+#include "AptRetail.h"
+
+#include "GameClient/GUI/AptGadgetLayer.h"
+#include "GameClient/GUI/AptScreens/AptScreenFactories.h"
+#include "GameClient/GUI/AptScreens/AptSimpleScreens.h"
+#include "GameClient/GUI/Gadgets.h"
+#include "GameClient/GUI/Shell/Shell.h"
+#include "GameClient/GUI/ShellEnvironment.h"
+#include "GameClient/GUI/ShellServices.h"
+#include "GameClient/GUI/WindowManager.h"
+#include "GameClient/OptionPreferences.h"
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <sstream>
+#include <string>
+
+TEST_CASE("ui2 OptionPreferences: ZH UserPreferences' key = value lines, sorted write, retail yes / no, every entry kept; OpenBFMESoftParticles defaults to yes")
+{
+	OptionPreferences p;
+	p.parse("Resolution = 1024 768\r\n  UseEAX3=no\n= \n=Brightness = 50\nNoValue =\njunk line\nAllHealthBars = YES\n");
+	CHECK(p.get("Resolution") == "1024 768");
+	CHECK(p.get("UseEAX3") == "no");
+	CHECK(p.get("Brightness") == "50"); // AsciiString::nextToken skips the leading '='
+	CHECK_FALSE(p.has("NoValue"));      // an empty value is skipped
+	CHECK_FALSE(p.has("junk line"));
+	CHECK(p.getYesNo("AllHealthBars", false));
+	CHECK_FALSE(p.getYesNo("UseEAX3", true));
+	CHECK(p.softParticles()); // absent: soft
+	p.setSoftParticles(false);
+	CHECK(p.get(OptionPreferences::kSoftParticles) == "no");
+	// lane OPTS-2: mixed line breaks are written as retail's text mode stream writes them, CR LF
+	CHECK(p.text() == "AllHealthBars = YES\r\nBrightness = 50\r\nOpenBFMESoftParticles = no\r\nResolution = 1024 768\r\nUseEAX3 = no\r\n");
+	OptionPreferences q;
+	q.parse(p.text());
+	CHECK(q.values() == p.values());
+}
+
+TEST_CASE("ui2 retail: Options.apt has no OpenBFME box (lane OPTS-2); Save writes Options.ini with the other entries kept and closes the screen")
+{
+	OPENBFME_REQUIRE_RETAIL(mount);
+	const std::string file = (std::filesystem::temp_directory_path() / "openbfme-ui2-options-test.ini").string();
+	{
+		std::ofstream out(file, std::ios::binary | std::ios::trunc);
+		out << "OpenBFMESoftParticles = no\nResolution = 1024 768\n";
+	}
+	OptionPreferences prefs;
+	REQUIRE(prefs.load(file));
+	AptArchiveFileSource source(mount.fs);
+	RecordingShellServices services;
+	ShellEnvironment environment;
+	environment.options = &prefs;
+	environment.optionsFile = file;
+	AptScreenFactoryTable factories;
+	registerAptScreenFactories(factories);
+	GadgetSkinData skins;
+	std::string error;
+	REQUIRE_MESSAGE(loadGadgetSkinData(mount.fs, skins, &error), error);
+	auto wm = std::make_unique<WindowManager>(source, services);
+	auto layer = std::make_unique<AptGadgetLayer>(*wm, source, skins);
+	layer->registerComponents();
+	auto shell = std::make_unique<Shell>(*wm, factories, services, environment);
+	wm->setShell(shell.get());
+	wm->init();
+	auto tick = [&](int n) {
+		for (int i = 0; i < n; ++i)
+		{
+			wm->update(33);
+		}
+	};
+	tick(2);
+	shell->push("MainMenu.apt");
+	tick(5);
+	shell->push("Options.apt");
+	tick(30);
+	AptOptionsScreen *options = dynamic_cast<AptOptionsScreen *>(shell->top());
+	REQUIRE(options);
+	// Save: the file keeps Resolution and the OpenBFME key untouched; the screen closes (back to the main menu)
+	REQUIRE(wm->invokeCallback("AptOptions::Save", ""));
+	tick(30);
+	std::ifstream in(file, std::ios::binary);
+	std::stringstream text;
+	text << in.rdbuf();
+	// lane FB7-1: Save also writes the retail controls' entries (RW 0x91FC9C: Brightness, ScrollFactor, the volumes ...; test_fb7_menus.cpp pins them)
+	CHECK(text.str().find("Resolution = 1024 768\n") != std::string::npos);
+	CHECK(text.str().find("OpenBFMESoftParticles = no\n") != std::string::npos);
+	CHECK(text.str().find("\nSoftParticles") == std::string::npos);
+	CHECK(text.str().find("Brightness = ") != std::string::npos);
+	for (const auto &applied : services.appliedOptions)
+	{
+		CHECK_MESSAGE(applied.first.rfind("OpenBFME", 0) != 0, applied.first); // the retail screen applies retail keys only
+	}
+	REQUIRE(shell->top());
+	CHECK(shell->top()->filename() == "MainMenu.apt");
+	bool noted = false;
+	for (const WindowManagerNote &n : wm->notes())
+	{
+		noted = noted || (n.kind == "options-soft-particles" && n.detail.rfind("[S-1484]", 0) == 0);
+	}
+	CHECK(noted);
+	shell.reset();
+	layer.reset();
+	std::remove(file.c_str());
+}

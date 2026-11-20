@@ -1,0 +1,2453 @@
+// OpenBFME. GPL-3.0.
+// See GameLogic/Module/AIUpdate.h for the sources and what is inference.
+
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/AI/AIDock.h"
+#include "GameLogic/AI/AIHarvest.h"
+#include "GameLogic/Module/AmbientAIUpdate.h"
+#include "GameLogic/Module/PhysicsBehavior.h"
+#include "GameLogic/AI/AIFollowPathAsTeam.h"
+#include "GameLogic/AI/AIGarrisonStates.h"
+#include "GameLogic/AI/TurretAI.h"
+#include "Common/Thing/RawModuleData.h"
+#include "GameLogic/Object/Contain/HordeContainRuntime.h"
+#include "GameLogic/Object/ObjectGeometry.h"
+#include "GameLogic/AI/AIPathfind.h"
+#include "GameLogic/Combat/CombatNames.h"
+#include "GameLogic/Combat/ObjectWeapons.h"
+#include "GameLogic/Weapon.h"
+
+#include "Common/GameCommon.h"
+#include "Common/StateHash.h"
+#include "Common/Thing/ModuleFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/AI/AIEmotionStates.h"
+#include "GameLogic/Module/SiegeModules.h"
+#include "GameLogic/Module/SquishCollide.h"
+#include "GameLogic/AI/AIAttackMelee.h"
+#include "GameLogic/AI/AIGuard.h"
+#include "GameLogic/AI/AIHunt.h"
+#include "GameLogic/AI/AIWaypointPath.h"
+#include "GameLogic/AI/AIWorld.h"
+#include "GameLogic/AttributeModifiers.h"
+#include "GameLogic/BitFlags.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/Module/GiantBirdAIUpdate.h"
+#include "GameLogic/Module/HordeAIUpdate.h"
+#include "GameLogic/Module/InvisibilityModules.h"
+#include "GameLogic/Module/UnportedModule.h"
+#include "GameLogic/Object/Contain/HordeContainRuntime.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/ObjectTemplateInfo.h"
+#include "Common/NumericState.h"
+#include "GameLogic/SimMath.h"
+#include "GameLogic/UnitSpecificSound.h"
+#include "Common/Audio/AudioRequests.h"
+
+#include <cmath>
+#include <cstring>
+#include <stdexcept>
+
+namespace
+{
+const char *const kStopCommands =
+	"S-222 AIUpdateInterface executes the move / idle / follow-path / busy commands; every other AICommandType (attack, guard, hunt, enter, exit, dock, repair, wander, "
+	"waypoint paths, ...) is counted by AIUpdateInterface::unportedCommands() and does nothing (the combat and construction milestones port them)";
+const char *const kStopUpdate =
+	"S-222 AIUpdateInterface::update skips the turrets, the mood / auto-acquire scan, the dead-state machine and the surrender / demoralize timers (RW 0x6695EF blocks "
+	"that need weapons, bodies and emotions); the movement-complete refresh of the pathfinder goal is the B1 body (AIUpdate.cpp:2574-2594), RW forces m_doFinalPosition off";
+const char *const kStopLocomotor =
+	"S-222 chooseGoodLocomotorFromCurrentSet (RW 0x663D70; its fallback, SHIP surface 0x80 / slot 0x184 AIR / GROUND, and the flag clears are ported: lane LOCOPICK-1) "
+	"takes the first locomotor of the set whose surfaces fit the cell under the unit as the best one: the retail Pathfinder::chooseBestLocomotorForPosition (RW 0x6E8937) "
+	"was not read. The locomotor 'crusher' flag of the path searches (RW loco+0x15) is ScalesWalls (inference)";
+const char *const kStopStates =
+	"S-221 the AI state ids are BFME1's (Idle 0, MoveTo 1, FollowPath 6, FollowExitProductionPath 7, Wait 8, Busy 42; RotWK's own numbering is not read: RW tests 0x2A = Busy and "
+	"0x47 = a state RotWK added); AIIdleState::onEnter draws its random sleep offset as ZH does (GetGameLogicRandomValue(0, 10, \"AIStates.cpp\", 0x520)): the RW draw was not read, "
+	"so a retail replay's RNG sequence can differ at the first idle of every unit";
+const char *const kStopHost =
+	"S-222 the movement host reports no river (RiverModifier), no crew power, no charge order, no physics suppression and no turn limiting "
+	"(the modules behind RW 0x68BF11, 0x5E3A1B and the terrain river query are other lanes'); the pending position of the movers lives in the AI";
+
+// the registry bits, resolved once by name (a mod's own order cannot break them)
+int modelConditionIndex(const char *name)
+{
+	return CombatNames::modelCondition(name); // hashed (several callers ask per update)
+}
+
+int objectStatusBit(const char *name)
+{
+	return CombatNames::status(name);
+}
+
+struct StatusBits
+{
+	int hordeMember = objectStatusBit("HORDE_MEMBER");
+	int immobile = objectStatusBit("IMMOBILE");
+	int deployed = objectStatusBit("DEPLOYED");
+	int packingUsing = objectStatusBit("SPECIAL_ABILITY_PACKING_UNPACKING_OR_USING"); // 0x46 (lane BUMP-1)
+};
+const StatusBits &statusBits()
+{
+	static const StatusBits s;
+	return s;
+}
+
+// the KindOf bits this file tests, resolved once by name against the binary's table
+struct KindBits
+{
+	int immobile = ObjectTemplateInfoBuilder::kindOfIndex("IMMOBILE");
+	int dozer = ObjectTemplateInfoBuilder::kindOfIndex("DOZER");
+	int cavalry = ObjectTemplateInfoBuilder::kindOfIndex("CAVALRY");
+	int horde = ObjectTemplateInfoBuilder::kindOfIndex("HORDE");
+	int siegeTower = ObjectTemplateInfoBuilder::kindOfIndex("SIEGE_TOWER");
+	int projectile = ObjectTemplateInfoBuilder::kindOfIndex("PROJECTILE"); // RW template + 0x10B bit 1 (lane LOCODIST-1)
+	int ship = ObjectTemplateInfoBuilder::kindOfIndex("SHIP"); // RW template + 0x11F bit 7 (191; lane LOCOPICK-1)
+	int infantry = ObjectTemplateInfoBuilder::kindOfIndex("INFANTRY"); // RW template + 0x109 bit 0 (8; lane BUMP-1)
+	int largeRectangle = ObjectTemplateInfoBuilder::kindOfIndex("LARGE_RECTANGLE_PATHFIND"); // RW template + 0x11F bit 2 (186; lane BUMP-1)
+};
+const KindBits &kindBits()
+{
+	static const KindBits k;
+	return k;
+}
+bool hasKind(const Object &o, int bit)
+{
+	return bit >= 0 && o.isKindOf((unsigned)bit);
+}
+
+// RW 0x644FD0 (two SSE loops, the same as the movers use)
+float normalizeAngle(float a)
+{
+	const float pi = 3.14159274f, twoPi = 6.28318548f;
+	if (a > pi)
+	{
+		do
+		{
+			a = SimMath::subf32(a, twoPi);
+		} while (a > pi);
+	}
+	if (-pi < a)
+	{
+		return a;
+	}
+	do
+	{
+		a = SimMath::addf32(a, twoPi);
+	} while (-pi >= a);
+	return a;
+}
+} // namespace
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// ObjectLocomotorHost: every read / write of the object the locomotor movers make (GameLogic/Locomotor.h LocomotorHost)
+// ---------------------------------------------------------------------------------------------------------------------------------
+class AIUpdateInterface::ObjectLocomotorHost : public LocomotorHost
+{
+public:
+	explicit ObjectLocomotorHost(AIUpdateInterface &ai)
+		: m_ai(ai)
+	{
+	}
+
+	Object &obj() const { return *m_ai.getObject(); }
+
+	Coord3D getPosition() const override { return *obj().getPosition(); }
+	float getAngle() const override { return obj().getOrientation(); }
+	Coord2D getUnitDirectionVector2D() const override
+	{
+		const float *b = obj().getBasis(); // the X axis of the transform: (cos, sin) of the angle
+		Coord2D d;
+		d.x = b[0];
+		d.y = b[3];
+		return d;
+	}
+	float getBoundingRadius() const override { return m_ai.adapter().getGeometry().boundingCircleRadius(); }
+	LocomotorMatrix getTransform() const override
+	{
+		const float *b = obj().getBasis();
+		const Coord3D &p = *obj().getPosition();
+		LocomotorMatrix m;
+		for (int r = 0; r < 3; ++r)
+		{
+			for (int c = 0; c < 3; ++c)
+			{
+				m.m[r][c] = b[r * 3 + c];
+			}
+		}
+		m.m[0][3] = p.x;
+		m.m[1][3] = p.y;
+		m.m[2][3] = p.z;
+		return m;
+	}
+	void setTransform(const LocomotorMatrix &m) override
+	{
+		Coord3D p;
+		p.x = m.m[0][3];
+		p.y = m.m[1][3];
+		p.z = m.m[2][3];
+		float basis[9];
+		for (int r = 0; r < 3; ++r)
+		{
+			for (int c = 0; c < 3; ++c)
+			{
+				basis[r * 3 + c] = m.m[r][c];
+			}
+		}
+		// the horde's own movement does not carry its members with it: they walk to their slots (the member pass), they are not teleported
+		HordeContainInterface *hc = hordeInterface();
+		if (hc)
+		{
+			hc->setLocomoting(true);
+		}
+		obj().setTransform(&p, basis);
+		if (hc)
+		{
+			hc->setLocomoting(false);
+		}
+	}
+	bool hasPendingPosition() const override { return m_ai.m_pendingValid; }
+	Coord3D getPendingPosition() const override { return m_ai.m_pendingPosition; }
+	void setPendingPosition(const Coord3D &p) override
+	{
+		m_ai.m_pendingPosition = p;
+		m_ai.m_pendingValid = true;
+		m_ai.m_pendingFrame = obj().logic().getFrame(); // SMOOTH-1: for the client snapshot only (not hashed, not read by the simulation)
+	}
+
+	float locomotorSetSpeed() const override { return m_ai.m_locomotorSetSpeed; }
+	int damageState() const override
+	{
+		const BodyModuleInterface *body = obj().getBodyModule();
+		return body ? (int)body->getDamageState() : (int)BODY_PRISTINE;
+	}
+	int movementPenaltyDamageState() const override { return m_ai.world().config().movementPenaltyDamageState; }
+	float crewPowerMultiplier() const override
+	{
+		// RW 0x68BF11: the object's contain's slot 0xD4 (lane GARRISON-2: SiegeEngineContain's crew), 1.0 without a contain
+		const ContainModuleInterface *c = m_ai.getObject()->getContain();
+		return c ? c->getCrewPowerMultiplier() : 1.0f;
+	}
+	bool speedAttributeModifier(float &out) const override
+	{
+		// TARGET: RW 0x5E4015 -> Object product 0x68C82D (type 8, no name, innate=true); Locomotor applies it at 0x5E401E.
+		// Query this object's pool only: HordeContain already propagates additions to the members (RW 0x870E50).
+		return obj().attributeModifierProduct(ATTRIBUTE_SPEED, nullptr, true, out);
+	}
+	bool isInRiver(float, float) const override { return false; }
+	bool isTurnLimited() const override { return !stationary(); }
+	bool isChargeOrdered() const override { return false; }
+	// RW 0x5E3A1B: Object + 0x264 (the PhysicsBehavior) byte + 0x5C, the shock stun (lane COMBAT-3)
+	bool physicsMotionDisabled() const override
+	{
+		const PhysicsBehavior *p = physics();
+		return p != nullptr && p->isStunned();
+	}
+	// lane EXIT-1: obj+0x264, the PhysicsBehavior RW caches at creation (RW 0x69A420); the port's Object keeps it with its collide list (PhysicsBehavior::find)
+	bool hasPhysicsModule() const override { return physics() != nullptr; }
+	PhysicsBehavior *physics() const { return PhysicsBehavior::find(obj()); }
+	bool zMotionSuppressed() const override { return false; }
+	unsigned logicFrame() const override { return obj().logic().getFrame(); }
+	bool containerAllowsBackingUp() const override { return false; }
+	// RW 0x5E774A: TheTerrainLogic vslot 0x1C at the object's layer (lane WALL-1: a wall top's or a ramp's height, Pathfinder::getLayerHeight)
+	float groundHeightAt(float x, float y) const override { return m_ai.layerHeightAt(x, y); }
+	bool isOnRampOrRaisedLayer() const override { return m_ai.isOnRampOrRaisedLayer(); }
+	LocomotorPath *getPath() override { return m_ai.m_mover->path(); }
+	bool testObjectStatus(int bit) const override { return bit >= 0 && obj().testStatus((unsigned)bit); }
+	bool testModelCondition(int bit) const override { return obj().testModelCondition(bit); }
+	void setModelCondition(int bit, bool value) override { obj().setModelConditionState(bit, value); }
+	void clearAndSetModelConditions(const std::vector<int> &clear, const std::vector<int> &set) override
+	{
+		Object::ModelConditionBits c{}, s{};
+		for (int b : clear)
+		{
+			if (b >= 0 && b < 19 * 32)
+			{
+				c[(size_t)b >> 5] |= 1u << (b & 31);
+			}
+		}
+		for (int b : set)
+		{
+			if (b >= 0 && b < 19 * 32)
+			{
+				s[(size_t)b >> 5] |= 1u << (b & 31);
+			}
+		}
+		obj().clearAndSetModelConditionFlags(c, s);
+	}
+	void notifyWheelsStopped() override { m_ai.setLocomotorGoalNone(); }
+
+	// lane MECH-D: RW 0x5E8956 .. 0x5E8FF8, the dispatcher's ScalesWalls look-ahead. The retail code (BFME2 decomp LocomotorMoveTowardsPositionHorde.cpp
+	// Locomotor::rva001E9083 lines 1335-1470; RotWK 0x5E8956 .. 0x5E8FF8 statement for statement): no HORDE_MEMBER status, not contained, its producer is no
+	// HORDE, the object is no HORDE but KindOf CAN_CLIMB_WALLS; the point one step ahead (the unit direction x min(desired speed, 7)) has a SCALEABLE_WALL in
+	// its pathfinder cell within the wall's major radius and below its top: climb (already CLIMBING: rise by desired speed x 0.6, else turn to the wall and
+	// clamp the local x, hug the face). No wall under the step but above the ground + bias: rappel (already RAPPELLING: sink by desired speed x 0.6, land at
+	// the ground and drop the path). The climb and rappel set the position and CLIMBING / RAPPELLING and reveal a stealthed object; a landed object clears
+	// both and the movers run. True: the position was set and the appearance movers do not run. The local player's EVA event 15 on an enemy wall is client
+	// presentation and not ported (S-4461).
+	bool wallScalingLookAhead(float desiredSpeed) override
+	{
+		Object &o = obj();
+		static const int kHordeMember = CombatNames::status("HORDE_MEMBER");
+		static const int kHorde = CombatNames::kindOf("HORDE");
+		static const int kClimb = CombatNames::kindOf("CAN_CLIMB_WALLS");
+		static const int kScaleableWall = CombatNames::kindOf("SCALEABLE_WALL");
+		static const int kClimbing = CombatNames::modelCondition("CLIMBING");
+		static const int kRappelling = CombatNames::modelCondition("RAPPELLING");
+		static const int kMoving = CombatNames::modelCondition("MOVING");
+		if (o.testStatus((unsigned)kHordeMember) || o.getContainedBy() != nullptr)
+		{
+			return false;
+		}
+		if (Object *producer = o.logic().findObjectByID(o.getProducerID()); producer && producer->isKindOf((unsigned)kHorde))
+		{
+			return false;
+		}
+		if (o.isKindOf((unsigned)kHorde) || !o.isKindOf((unsigned)kClimb))
+		{
+			return false;
+		}
+		Pathfinder &pf = m_ai.world().pathfinder();
+		const PathfindLayerEnum layer = m_ai.adapter().getLayer();
+		const Coord3D start = *o.getPosition();
+		const float height = pf.getLayerHeight(start.x, start.y, layer); // RW 0x5E89E2-0x5E8A00
+		const float *basis = o.getBasis();
+		const float step = desiredSpeed < 7.0f ? desiredSpeed : 7.0f; // RW 0xBE4AD4
+		// RW 0x5E8A30-0x5E8A55: the unit direction RW 0x70B9E0 is (cos, sin, 0), horizontal even when the basis is pitched (review prtrlo)
+		const Coord3D dir{ SimMath::mulf32(basis[0], step), SimMath::mulf32(basis[3], step), SimMath::mulf32(0.0f, step) };
+		Coord3D ahead{ SimMath::addf32(start.x, dir.x), SimMath::addf32(start.y, dir.y), SimMath::addf32(start.z, dir.z) };
+		const float nextHeight = pf.getLayerHeight(ahead.x, ahead.y, layer); // RW 0x5E8A8C
+		float bias = SimMath::addf32(SimMath::subf32(height, nextHeight), 0.1f); // RW 0x5E8A97-0x5E8AB1
+		if (bias < 0.0f)
+		{
+			bias = 0.0f;
+		}
+		const PathfindLayerEnum aheadLayer = pf.getLayerAt(ahead.x, ahead.y, ahead.z); // RW 0x680A75 (INFERENCE: the object's gate flag is not read by the port's getLayerAt)
+		const PathfindCell *cell = pf.getCell(aheadLayer, &ahead);                       // RW 0x5E3CC9
+		Object *wall = nullptr;
+		if (cell && cell->getObstacleID() != PATHFIND_INVALID_ID)
+		{
+			wall = o.logic().findObjectByID((ObjectID)cell->getObstacleID()); // RW 0x5E8AD4-0x5E8AE7
+		}
+		bool climbing = false, descending = false, landed = false;
+		if (wall && wall->isKindOf((unsigned)kScaleableWall)) // RW 0x5E8AFA: KindOf SCALEABLE_WALL
+		{
+			const float c = SimMath::cosf32(wall->getOrientation()), s = SimMath::sinf32(wall->getOrientation());
+			const Coord3D &wpos = *wall->getPosition();
+			const auto toLocal = [&](const Coord3D &p) {
+				const float dx = SimMath::subf32(p.x, wpos.x), dy = SimMath::subf32(p.y, wpos.y);
+				return Coord3D{ SimMath::addf32(SimMath::mulf32(c, dx), SimMath::mulf32(s, dy)), SimMath::subf32(SimMath::mulf32(c, dy), SimMath::mulf32(s, dx)),
+					SimMath::subf32(p.z, wpos.z) };
+			};
+			const auto toWorld = [&](const Coord3D &p) {
+				return Coord3D{ SimMath::addf32(SimMath::subf32(SimMath::mulf32(c, p.x), SimMath::mulf32(s, p.y)), wpos.x),
+					SimMath::addf32(SimMath::addf32(SimMath::mulf32(s, p.x), SimMath::mulf32(c, p.y)), wpos.y), SimMath::addf32(p.z, wpos.z) };
+			};
+			const float major = m_ai.world().movementInfo(*wall->getTemplate()).geometry.majorRadius; // RW 0xAD1920 on the geometry
+			const float maxH = ObjectGeometry::maxHeightAbovePosition(ObjectGeometry::cachedShapesOf(*wall->getTemplate()));
+			const Coord3D local = toLocal(ahead);
+			if (SimMath::absD((double)local.x) <= (double)major && local.z <= maxH) // RW 0x5E8B33-0x5E8BD8
+			{
+				const float top = SimMath::addf32(wpos.z, maxH);
+				if (ahead.z < top) // RW 0x5E8BEA
+				{
+					ahead.x = SimMath::subf32(ahead.x, dir.x);
+					ahead.y = SimMath::subf32(ahead.y, dir.y);
+					ahead.z = SimMath::subf32(ahead.z, dir.z);
+					climbing = true;
+					if (o.testModelCondition(kClimbing)) // RW 0x5E8C1B: already on the face, rise
+					{
+						ahead.z = SimMath::addf32(ahead.z, SimMath::mulf32(desiredSpeed, 0.6f)); // RW 0xBDAD70
+						if (ahead.z > top)
+						{
+							ahead.z = top;
+						}
+					}
+					else // RW 0x5E8CDC: turn to the wall's facing, clamp the local x, and hug the face
+					{
+						const float *wb = wall->getBasis();
+						const float myx = basis[0], myy = basis[3]; // RW 0x70B9E0 of both objects: z 0
+						const float dot = SimMath::addf32(SimMath::mulf32(myx, wb[0]), SimMath::mulf32(myy, wb[3]));
+						float angle = wall->getOrientation();
+						if (!(dot >= 0.0f))
+						{
+							angle = SimMath::addf32(angle, 3.14159274f);
+							while (angle > 3.14159274f)
+							{
+								angle = SimMath::subf32(angle, 6.28318548f);
+							}
+							while (-3.14159274f >= angle)
+							{
+								angle = SimMath::addf32(angle, 6.28318548f);
+							}
+						}
+						o.setOrientation(angle);
+						Coord3D moved = toLocal(ahead);
+						if (moved.x > major)
+						{
+							moved.x = major;
+						}
+						else if (SimMath::subf32(0.0f, major) > moved.x)
+						{
+							moved.x = SimMath::subf32(0.0f, major);
+						}
+						ahead = toWorld(moved);
+					}
+				}
+				else
+				{
+					landed = true; // RW 0x5E8E8D: at the top
+				}
+			}
+		}
+		else // RW 0x5E8EC2: no SCALEABLE_WALL under the step
+		{
+			const float ground = pf.getLayerHeight(ahead.x, ahead.y, layer);
+			if (ahead.z > SimMath::addf32(ground, bias)) // RW 0x5E8EF0
+			{
+				ahead.x = SimMath::subf32(ahead.x, dir.x);
+				ahead.y = SimMath::subf32(ahead.y, dir.y);
+				ahead.z = SimMath::subf32(ahead.z, dir.z);
+				descending = true;
+				if (o.testModelCondition(kRappelling)) // RW 0x5E8F28
+				{
+					ahead.z = SimMath::subf32(ahead.z, SimMath::mulf32(desiredSpeed, 0.6f));
+					if (SimMath::addf32(ground, 1.0f) >= ahead.z) // RW 0x5E8F5D
+					{
+						ahead.z = ground;
+						m_ai.mover().destroyPath(); // RW 0x5E8F85 -> AI vslot 0x220
+						if (!o.testModelCondition(kMoving))
+						{
+							o.setModelConditionState(kMoving, true); // RW 0x5E8F8A: the MOVING condition
+						}
+						landed = true;
+					}
+				}
+			}
+		}
+		if (!(descending || climbing || landed))
+		{
+			// RW 0x5E8FAD: no climb this frame: both conditions go and the appearance movers run
+			if (o.testModelCondition(kClimbing))
+			{
+				o.setModelConditionState(kClimbing, false);
+			}
+			if (o.testModelCondition(kRappelling))
+			{
+				o.setModelConditionState(kRappelling, false);
+			}
+			return false;
+		}
+		o.setPosition(&ahead); // RW 0x5E8C5C-0x5E8C62: Thing::setPosition RW 0x70C201
+		const auto reveal = [&] {
+			// RW 0x5E8CB2-0x5E8CD7: a stealthed climber is revealed (RW 0x7767A9 markAsDetected(0, 1, null, true))
+			StealthUpdate *st = StealthUpdate::of(o);
+			if (st && st->isEnabled())
+			{
+				st->markAsDetected(0, 1, nullptr, true);
+			}
+		};
+		if (descending) // RW 0x5E8C71: RAPPELLING
+		{
+			if (o.testModelCondition(kClimbing))
+			{
+				o.setModelConditionState(kClimbing, false);
+			}
+			if (!o.testModelCondition(kRappelling))
+			{
+				o.setModelConditionState(kRappelling, true);
+			}
+			reveal();
+		}
+		else if (climbing) // RW 0x5E9011: CLIMBING
+		{
+			if (o.testModelCondition(kRappelling))
+			{
+				o.setModelConditionState(kRappelling, false);
+			}
+			if (!o.testModelCondition(kClimbing))
+			{
+				o.setModelConditionState(kClimbing, true);
+			}
+			reveal();
+		}
+		else // RW 0x5E9058: landed; both conditions go
+		{
+			if (o.testModelCondition(kClimbing))
+			{
+				o.setModelConditionState(kClimbing, false);
+			}
+			if (o.testModelCondition(kRappelling))
+			{
+				o.setModelConditionState(kRappelling, false);
+			}
+		}
+		return true;
+	}
+	bool isScalingWall() const override
+	{
+		// RW 0x694BF8 (getHorde) + AI vslot 0x7C + HordeContain interface vslot 0x238 (RW 0x86BD54): the horde's locomotor has ScalesWalls and it keeps a wall
+		Object *horde = obj().getHordeObject(false); // RW 0x693A1A: the object itself when HORDE, else its container; not the producer
+		ContainModuleInterface *contain = horde ? horde->getContain() : nullptr;
+		HordeContainInterface *hc = contain ? contain->getHordeContainInterface() : nullptr;
+		return hc && hc->isScalingWall();
+	}
+
+	bool hasHordeContain() const override { return hordeInterface() != nullptr; }
+	void hordeBeginReform() override
+	{
+		if (HordeContainInterface *hc = hordeInterface())
+		{
+			hc->beginReform();
+		}
+	}
+	void hordeEndReform() override
+	{
+		if (HordeContainInterface *hc = hordeInterface())
+		{
+			hc->endReform();
+		}
+	}
+	bool hordeFormationReady(float angle) const override
+	{
+		HordeContainInterface *hc = hordeInterface();
+		return hc ? hc->isFormationReady(angle) : true;
+	}
+	bool thingWaitsForFormation() const override
+	{
+		// ThingTemplate+0x109 bit 2 (RW 0x5E73AA) is the locomotor's WaitForFormation flag of the template in use
+		return m_ai.m_curLocomotor ? m_ai.m_curLocomotor->getTemplate().m_waitForFormation : false;
+	}
+	// lane SHIP-1: TheTerrainLogic vslot 0x4C (isUnderwater, RW 0x67DAE6) is the pathfinder's map view (TerrainPathfindSource::isUnderwater: the highest
+	// StandingWaterArea above the ground); a game without a map cannot answer, so a SHIP / HOVER / SEA_LEVEL move there is an error, not dry land
+	bool isUnderwater(float x, float y, float *waterZ) const override
+	{
+		const PathfindTerrain *terrain = m_ai.world().pathfinder().terrainView();
+		if (!terrain)
+		{
+			throw std::logic_error("Locomotor: a water test (TheTerrainLogic vslot 0x4C) without a map terrain");
+		}
+		return terrain->isUnderwater(x, y, waterZ, nullptr);
+	}
+	bool isDisabledHeld() const override { return (obj().getDisabledMask() & 0x8u) != 0; } // obj + 0x1C8 bit 3
+	bool hasAI() const override { return true; } // this host is the object's AI
+	bool isEffectivelyDead() const override { return obj().isEffectivelyDead(); }
+	bool hasCurrentWeapon() const override
+	{
+		const ObjectWeapons *w = obj().getWeapons();
+		return w && w->currentWeapon() != nullptr; // RW 0x68B58C(0)
+	}
+	int currentWeaponStatusWriteBack() override
+	{
+		ObjectWeapons *w = obj().getWeapons();
+		Weapon *cur = w ? w->currentWeapon() : nullptr;
+		if (!cur)
+		{
+			throw std::logic_error("Locomotor: RW 0x6CDCE7 without a current weapon");
+		}
+		return w->extraWeaponStatus(*cur); // RW 0x6CDCE7: getStatus with the write-back
+	}
+	bool aiStateActive() const override { return m_ai.isStateActive(); } // AI vslot 0x1BC
+	float gravity() const override
+	{
+		const GameLogic &logic = obj().logic();
+		if (!logic.settings().structureRulesLoaded)
+		{
+			throw std::logic_error("Locomotor: GameData Gravity was not loaded (a dead object's height step, RW 0x5E7B7F)");
+		}
+		return logic.settings().gravity;
+	}
+	bool hasStealthModule() const override { return StealthUpdate::of(obj()) != nullptr; } // RW 0x68FBD3
+	bool isKindOfSubmarine() const override
+	{
+		static const int kSubmarine = CombatNames::kindOf("SUBMARINE"); // KindOf 187: template + 0x11F bit 3
+		return obj().isKindOf((unsigned)kSubmarine);
+	}
+
+private:
+	HordeContainInterface *hordeInterface() const
+	{
+		ContainModuleInterface *c = obj().getContain();
+		return c ? c->getHordeContainInterface() : nullptr;
+	}
+	// RW 0x66288A (AI vtable +0x228): true when the unit follows a path with a special node; PATH-1 names the same predicate isStationary
+	bool stationary() const { return m_ai.adapter().isStationary(); }
+
+	AIUpdateInterface &m_ai;
+};
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// construction
+// ---------------------------------------------------------------------------------------------------------------------------------
+AIUpdateInterface::AIUpdateInterface(Thing *thing, const ModuleData *data)
+	: UpdateModule(thing, data)
+{
+	Object *obj = getObject();
+	GameLogic &logic = obj->logic();
+	m_world = logic.aiWorld();
+	if (!m_world)
+	{
+		throw std::logic_error("AIUpdateInterface of " + obj->getTemplate()->getName() + ": the game has no AIWorld (GameLogic::setAIWorld)");
+	}
+	m_id = (PathfindObjectID)obj->getID();
+	m_info = &m_world->movementInfo(*obj->getTemplate());
+	m_adapter = &m_world->adapterFor(*obj);
+	m_mover = std::make_unique<AIMover>(*this, m_world->pathfinder());
+	m_locoHost = std::make_unique<ObjectLocomotorHost>(*this);
+	m_world->moveWorld().add(*m_mover);
+	m_world->registerAI(*this);
+	chooseLocomotorSet(LOCOMOTORSET_NORMAL); // B1 ctor
+	readCombatSettings(data);                 // COMBAT-1: the mood fields of the raw module data
+	setWakeFrame(obj, UPDATE_SLEEP_NONE);     // B1 ctor (SLEEPY_AI)
+	// lane GARRISON-2: RW 0x66ECFE makes the turret from the AI data's turret (+ 0x14); its machine enters IDLE at once (the idle scan's draw, TurretAI.cpp line 0x524)
+	if (const RawModuleData *raw = dynamic_cast<const RawModuleData *>(data))
+	{
+		std::vector<std::string> lines;
+		for (const RawModuleData::Line &l : raw->lines())
+		{
+			lines.push_back(l.text);
+		}
+		auto td = std::make_unique<TurretAIData>();
+		std::string error;
+		const bool hasTurret = TurretAIData::parseFromModuleLines(lines, *td, error);
+		if (!error.empty())
+		{
+			throw std::runtime_error("AIUpdateInterface of " + obj->getTemplate()->getName() + ": " + error);
+		}
+		if (hasTurret)
+		{
+			m_turretData = std::move(td);
+			m_turret = std::make_unique<TurretAI>(*this, *m_turretData, 0);
+			logic.noteStop(TurretAI::stopLine()); // the turret's stop reaches GameLogic::report().stops in every game that has one
+		}
+	}
+}
+
+AIUpdateInterface::~AIUpdateInterface()
+{
+	m_destroying = true; // the object left the world already (its drawable is gone): the states' exits must not touch its model condition
+	if (m_machine)
+	{
+		m_machine->halt(); // B1 ~AIUpdateInterface: the machine halts before the path goes
+		m_machine.reset();
+	}
+	if (m_defectedMachine) // lane BACKLOG4: an object deleted while it is defected
+	{
+		m_defectedMachine->halt();
+		m_defectedMachine.reset();
+	}
+	if (m_temporaryKeptMachine) // lane MODCOMPAT-MOD1: an object deleted while a temporary machine runs
+	{
+		m_temporaryKeptMachine->halt();
+		m_temporaryKeptMachine.reset();
+	}
+	m_turret.reset(); // after the machine: the attack state's exit clears the turret's target
+	if (m_world)
+	{
+		m_world->moveWorld().remove(m_id);
+		m_world->unregisterAI(*this);
+	}
+}
+
+std::unique_ptr<AIStateMachine> AIUpdateInterface::makeStateMachine()
+{
+	std::unique_ptr<AIStateMachine> m = std::make_unique<AIStateMachine>(*this, machineName());
+	// B1 AIStateMachineConstructor.cpp (ids), ZH AIStates.cpp (states and their success / failure transitions: the move states fall back to idle)
+	m->defineState(AI_IDLE, std::make_unique<AIIdleState>(*m), AI_IDLE, AI_IDLE);
+	// lane PLAY-4: RotWK's move states 1 and 0x1A end in AIGoingIdleState 0x4E (RW 0x753755), which tells the stances the move ended, then goes idle
+	m->defineState(AI_MOVE_TO, std::make_unique<AIMoveToMachineState>(*m), AI_GOING_IDLE, AI_GOING_IDLE);
+	m->defineState(AI_FOLLOW_PATH, std::make_unique<AIFollowPathState>(*m, false), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FOLLOW_EXITPRODUCTION_PATH, std::make_unique<AIFollowPathState>(*m, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FOLLOW_PATH_AS_TEAM, std::make_unique<AIFollowPathAsTeamState>(*m, false), AI_IDLE, AI_IDLE);       // lane BACKLOG-8 r2: RW state 54
+	m->defineState(AI_FOLLOW_PATH_AS_TEAM_ATTACK, std::make_unique<AIFollowPathAsTeamState>(*m, true), AI_IDLE, AI_IDLE); // lane PORT-13: RW state 61
+	m->defineState(AI_WAIT, std::make_unique<AIWaitState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_BUSY, std::make_unique<AIBusyState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_MOVE_OUT_OF_THE_WAY, makeMoveOutOfTheWayState(*m), AI_GOING_IDLE, AI_GOING_IDLE); // lane PHYS-1: state 26 (AIUpdateAllies.cpp); PLAY-4: -> 0x4E
+	// COMBAT-1 (B1 AIStateMachineConstructor.cpp:563-567, 579): attack object 50, force attack object 51, dead 13; an attack ends in idle, which looks for the next target
+	m->defineState(AI_ATTACK_OBJECT, std::make_unique<AIAttackState>(*m, false, true, false), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FORCE_ATTACK_OBJECT, std::make_unique<AIAttackState>(*m, false, true, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_ATTACK_POSITION, std::make_unique<AIAttackState>(*m, false, false, false), AI_IDLE, AI_IDLE); // lane PLAY-2: ZH AIStates.cpp:710
+	m->defineState(AI_DEAD, std::make_unique<AIDeadState>(*m), AI_DEAD, AI_DEAD);
+	// lane GARRISON-1: RotWK's ids (RW 0x753755): enter 15, exit 38, horde enter 52, horde exit 53, move to position and enter 56; each ends in idle
+	m->defineState(AI_ENTER, makeEnterState(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_EXIT, makeExitState(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_HORDE_ENTER, makeHordeEnterState(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_HORDE_EXIT, makeHordeExitState(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_MOVE_TO_POSITION_AND_ENTER, makeMoveToPositionAndEnterState(*m), AI_IDLE, AI_IDLE);
+	// lane MODULES-3 (RW 0x753755): the emotion states (AIEmotionStates.cpp); the panic state's success goes on to the cower state (as a temporary state it just ends)
+	m->defineState(AI_PANIC, std::make_unique<AIPanicState>(*m, false), AI_PANIC_COWER, AI_IDLE);
+	m->defineState(AI_PANIC_COWER, std::make_unique<AIPanicState>(*m, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_BACK_AWAY, std::make_unique<AIBackAwayState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_QUARREL, std::make_unique<AIQuarrelState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FACE_OBJECT_IDLE, std::make_unique<AIFaceObjectIdleState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FACE_POSITION, std::make_unique<AIFacePositionState>(*m), AI_IDLE, AI_IDLE); // lane SIEGE-1: RW 0x753755 state 0x25 (RW 0x7449D4 mode 0)
+	m->defineState(AI_FACE_OBJECT, std::make_unique<AIFaceState>(*m, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_HUNT, std::make_unique<AIHuntState>(*m), AI_IDLE, AI_IDLE); // lane SCRIPT-3: RW 0x741133 (AIHunt.cpp)
+	m->defineState(AI_ATTACK_AREA, std::make_unique<AIAttackAreaState>(*m), AI_IDLE, AI_IDLE); // lane BFME2CAMP1: RW 0x74115E (AIHunt.h)
+	m->defineState(AI_ATTACK_SQUAD, std::make_unique<AIAttackSquadState>(*m), AI_IDLE, AI_IDLE); // lane BFME2CAMP1: RW 0x740E95 (AIHunt.h)
+	// lane PLAY-4 (RW 0x753755): AIGuardState 16 (RW 0x74109B) and AIGoingIdleState 0x4E (RW 0x7410C2), both ending in idle (AIGuard.cpp)
+	m->defineState(AI_GUARD, std::make_unique<AIGuardState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_GOING_IDLE, std::make_unique<AIGoingIdleState>(*m), AI_IDLE, AI_IDLE);
+	// lane SCRIPT-3: the waypoint path states (RW 0x753755: 2 as a team, 3 as individuals, 4 / 5 the exact forms; AIWaypointPath.cpp)
+	m->defineState(AI_FOLLOW_WAYPOINT_PATH_AS_TEAM, std::make_unique<AIFollowWaypointPathState>(*m, true, false), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS, std::make_unique<AIFollowWaypointPathState>(*m, false, false), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FOLLOW_WAYPOINT_PATH_EXACT_AS_TEAM, std::make_unique<AIFollowWaypointPathState>(*m, true, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_FOLLOW_WAYPOINT_PATH_EXACT_AS_INDIVIDUALS, std::make_unique<AIFollowWaypointPathState>(*m, false, true), AI_IDLE, AI_IDLE);
+	// lane WARG-1 (RW 0x753755): the attack-follow states, 0x23 (RW 0x750AE7(machine, 1)) then 0x22 (asTeam 0), both ending in idle
+	m->defineState(AI_ATTACK_FOLLOW_WAYPOINT_PATH_AS_TEAM, std::make_unique<AIAttackFollowWaypointPathState>(*m, true), AI_IDLE, AI_IDLE);
+	m->defineState(AI_ATTACK_FOLLOW_WAYPOINT_PATH_AS_INDIVIDUALS, std::make_unique<AIAttackFollowWaypointPathState>(*m, false), AI_IDLE, AI_IDLE);
+	// lane LUMBER1 (RW 0x753755): AIDockState 14 (RW 0x740F01) and AIHarvestState 47 (RW 0x740F2C), both ending in idle
+	m->defineState(AI_DOCK, std::make_unique<AIDockState>(*m), AI_IDLE, AI_IDLE);
+	m->defineState(AI_HARVEST, std::make_unique<AIHarvestState>(*m), AI_IDLE, AI_IDLE);
+	return m;
+}
+
+// B1 AIUpdate.cpp:2006
+void AIUpdateInterface::onObjectCreated()
+{
+	if (!m_machine)
+	{
+		m_machine = makeStateMachine();
+		m_machine->initDefaultState();
+		m_stateMachineMade = true;
+	}
+}
+
+// lane BACKLOG4 (S-1222): RW 0x663128
+void AIUpdateInterface::beginDefectedStateMachine()
+{
+	if (m_defectedMachine || !m_machine)
+	{
+		return; // RW 0x66312B: a machine is kept already (retail reads the machine without a test: an AI before its creation keeps none here)
+	}
+	const AIState *current = m_machine->currentState();
+	if (current && current->isActive())
+	{
+		// RW 0x663131 .. 0x663151: machine slot 0x34 (RW 0x8DB749) calls the state's slot 0x40. The states that answer slot 0x24 true are the attack
+		// states; their slot 0x40 is not read
+		getObject()->logic().noteStop("[S-1222] a defecting object's attack state is kept without its slot 0x40 call (RW 0x8DB749: not read)"); // the world's acceptance stops, as the other S-1222 notes
+	}
+	m_defectedMachine = std::move(m_machine);
+	m_machine = makeStateMachine(); // RW 0x66315E: vslot 0x258
+	m_machine->initDefaultState();  // RW 0x66316C: slot 0x1C
+	wakeUpNow();
+}
+
+// lane BACKLOG4 (S-1222): RW 0x663171. Retail's halt (RW 0x8DB758) drops the current state without its onExit before the machine is deleted; the port's
+// halt lets the state exit (ZH ~StateMachine), so what the state holds (its path, its turret target) is released: INFERENCE, S-1222
+void AIUpdateInterface::endDefectedStateMachine()
+{
+	if (!m_defectedMachine)
+	{
+		return;
+	}
+	if (m_machine)
+	{
+		m_machine->halt();
+		m_machine.reset();
+	}
+	m_machine = std::move(m_defectedMachine);
+	wakeUpNow();
+}
+
+// lane MODCOMPAT-MOD1 (S-1422): RW 0x6630A9
+void AIUpdateInterface::beginTemporaryStateMachine()
+{
+	if (m_temporaryKeptMachine)
+	{
+		return; // RW 0x6630AC: AI + 0x34 holds a machine already
+	}
+	if (!m_machine)
+	{
+		// RW 0x6630BA reads the machine (AI + 0x30) without a test: an AI before onObjectCreated has none
+		throw std::logic_error("AIUpdateInterface of " + getObject()->getTemplate()->getName() + ": beginTemporaryStateMachine before the AI has a machine (RW 0x6630BA)");
+	}
+	// RW 0x6630B4: AI vslot 0x160 (RW 0x63F3BF in every AI class: nothing)
+	m_temporaryKeptMachine = std::move(m_machine); // RW 0x6630BA: + 0x34 = + 0x30
+	m_machine = makeStateMachine();                // RW 0x6630C4: vslot 0x258
+	m_machine->initDefaultState();                 // RW 0x6630D2: machine slot 0x1C
+}
+
+// lane MODCOMPAT-MOD1 (S-1422): RW 0x6630D7. Machine slot 0x3C is RotWK's halt (RW 0x8DB758), which drops the current state without its exit; the port's
+// halt lets the state exit, as endDefectedStateMachine does (INFERENCE, S-1222 item 3: what the state holds, its path and turret target, is released)
+void AIUpdateInterface::endTemporaryStateMachine()
+{
+	if (!m_temporaryKeptMachine)
+	{
+		return; // RW 0x6630DD
+	}
+	if (m_machine)
+	{
+		if (!m_updatingWithTemporaryMachine)
+		{
+			m_machine->halt(); // RW 0x6630F3: machine slot 0x3C, then the machine's deleting destructor (slot 0) and operator delete (RW 0x42F6A0)
+			m_machine.reset();
+		}
+		else
+		{
+			// RW 0x6630E9: AI + 0x3E0 is set, so the machine whose update runs now is neither halted nor deleted (retail drops the pointer). The port keeps it,
+			// state and all, until AIUpdateInterface::update's machine update returns, then frees it without its exits
+			m_retiredMachine = std::move(m_machine);
+		}
+	}
+	m_machine = std::move(m_temporaryKeptMachine); // RW 0x663110 .. 0x663118: + 0x30 = + 0x34, + 0x34 = 0
+	onTemporaryStateMachineEnded();                // RW 0x66311F: AI vslot 0x164
+}
+
+void AIUpdateInterface::onDelete()
+{
+	// the object leaves the pathfinder before its modules are deleted (AIWorld::objectLeftWorld also runs from ~Object)
+	if (m_machine)
+	{
+		m_machine->halt();
+	}
+	if (m_defectedMachine)
+	{
+		m_defectedMachine->halt();
+	}
+	if (m_temporaryKeptMachine)
+	{
+		m_temporaryKeptMachine->halt();
+	}
+	m_mover->destroyPath();
+}
+
+int AIUpdateInterface::modelConditionBit(const char *name)
+{
+	return modelConditionIndex(name);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// update (RW 0x6695EF, B1 AIUpdate.cpp:2547)
+// ---------------------------------------------------------------------------------------------------------------------------------
+UpdateSleepTime AIUpdateInterface::update()
+{
+	m_isInUpdate = true;
+	getObject()->setStatus((unsigned)CombatNames::statuses().updatingAI, true); // RW: damage dealt to this object during its own update waits a frame
+	// lane EXIT-1: RW 0x66E6E1 .. 0x66E70C: a horde member that is busy or has an explicit / angle goal runs the member update RW 0x66C748 instead of RW 0x6695EF
+	// (which holds the script condition events, the machine, the movement-complete block, the turret and doLocomotor)
+	const bool memberUpdate = runsHordeMemberUpdate();
+	if (!memberUpdate)
+	{
+		getObject()->logic().scriptModelConditionEvents(*getObject(), m_luaConditionSnapshot); // lane HERO-2: RW 0x66964D -> 0x663E32
+	}
+	// RW 0x669652 .. 0x669708 (DONOR BFME2 0x0026A05D, Rva0026A05DUpdate.cpp; both editions): a stunned non-member unit
+	// cannot run its AI state machine, attack-move scan, turret, or locomotor until PhysicsBehavior clears m_stunned (+0x5C).
+	const PhysicsBehavior *const phys = !memberUpdate ? getObject()->physicsModule() : nullptr;
+	const bool stunnedNormalUnit = phys != nullptr && phys->isStunned();
+	if (ObjectWeapons *w = getObject()->getWeapons())
+	{
+		// the weapon model conditions (RW 0x68E197) are the WeaponStatusHelper's (lane PROJ-2: a PHASE_FINAL module, after this update; RW 0x66DA50 is
+		// a call inside RW 0x66D8F5, not one at the start of every AI update)
+		w->updateFiringTracker(); // RW 0x8E30DD
+	}
+	updateBeforeBase();
+	if (m_attackMoveActive && !m_mover->isAiDead() && !stunnedNormalUnit)
+	{
+		// ZH AIAttackMoveToState::update: look around while marching; a target interrupts the march (the idle state resumes it). Lane TARGET-1: the scan is
+		// RotWK's mood scan (RW 0x755798 -> RW 0x66844A(1, 0)); its cadence is the mood check's (AI + 0x21C)
+		const unsigned id = currentStateId();
+		if (id == (unsigned)AI_MOVE_TO || id == (unsigned)AI_FOLLOW_PATH)
+		{
+			if (Object *t = attackMoveTarget())
+			{
+				aiAttackObject(t, CMD_FROM_AI);
+			}
+		}
+	}
+	unsigned finalSleep = 1;
+	if (memberUpdate)
+	{
+		// RW 0x66E6FF .. 0x66E707: horde member update returns sleep and jumps to 0x66E711
+		finalSleep = hordeMemberUpdate();
+	}
+	else if (stunnedNormalUnit)
+	{
+		// RW 0x66966A .. 0x669708 (DONOR BFME2 0x0026A05D): keep AI halted while knocked back / stunned / standing up.
+		if (getObject()->isEffectivelyDead())
+		{
+			if (currentStateId() != (unsigned)AI_DEAD && !m_machine->isLocked())
+			{
+				m_machine->setState(AI_DEAD); // RW 0x669673 .. 0x6696B2
+			}
+		}
+		else
+		{
+			if (currentStateId() != (unsigned)AI_IDLE)
+			{
+				m_mover->destroyPath(); // RW 0x66276B
+				setLocomotorGoalNone(); // AI vslot 0x220
+			}
+			m_world->pathfinder().removeGoal(*m_adapter); // RW 0x68B401 -> 0x8E2138
+		}
+		static const int cMoving = CombatNames::modelCondition("MOVING");
+		static const int cBackingUp = CombatNames::modelCondition("BACKING_UP");
+		getObject()->setModelConditionState(cMoving, false);     // RW 0x6696FA: bit 61
+		getObject()->setModelConditionState(cBackingUp, false);  // RW 0x6696FA: bit 156
+		finalSleep = (unsigned)UPDATE_SLEEP_NONE;
+	}
+	else
+	{
+		unsigned sleep = (unsigned)UPDATE_SLEEP_FOREVER;
+		// lane MODCOMPAT-MOD1: RW 0x669725 .. 0x66974E: AI + 0x3E0 = a machine is kept (AI + 0x34) around the machine's update (endTemporaryStateMachine reads it)
+		m_updatingWithTemporaryMachine = m_temporaryKeptMachine != nullptr;
+		const StateReturnType st = m_machine->updateStateMachine();
+		m_updatingWithTemporaryMachine = false;
+		if (m_retiredMachine)
+		{
+			AIStateMachine::LoadGuard noExits; // the machine endTemporaryStateMachine dropped during its update: retail never deletes it, so no state exits
+			m_retiredMachine.reset();
+		}
+		if (IS_STATE_SLEEP(st))
+		{
+			const unsigned frames = GET_STATE_SLEEP_FRAMES(st);
+			if (frames < sleep)
+			{
+				sleep = frames;
+			}
+		}
+		else
+		{
+			sleep = (unsigned)UPDATE_SLEEP_NONE; // CONTINUE / SUCCESS / FAILURE: the next frame
+		}
+		if (m_mover->movementComplete())
+		{
+			doMovementCompleteBookkeeping();
+		}
+		// lane GARRISON-2: RW 0x6658D3 after the machine (and RW's path timer, which the port runs inside AIMover::update below): the turret runs unless the object is
+		// dead or disabled by type 2 or 4 (mask 0x14); its sleep joins the AI's. The AI slot 0x1C4 test before it is taken as false (S-1106)
+		if (m_turret && !getObject()->isEffectivelyDead() && (getObject()->getDisabledMask() & 0x14u) == 0)
+		{
+			const unsigned ts = m_turret->updateTurretAI();
+			if (ts < sleep)
+			{
+				sleep = ts;
+			}
+		}
+		// the movement-complete block, the due path-request timer and doLocomotor (AIMover::update)
+		unsigned moverSleep = 0;
+		try
+		{
+			moverSleep = m_mover->update(sleep);
+		}
+		catch (const std::logic_error &e)
+		{
+			// a locomotor case the port reports as unported (S-081 / S-084): the unit stops, the failure is kept in the world's report
+			m_world->reportMovementFailure(*getObject(), e.what());
+			m_mover->destroyPath();
+			m_mover->endingMove();
+			m_machine->clear();
+			m_machine->setState(AI_IDLE);
+			moverSleep = (unsigned)UPDATE_SLEEP_FOREVER;
+		}
+		finalSleep = moverSleep;
+		m_world->noteStop(kStopUpdate);
+	}
+	m_isInUpdate = false;
+	getObject()->setStatus((unsigned)CombatNames::statuses().updatingAI, false);
+	return (UpdateSleepTime)(finalSleep < 1u ? 1u : finalSleep);
+}
+
+// B1 AIUpdate.cpp:2574-2594: the model condition goes, and the pathfinder's goal for the unit is refreshed (a goal further than a cell from the unit is
+// replaced by the cell under it)
+void AIUpdateInterface::doMovementCompleteBookkeeping()
+{
+	Object *obj = getObject();
+	obj->setModelConditionState(modelConditionIndex("MOVING"), false);
+	Coord3D goalPos;
+	Pathfinder &pf = m_world->pathfinder();
+	if (pf.goalPosition(*m_adapter, &goalPos))
+	{
+		const Coord3D &p = *obj->getPosition();
+		const float dx = SimMath::subf32(goalPos.x, p.x), dy = SimMath::subf32(goalPos.y, p.y);
+		if (SimMath::addf32(SimMath::mulf32(dx, dx), SimMath::mulf32(dy, dy)) >= 100.0f)
+		{
+			goalPos = p;
+			pf.snapPosition(*m_adapter, &goalPos);
+		}
+		pf.updateGoal(*m_adapter, &goalPos, m_adapter->getLayer());
+	}
+	pf.updatePos(*m_adapter);
+}
+
+void AIUpdateInterface::reactToTransformChange()
+{
+	if (m_world->mapReady())
+	{
+		m_world->pathfinder().updatePos(*m_adapter);
+	}
+}
+
+void AIUpdateInterface::wakeUpNow()
+{
+	if (getWakeFrame() > (UnsignedInt)UPDATE_SLEEP_NONE && !m_isInUpdate)
+	{
+		setWakeFrame(getObject(), UPDATE_SLEEP_NONE);
+	}
+}
+
+void AIUpdateInterface::setQueueForPathTime(unsigned frames)
+{
+	if (frames >= (unsigned)UPDATE_SLEEP_NONE && getWakeFrame() > frames && !m_isInUpdate)
+	{
+		setWakeFrame(getObject(), UPDATE_SLEEP(frames));
+	}
+	m_mover->setQueueForPathTime(frames);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// commands (B1 AIUpdate.cpp:4511-5075)
+// ---------------------------------------------------------------------------------------------------------------------------------
+void AIUpdateInterface::goalPositionClipped(const Coord3D &pos, CommandSourceType source, Coord3D &out) const
+{
+	out = pos;
+	if (source == CMD_FROM_PLAYER)
+	{
+		// B1 setGoalPositionClipped (0x273DE0): a player's goal is clipped to the map extent minus half a partition cell (GameData
+		// PartitionCellSize, 40 in the retail data); the extent is the pathfinder's logical extent
+		ICoord2D lo, hi;
+		m_world->pathfinder().getLogicalExtent(lo, hi);
+		const float fudge = 20.0f;
+		const float x0 = SimMath::addf32(SimMath::mulf32((float)lo.x, 10.0f), fudge), y0 = SimMath::addf32(SimMath::mulf32((float)lo.y, 10.0f), fudge);
+		const float x1 = SimMath::subf32(SimMath::mulf32((float)(hi.x + 1), 10.0f), fudge), y1 = SimMath::subf32(SimMath::mulf32((float)(hi.y + 1), 10.0f), fudge);
+		if (out.x < x0) out.x = x0;
+		if (out.x > x1) out.x = x1;
+		if (out.y < y0) out.y = y0;
+		if (out.y > y1) out.y = y1;
+	}
+}
+
+void AIUpdateInterface::aiMoveToPosition(const Coord3D &pos, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	{
+		RoutedCommand c; // lane FLY-1
+		c.type = 0;
+		c.position = pos;
+		c.source = source;
+		if (routeCommand(c))
+		{
+			return;
+		}
+	}
+	m_world->noteStop(kStopCommands);
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false; // a move order ends an attack-move (COMBAT-1)
+	}
+	privateMoveToPosition(pos, source);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiMoveToPositionEvenIfSleeping(const Coord3D &pos, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x36))
+	{
+		return; // RW 0x667174
+	}
+	++m_evenIfSleepingOrders;
+	m_lastEvenIfSleepingGoal = pos;
+	{
+		RoutedCommand c; // lane FLY-1: a class that routes its own commands sees 0x36 (GiantBirdAIUpdate does not route it)
+		c.type = 0x36;
+		c.position = pos;
+		c.source = source;
+		if (routeCommand(c))
+		{
+			return;
+		}
+	}
+	m_world->noteStop(kStopCommands);
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false;
+	}
+	privateMoveToPosition(pos, source);
+	wakeUpNow();
+}
+
+// RW 0x696266 dispatches only command 0xF, never AIGroup's move/stealth path.
+// RW 0x66C0B9..0x66C145 clears the old machine and installs the goal/source/shot limit.
+// Execution still uses the existing march representation (S-328), but must replace a busy unit's march.
+bool AIUpdateInterface::aiAttackMoveToPosition(const Coord3D &pos, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0xF)) return false;
+	RoutedCommand command;
+	command.type = 0xF;
+	command.position = pos;
+	command.source = source;
+	command.maxShots = 0x7fffffff;
+	if (routeCommand(command)) return true;
+	Object *obj = getObject();
+	static const int rampage = CombatNames::weaponSetBit("RAMPAGE");
+	if (m_mover->isAiDead() || !GarrisonRules::isMobile(*obj) || BitFlagsTest(obj->getWeaponSetFlags(), (size_t)rampage)) return false;
+	Coord3D goal;
+	goalPositionClipped(pos, source, goal);
+	m_machine->clear();
+	m_machine->setGoalPosition(goal);
+	m_machine->setGoalObject(INVALID_ID);
+	setLastCommandSource(source);
+	m_attackMoveActive = true;
+	m_attackMoveGoal = goal;
+	m_machine->setState(AI_MOVE_TO);
+	if (ObjectWeapons *weapons = obj->getWeapons())
+		if (Weapon *weapon = weapons->currentWeapon())
+		{
+			weapon->clearWhenFiringEnds(); // RW 0x66C121
+			weapon->setMaxShotCount(0x7fffffff);
+		}
+	resetNextMoodCheckTime();
+	wakeUpNow();
+	return true;
+}
+
+bool AIUpdateInterface::aiMoveToPositionFromAttackMove(const Coord3D &goal)
+{
+	if (!acceptCommand(CMD_FROM_PLAYER, 0))
+	{
+		return false; // lane MODULES-3 r2: RW 0x667174 before any change
+	}
+	{
+		RoutedCommand c; // lane FLY-1
+		c.type = 0;
+		c.position = goal;
+		c.source = CMD_FROM_PLAYER;
+		if (routeCommand(c))
+		{
+			return true;
+		}
+	}
+	privateMoveToPosition(goal, CMD_FROM_PLAYER);
+	wakeUpNow();
+	return true;
+}
+
+const char *AIUpdateInterface::preferredPointStopLine()
+{
+	return "[S-4321] the locomotor's preferred point (RW 0x5E39CE) is set by the enter order and the move-away handler only: privateMoveToPosition (RW 0x66B437) "
+		   "and nine other callers do not set it, so a CanMoveBackwards unit's backing-up test (RW 0x5E83FD) reads the point of its last enter / move-away";
+}
+
+void AIUpdateInterface::privateMoveToPosition(const Coord3D &pos, CommandSourceType source)
+{
+	Object *obj = getObject();
+	// lane BUGS-1: RW 0x66B3FD .. 0x66B425 (BFME2 decomp AIUpdateInterfacePrivateCommands.cpp:privateMoveToPosition, tier B for RW 0x66B3FD): nothing when
+	// Object::isMobile (RW 0x690E97) says no (IMMOBILE, any DISABLED type but 8, among them DISABLED_HELD, STONED, a deployed SIEGE_TOWER) or the weapon set
+	// flags (Object + 0x38C, RW 0x68BE7D) hold bit 8 (RAMPAGE). A unit held through its BuildFadeInOnCreateTime (RW 0x8A2AB5) takes no move: the exit
+	// (RW 0x8A3DD5) puts it back at the door anyway (FACT-B: the catapult of Mordor's Siege Works drove off, then jumped back)
+	static const int kRampage = CombatNames::weaponSetBit("RAMPAGE");
+	if (!GarrisonRules::isMobile(*obj) || BitFlagsTest(obj->getWeaponSetFlags(), (size_t)kRampage))
+	{
+		return;
+	}
+	// lane BACKLOG-1: RW 0x66B437 sets the current locomotor's preferred point here (RW 0x5E39CE): not ported for this command (S-4321); the Wheels mover's
+	// backing-up test reads the point, so a locomotor that can move backwards meets the gap
+	if (m_curLocomotor && m_curLocomotor->getTemplate().m_canMoveBackwards != 0)
+	{
+		obj->logic().noteStop(preferredPointStopLine());
+	}
+	Coord3D goal;
+	goalPositionClipped(pos, source, goal);
+	if (!isIdle() && source == CMD_FROM_AI)
+	{
+		// an internally generated move of a busy unit: a temporary state for 20 seconds (B1 AIUpdate.cpp:4531)
+		m_machine->setGoalPosition(goal);
+		m_machine->setGoalObject(INVALID_ID);
+		m_machine->setTemporaryState(AI_MOVE_TO, (unsigned)LOGICFRAMES_PER_SECOND * 20u);
+	}
+	else
+	{
+		m_machine->clear();
+		m_machine->setGoalPosition(goal);
+		m_machine->setGoalObject(INVALID_ID);
+		setLastCommandSource(source);
+		m_machine->setState(AI_MOVE_TO);
+	}
+}
+
+bool AIUpdateInterface::aiMoveToPositionAndOrientate(const Coord3D &pos, float angle, CommandSourceType source, Coord3D *takenGoal)
+{
+	if (!acceptCommand(source, kCommandUnidentifiedMove))
+	{
+		return false; // lane MODULES-3: RW 0x667174
+	}
+	{
+		RoutedCommand c; // lane FLY-1
+		c.type = kCommandUnidentifiedMove;
+		c.angle = angle;
+		c.position = pos;
+		c.source = source;
+		if (routeCommand(c))
+		{
+			if (takenGoal)
+			{
+				*takenGoal = pos; // the subclass owns the command; the base goal and attack-move stay untouched, as in aiMoveToPosition
+			}
+			return true;
+		}
+	}
+	m_world->noteStop(kStopCommands);
+	Object *obj = getObject();
+	// Object::isMobile (RW 0x690E97), as privateMoveToPosition (RW 0x66B3FD) and BFME2's privateAttackMoveToPositionAndOrientation (BFME2 RVA 0x26C04E, the
+	// attack formation's command) refuse an immobile, disabled (but type 8 alone) or stoned unit or a deployed siege tower: nothing of it changes
+	if (!GarrisonRules::isMobile(*obj))
+	{
+		return false;
+	}
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false; // an accepted player / script move order ends an attack-move, as aiMoveToPosition (COMBAT-1)
+	}
+	Coord3D goal;
+	goalPositionClipped(pos, source, goal);
+	if (takenGoal)
+	{
+		*takenGoal = goal;
+	}
+	m_machine->clear();
+	m_machine->setGoalPosition(goal);
+	m_machine->setGoalObject(INVALID_ID);
+	m_machine->setGoalAngle(angle);
+	setLastCommandSource(source);
+	m_machine->setState(AI_MOVE_TO);
+	wakeUpNow();
+	return true;
+}
+
+void AIUpdateInterface::aiMoveToObject(Object *target, CommandSourceType source)
+{
+	if (!acceptCommand(source, 1))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	m_world->noteStop(kStopCommands);
+	if (!target || hasKind(*getObject(), kindBits().immobile) || m_mover->isAiDead())
+	{
+		return;
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(target->getID());
+	m_machine->setGoalPosition(*target->getPosition());
+	setLastCommandSource(source);
+	m_machine->setState(AI_MOVE_TO);
+	wakeUpNow();
+}
+
+// B1 AIUpdate.cpp:4722
+void AIUpdateInterface::aiIdle(CommandSourceType source)
+{
+	if (!acceptCommand(source, -1))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	m_world->noteStop(kStopCommands);
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false;
+	}
+	setLastCommandSource(source);
+	m_machine->clear();
+	m_machine->setGoalObject(INVALID_ID);
+	m_machine->setState(AI_IDLE);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiFaceObject(Object *target, CommandSourceType source)
+{
+	// TARGET RW 0x6643B6; Open-BFME-2 AIUpdateInterfacePrivateCommands.cpp
+	// privateFaceObject (RVA 0x2645B9) is the same body with different offsets.
+	if (!acceptCommand(source, 0x26))
+	{
+		return;
+	}
+	privateFaceObject(target, source);
+}
+
+void AIUpdateInterface::privateFaceObject(Object *target, CommandSourceType source)
+{
+	if (!GarrisonRules::isMobile(*getObject()))
+	{
+		return;
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(target ? target->getID() : INVALID_ID);
+	m_mover->clearBlocked();
+	setLastCommandSource(source);
+	m_machine->setState(AI_FACE_OBJECT);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiBusy(CommandSourceType source)
+{
+	if (!acceptCommand(source, -1))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	setLastCommandSource(source);
+	m_machine->clear();
+	m_machine->setState(AI_BUSY);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiBusyFor(unsigned frames, CommandSourceType source)
+{
+	if (frames == 0)
+	{
+		aiBusy(source); // RW 0x664997 .. 0x6649AD: clear, the source (+ 0x48), setState(0x2A)
+		return;
+	}
+	if (!acceptCommand(source, -1))
+	{
+		return; // RW 0x667174
+	}
+	m_machine->saveGoalForTemporaryState();             // RW 0x6649AF: RW 0x741675
+	m_machine->setTemporaryStateRW(AI_BUSY, (int)frames); // RW 0x6649BD: RW 0x74168E(0x2A, frames), as the emotion AI's temporary states (no wake of its own)
+}
+
+// B1 AIUpdate.cpp:5039
+void AIUpdateInterface::aiFollowPath(const std::vector<Coord3D> &path, Object *ignoreObject, CommandSourceType source, bool exitProduction)
+{
+	if (!acceptCommand(source, -1))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	privateFollowPath(path, ignoreObject, source, exitProduction);
+}
+
+void AIUpdateInterface::privateFollowPath(const std::vector<Coord3D> &path, Object *ignoreObject, CommandSourceType source, bool exitProduction)
+{
+	m_world->noteStop(kStopCommands);
+	if (path.empty())
+	{
+		return;
+	}
+	if (hasKind(*getObject(), kindBits().immobile))
+	{
+		return;
+	}
+	m_machine->clear();
+	m_machine->setGoalPath(path);
+	m_mover->ignoreObstacle(ignoreObject ? ignoreObject->getID() : PATHFIND_INVALID_ID);
+	setLastCommandSource(source);
+	m_machine->setState(exitProduction ? AI_FOLLOW_EXITPRODUCTION_PATH : AI_FOLLOW_PATH);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiFollowPathAsTeam(const std::vector<Coord3D> &path, Object *ignoreObject, float angle, CommandSourceType source)
+{
+	// RW 0x66BB9D (BFME2 decomp bfmePrivateCommand24, tier B): the command passes aiDoCommand's gate (RW 0x667174) first
+	if (!acceptCommand(source, 0x24))
+	{
+		return;
+	}
+	if (hasKind(*getObject(), kindBits().immobile))
+	{
+		return;
+	}
+	m_machine->clear();
+	if (path.empty())
+	{
+		return;
+	}
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false;
+	}
+	m_machine->setGoalPosition(path.back());
+	m_machine->setGoalPath(path);
+	setLastCommandSource(source);
+	m_mover->ignoreObstacle(ignoreObject ? ignoreObject->getID() : PATHFIND_INVALID_ID);
+	m_teamPathAngle = angle;
+	m_machine->setState(AI_FOLLOW_PATH_AS_TEAM);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiFollowPathAsTeamAttack(const std::vector<Coord3D> &path, Object *ignoreObject, float angle, CommandSourceType source)
+{
+	// RW 0x66BC68 (AI command 0x25, RW 0x66ABAF -> AI vslot 0x80): identical to RW 0x66BB9D except it enters state 61 (0x3D), the attack march
+	if (!acceptCommand(source, 0x25))
+	{
+		return;
+	}
+	if (hasKind(*getObject(), kindBits().immobile))
+	{
+		return;
+	}
+	m_machine->clear();
+	if (path.empty())
+	{
+		return;
+	}
+	if (source != CMD_FROM_AI)
+	{
+		m_attackMoveActive = false;
+	}
+	m_machine->setGoalPosition(path.back());
+	m_machine->setGoalPath(path);
+	setLastCommandSource(source);
+	m_mover->ignoreObstacle(ignoreObject ? ignoreObject->getID() : PATHFIND_INVALID_ID);
+	m_teamPathAngle = angle;
+	m_machine->setState(AI_FOLLOW_PATH_AS_TEAM_ATTACK);
+	wakeUpNow();
+}
+
+bool AIUpdateInterface::canFollowTeamPath() const
+{
+	// RW 0x667144
+	if (locomotorInfo().validSurfaces == LOCOMOTORSURFACE_AIR || !m_curLocomotor)
+	{
+		return false;
+	}
+	if (m_curLocomotor->getTemplate().m_surfaces & LOCOMOTORSURFACE_AIR)
+	{
+		return false;
+	}
+	return (getObject()->getDisabledMask() & (1u << DISABLED_HELD)) == 0;
+}
+
+// B1 AIUpdate.cpp:5005: add a point to the path being followed (or start one)
+void AIUpdateInterface::aiFollowPathAppend(const Coord3D &pos, CommandSourceType source)
+{
+	if (!acceptCommand(source, kCommandUnidentifiedMove))
+	{
+		return; // lane MODULES-3: RW 0x667174
+	}
+	privateFollowPathAppend(pos, source);
+}
+
+void AIUpdateInterface::privateFollowPathAppend(const Coord3D &pos, CommandSourceType source)
+{
+	m_world->noteStop(kStopCommands);
+	const unsigned st = m_machine->currentStateId();
+	if (st != (unsigned)AI_FOLLOW_PATH)
+	{
+		m_machine->clear();
+		m_machine->setGoalPath(std::vector<Coord3D>());
+	}
+	m_machine->addToGoalPath(pos);
+	setLastCommandSource(source);
+	if (st != (unsigned)AI_FOLLOW_PATH)
+	{
+		m_machine->setState(AI_FOLLOW_PATH);
+	}
+	wakeUpNow();
+}
+
+// ---- lane GARRISON-1 ----
+// RW 0x66D85F privateEnter (AI command 0x42)
+bool AIUpdateInterface::aiEnter(Object *container, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x42))
+	{
+		return false; // RW 0x667174: aiDoCommand's gate (lane MODULES-3) before the command
+	}
+	if (!container || !GarrisonRules::isMobile(*getObject()) || m_mover->isAiDead())
+	{
+		return false;
+	}
+	// RW 0x66D873 .. 0x66D8B8 (lane BACKLOG-1; BFME2 decomp bfmePrivateCommand42, tier B edited): the current locomotor's preferred point becomes the object's
+	// position (RW 0x5E39CE, tier A: + 0x14 = object + 0x38), the machine is cleared (slot 0x14), the container is the goal object (slot 0x38), the blocked
+	// frames (AI + 0x16C) and the blocked flag (+ 0x3B8) are cleared, the source kept (+ 0x48), state 56. The voice (RW 0x66B379, source 0 / 1) is client side.
+	// A SHIP container (template + 0x11F bit 7, KindOf 191) is given AI command 0x4F with the object (RW 0x66C6E3): the SHIP branch is not ported (S-1101)
+	if (m_curLocomotor)
+	{
+		m_curLocomotor->setPreferredPoint(*getObject()->getPosition());
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(container->getID());
+	m_mover->clearBlocked();
+	setLastCommandSource(source);
+	m_machine->setState(AI_MOVE_TO_POSITION_AND_ENTER);
+	wakeUpNow();
+	return true;
+}
+
+// RW 0x664579 privateEnterObject (AI command 0x17)
+void AIUpdateInterface::aiEnterObject(Object *container, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x17))
+	{
+		return; // RW 0x667174: aiDoCommand's gate (lane MODULES-3) before the command
+	}
+	Object *obj = getObject();
+	if (ContainModuleInterface *c = obj->getContain())
+	{
+		if (HordeContainInterface *h = c->getHordeContainInterface())
+		{
+			h->enterContainer(container, (int)source); // horde slot 0x80
+			return;
+		}
+	}
+	if (!GarrisonRules::isMobile(*obj) || !GarrisonRules::canEnterObject(*obj, container, source, 1, false))
+	{
+		return;
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(container->getID());
+	setLastCommandSource(source);
+	m_machine->setState(AI_ENTER);
+	wakeUpNow();
+}
+
+// RW 0x6645F3 (AI command 0x3D)
+void AIUpdateInterface::aiHordeEnter(Object *container, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x3D))
+	{
+		return; // RW 0x667174: aiDoCommand's gate (lane MODULES-3) before the command
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(container ? container->getID() : INVALID_ID);
+	setLastCommandSource(source);
+	m_machine->setState(AI_HORDE_ENTER);
+	wakeUpNow();
+}
+
+// RW 0x66468F privateExit (AI command 0x1A)
+void AIUpdateInterface::aiExit(Object *container, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x1A))
+	{
+		return; // RW 0x667174: aiDoCommand's gate (lane MODULES-3) before the command
+	}
+	Object *obj = getObject();
+	if (!container)
+	{
+		container = obj->getContainedBy();
+		if (!container)
+		{
+			return;
+		}
+	}
+	if (ContainModuleInterface *c = obj->getContain())
+	{
+		if (HordeContainInterface *h = c->getHordeContainInterface())
+		{
+			h->exitContainer(container, (int)source); // horde slot 0x84
+			return;
+		}
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(container->getID());
+	setLastCommandSource(source);
+	m_machine->setState(AI_EXIT);
+	wakeUpNow();
+}
+
+// RW 0x664767 (AI command 0x3E)
+void AIUpdateInterface::aiHordeExit(Object *container, CommandSourceType source)
+{
+	if (!acceptCommand(source, 0x3E))
+	{
+		return; // RW 0x667174: aiDoCommand's gate (lane MODULES-3) before the command
+	}
+	Object *obj = getObject();
+	if (!container)
+	{
+		container = obj->getContainedBy();
+		if (!container)
+		{
+			return;
+		}
+	}
+	m_machine->clear();
+	m_machine->setGoalObject(container->getID());
+	setLastCommandSource(source);
+	m_machine->setState(AI_HORDE_EXIT);
+	wakeUpNow();
+}
+
+void AIUpdateInterface::aiUnported(const char *command, CommandSourceType)
+{
+	++m_unportedCommands[command];
+	m_world->noteStop(kStopCommands);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// queries
+// ---------------------------------------------------------------------------------------------------------------------------------
+// RW 0x6643FC: the object's flag (+0x458 bit 0) first, then a horde member is idle when its horde's AI is, then the machine's current state
+bool AIUpdateInterface::isIdle() const
+{
+	Object *obj = getObject();
+	if (obj->testStatus((unsigned)statusBits().hordeMember))
+	{
+		Object *horde = obj->getContainedBy();
+		if (horde)
+		{
+			if (AIUpdateInterface *hai = horde->getAIUpdateInterface())
+			{
+				if (hai->isIdle())
+				{
+					return true;
+				}
+			}
+		}
+	}
+	if (!m_machine || !m_machine->currentState())
+	{
+		return true;
+	}
+	return m_machine->currentState()->isIdle();
+}
+
+bool AIUpdateInterface::isMoving() const
+{
+	return m_mover->isMoving();
+}
+
+// B1 AIUpdate.cpp:3978; RW 0x667144 (its test of the AI's + 0x1DC == 8 is not traced: B1 has no such branch)
+bool AIUpdateInterface::isDoingGroundMovement() const
+{
+	if (!m_curLocomotor)
+	{
+		return false;
+	}
+	const unsigned surfaces = m_curLocomotor->getTemplate().m_surfaces;
+	if (surfaces == (unsigned)LOCOMOTORSURFACE_AIR || (surfaces & (unsigned)LOCOMOTORSURFACE_AIR))
+	{
+		return false;
+	}
+	return (getObject()->getDisabledMask() & (1u << 3)) == 0; // RW 0x667163: object + 0x1C8 bit 3, DISABLED_HELD: a held object (a garrison's rider) is not doing ground movement
+}
+
+// B1 AIUpdate.cpp:4010: hover and wings adjust
+bool AIUpdateInterface::isAircraftThatAdjustsDestination() const
+{
+	if (!m_curLocomotor)
+	{
+		return false;
+	}
+	const int a = m_curLocomotor->getTemplate().m_appearance;
+	return a == LOCO_HOVER || a == LOCO_WINGS;
+}
+
+// AI vslot 0x25C getTreatAsAircraftForLocoDistToGoal, RW 0x6629D3 (lane LOCODIST-1; every RotWK AI vtable holds it, GiantBirdAIUpdate through the thunk
+// RW 0x769F9F): not doing ground movement (vslot 0x224), or a path extra distance (AI + 0x168) above 1.0 (RW 0xBD1908, comiss), or a HOVER locomotor
+// (template + 0x74 == 2)
+bool AIUpdateInterface::treatAsAircraftForLocoDistToGoal() const
+{
+	bool r = !isDoingGroundMovement();
+	if (m_mover->pathExtraDistance() > 1.0f)
+	{
+		r = true;
+	}
+	if (m_curLocomotor && m_curLocomotor->getTemplate().m_appearance == LOCO_HOVER)
+	{
+		r = true;
+	}
+	return r;
+}
+
+bool AIUpdateInterface::isProjectile() const
+{
+	return hasKind(*getObject(), kindBits().projectile);
+}
+
+Coord3D AIUpdateInterface::machineGoalPosition() const
+{
+	// RW 0x6642CB: AI + 0x30, machine + 0x24 (RW dereferences the machine unchecked)
+	if (!m_machine)
+	{
+		throw std::logic_error("AIUpdateInterface::machineGoalPosition: no state machine");
+	}
+	return m_machine->goalPosition();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// locomotors (B1 AIUpdate.cpp:2326-2430)
+// ---------------------------------------------------------------------------------------------------------------------------------
+void AIUpdateInterface::setLocomotorUpgrade(bool on)
+{
+	m_upgradedLocomotors = on;
+	if (m_curLocomotorSet == LOCOMOTORSET_NORMAL || m_curLocomotorSet == LOCOMOTORSET_NORMAL_UPGRADED)
+	{
+		m_curLocomotorSet = -1;
+		chooseLocomotorSet(LOCOMOTORSET_NORMAL);
+	}
+}
+
+bool AIUpdateInterface::chooseLocomotorSet(int set)
+{
+	if (set == LOCOMOTORSET_NORMAL && m_upgradedLocomotors)
+	{
+		set = LOCOMOTORSET_NORMAL_UPGRADED;
+	}
+	if (set == m_curLocomotorSet)
+	{
+		return true;
+	}
+	const LocomotorSetTemplate::Slot *slot = m_info->locomotorSets.find(set);
+	if (!slot || slot->locomotors.empty())
+	{
+		return false;
+	}
+	// chooseLocomotorSetExplicit: the locomotor instances of the set, in set order (a template that did not resolve stays null in retail and is skipped)
+	m_locomotors.clear();
+	m_curLocomotor = nullptr;
+	for (const LocomotorTemplate *lt : slot->locomotors)
+	{
+		if (lt)
+		{
+			m_locomotors.push_back(std::make_unique<Locomotor>(lt));
+		}
+	}
+	m_curLocomotorSet = set;
+	m_locomotorSetSpeed = slot->speed;
+	chooseGoodLocomotorFromCurrentSet();
+	return true;
+}
+
+void AIUpdateInterface::chooseGoodLocomotorFromCurrentSet()
+{
+	Locomotor *prev = m_curLocomotor;
+	Locomotor *chosen = nullptr;
+	if (m_world->mapReady())
+	{
+		const Coord3D pos = *getObject()->getPosition();
+		PathfindCell *cell = m_world->pathfinder().getCell(m_adapter->getLayer(), &pos);
+		if (cell)
+		{
+			const unsigned fit = Pathfinder::validLocomotorSurfacesForCellType(cell->getType());
+			for (const std::unique_ptr<Locomotor> &l : m_locomotors)
+			{
+				if (l->getTemplate().m_surfaces & fit)
+				{
+					chosen = l.get();
+					break;
+				}
+			}
+		}
+	}
+	// lane LOCOPICK-1: RW 0x663DA6 .. 0x663DE5 (BFME2 1.06: the same order, decomp AIUpdateInterfaceRva00263FA7.cpp:154-166): no best locomotor and no previous
+	// one: a SHIP takes the set's first locomotor with the surface 0x80 (DEEP_WATER), else an object whose AI answers its slot 0x184 (only GiantBirdAIUpdate,
+	// RW 0x8CEF91; the others RW 0x851E97 answer null) the first with AIR (8), else the first with GROUND (1); RW 0x5E4150 walks the set in order and may
+	// find none (null: no fallback to the set's first locomotor)
+	if (!chosen)
+	{
+		chosen = prev;
+		if (!chosen)
+		{
+			const Object &obj = *getObject();
+			unsigned surface = (unsigned)LOCOMOTORSURFACE_GROUND;
+			if (hasKind(obj, kindBits().ship))
+			{
+				surface = (unsigned)LOCOMOTORSURFACE_DEEP_WATER;
+			}
+			else if (dynamic_cast<const GiantBirdAIUpdate *>(obj.getAIUpdateInterface()))
+			{
+				surface = (unsigned)LOCOMOTORSURFACE_AIR;
+			}
+			for (const std::unique_ptr<Locomotor> &l : m_locomotors)
+			{
+				if (l->getTemplate().m_surfaces & surface)
+				{
+					chosen = l.get();
+					break;
+				}
+			}
+		}
+	}
+	m_curLocomotor = chosen;
+	// RW 0x663DEA .. 0x663E28: on a change the object's radar data is marked dirty (Object + 0x1A8 -> + 0xC = 1: the client's radar, no logic state here)
+	// and the new locomotor's flags 0x08, 0x10 and 0x40 are cleared
+	if (prev != m_curLocomotor && m_curLocomotor)
+	{
+		m_curLocomotor->setFlags(m_curLocomotor->flags() & ~0x58u);
+	}
+	m_world->noteStop(kStopLocomotor);
+}
+
+float AIUpdateInterface::curLocomotorSpeed() const
+{
+	return m_curLocomotor ? m_curLocomotor->getMaxSpeedForCondition(*m_locoHost) : 0.0f;
+}
+
+// B1 AIUpdate.cpp:3925-3975
+void AIUpdateInterface::setLocomotorGoalNone()
+{
+	m_mover->setGoalNone();
+}
+
+void AIUpdateInterface::setLocomotorGoalOrientation(float angle)
+{
+	m_mover->setGoalAngle(angle);
+}
+
+void AIUpdateInterface::setLocomotorGoalPositionExplicit(const Coord3D &pos)
+{
+	m_mover->setGoalExplicit(pos);
+}
+
+// RW 0x662934 (AI vtable +0x214): goal type 4 (explicit with path): the old path goes unless the goal already was type 4, the goal position is stored
+void AIUpdateInterface::hordeMemberMoveTo(const Coord3D &dest)
+{
+	m_mover->setGoalExplicitWithPath(dest);
+	wakeUpNow();
+}
+
+// RW 0x662916 (AI vtable +0x210): goal type 2 (explicit): the goal position is stored
+void AIUpdateInterface::hordeMemberMoveExplicit(const Coord3D &dest)
+{
+	m_mover->setGoalExplicit(dest);
+	wakeUpNow();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// AIMoveHost
+// ---------------------------------------------------------------------------------------------------------------------------------
+PathfindObject &AIUpdateInterface::pathfindObject()
+{
+	return *m_adapter;
+}
+
+LocomotorHost &AIUpdateInterface::locomotorHost()
+{
+	return *m_locoHost;
+}
+
+PathfindLocomotorInfo AIUpdateInterface::locomotorInfo() const
+{
+	PathfindLocomotorInfo info;
+	if (m_curLocomotor)
+	{
+		const LocomotorTemplate &t = m_curLocomotor->getTemplate();
+		// the surfaces of the whole current locomotor set (RW ai + 0x1CC), not of the one locomotor chosen now: the path may cross terrain a later choice walks
+		info.validSurfaces = 0;
+		for (const std::unique_ptr<Locomotor> &l : m_locomotors)
+		{
+			info.validSurfaces |= l->getTemplate().m_surfaces;
+		}
+		info.downhillOnly = t.m_downhillOnly;
+		info.crusher = t.m_scalesWalls; // S-222 inference (RW loco+0x15)
+		// lane PATH-REBUILD: Path::rebuild's reads of the current locomotor (RW 0x767B0E)
+		info.present = true;
+		info.fastTurnRadius = t.m_fastTurnRadius;
+		info.slowTurnRadius = t.m_slowTurnRadius;
+		info.fasterThanQuarterSpeed = m_curLocomotor->isFasterThanQuarterSpeed(*m_locoHost); // the host is made with the module (the constructor)
+		info.canReverse = t.m_appearance == LOCO_WHEELS_FOUR && t.m_canMoveBackwards != 0;
+		info.maxTurnWithoutReform = t.m_maxTurnWithoutReform;
+		info.turnThresholdHS = t.m_turnThresholdHighSpeed;
+		info.floatingZ = t.m_zAxisBehavior == Z_FLOATING_Z;
+	}
+	return info;
+}
+
+unsigned AIUpdateInterface::frame() const
+{
+	return getObject()->logic().getFrame();
+}
+
+void AIUpdateInterface::setPosition(const Coord3D &p)
+{
+	getObject()->setPosition(&p);
+}
+
+float AIUpdateInterface::orientation() const
+{
+	return getObject()->getOrientation();
+}
+
+void AIUpdateInterface::setOrientation(float angle)
+{
+	getObject()->setOrientation(angle);
+}
+
+float AIUpdateInterface::groundHeightAt(float x, float y) const
+{
+	return getObject()->logic().getGroundHeight(x, y);
+}
+
+float AIUpdateInterface::layerHeightAt(float x, float y) const
+{
+	if (m_world && m_adapter && m_adapter->getLayer() != LAYER_GROUND && m_world->mapReady())
+	{
+		return m_world->pathfinder().getLayerHeight(x, y, m_adapter->getLayer());
+	}
+	return getObject()->logic().getGroundHeight(x, y);
+}
+
+bool AIUpdateInterface::isOnRampOrRaisedLayer() const
+{
+	if (!m_adapter)
+	{
+		return false;
+	}
+	const PathfindLayerEnum l = m_adapter->getLayer();
+	return l == LAYER_RAMP || isRaisedLayer(l);
+}
+
+void AIUpdateInterface::settleOnLayer()
+{
+	if (!m_world || !m_adapter || !m_world->mapReady())
+	{
+		return;
+	}
+	const PathfindLayerEnum before = m_adapter->getLayer();
+	const PathfindLayerEnum layer = m_world->pathfinder().adjustLayer(*m_adapter, before);
+	if (layer != before)
+	{
+		m_adapter->setLayer(layer);
+	}
+	if (layer == before && layer == LAYER_GROUND)
+	{
+		return;
+	}
+	Coord3D p = *getObject()->getPosition();
+	const float z = layerHeightAt(p.x, p.y);
+	if (p.z != z)
+	{
+		p.z = z;
+		getObject()->setPosition(&p);
+	}
+}
+
+void AIUpdateInterface::setLayer(PathfindLayerEnum layer)
+{
+	m_adapter->setLayer(layer);
+}
+
+bool AIUpdateInterface::isImmobile() const
+{
+	return hasKind(*getObject(), kindBits().immobile);
+}
+
+bool AIUpdateInterface::isStatusImmobile() const
+{
+	return getObject()->testStatus((unsigned)statusBits().immobile);
+}
+
+// RW 0x6939DF
+bool AIUpdateInterface::isContained() const
+{
+	Object *obj = getObject();
+	Object *container = obj->getContainedBy();
+	if (obj->testStatus((unsigned)statusBits().hordeMember))
+	{
+		return container != nullptr;
+	}
+	return container != nullptr && hasKind(*container, kindBits().horde);
+}
+
+AIMover *AIUpdateInterface::moverOf(PathfindObjectID id)
+{
+	return m_world->moveWorld().find(id);
+}
+
+AIMover *AIUpdateInterface::containerMover()
+{
+	Object *container = getObject()->getContainedBy();
+	if (!container)
+	{
+		return nullptr;
+	}
+	AIUpdateInterface *ai = container->getAIUpdateInterface();
+	return ai ? &ai->mover() : nullptr;
+}
+
+// RW 0x68B34C: the locomotor's current speed (RW 0x5E36F7) when it is above zero, else 0
+float AIUpdateInterface::speedOf(const PathfindObject &o) const
+{
+	if (const ObjectPathfindAdapter *a = dynamic_cast<const ObjectPathfindAdapter *>(&o))
+	{
+		if (AIUpdateInterface *ai = a->ai())
+		{
+			if (ai->curLocomotor())
+			{
+				const float s = ai->curLocomotor()->speed();
+				return s > 0.0f ? s : 0.0f;
+			}
+		}
+	}
+	return 0.0f;
+}
+
+Coord2D AIUpdateInterface::unitDirectionOf(const PathfindObject &o) const
+{
+	Coord2D d;
+	d.x = 1.0f;
+	d.y = 0.0f;
+	if (const ObjectPathfindAdapter *a = dynamic_cast<const ObjectPathfindAdapter *>(&o))
+	{
+		const float *b = a->object().getBasis();
+		d.x = b[0];
+		d.y = b[3];
+	}
+	return d;
+}
+
+// RW 0x663F48: (DOZER ? 100 : 0) + 10 * the crushable level (RW 0x68D4D0, its byte sign-extended: movsx) + (CAVALRY ? 5 : 0) (lane PATHPRIO-1;
+// the port had no middle term). BFME2: AIUpdateInterfaceRva0026417F.cpp:68
+int AIUpdateInterface::pathPriority() const
+{
+	int p = 0;
+	if (hasKind(*getObject(), kindBits().dozer))
+	{
+		p += 100;
+	}
+	p += 10 * ObjectCrush::crushableLevel(*getObject());
+	if (hasKind(*getObject(), kindBits().cavalry))
+	{
+		p += 5;
+	}
+	return p;
+}
+
+// RW 0x66E2A4 .. 0x66E2BB: KindOf SIEGE_TOWER (template + 0x113 bit 0x20) with status DEPLOYED (0x3B, RW 0x44DDEC)
+bool AIUpdateInterface::isDeployedSiegeTower() const
+{
+	return hasKind(*getObject(), kindBits().siegeTower) && getObject()->testStatus((unsigned)statusBits().deployed);
+}
+
+// RW 0x68B36F: the object's AI (+ 0x260) whose vslot 0x1BC answers true (RW 0x662B3C: the current state's isActive, true with none) -> its current victim
+// (RW 0x668303: AI + 0x40 -> findObjectByID RW 0x449681), else none (lane PATHPRIO-1; the port answered none for every object)
+PathfindObjectID AIUpdateInterface::attackTargetOf(const PathfindObject &o) const
+{
+	Object *obj = getObject()->logic().findObjectByID((ObjectID)o.getID());
+	const AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : nullptr;
+	if (ai == nullptr || !ai->isStateActive())
+	{
+		return PATHFIND_INVALID_ID;
+	}
+	const Object *victim = ai->currentVictim();
+	return victim ? (PathfindObjectID)victim->getID() : PATHFIND_INVALID_ID;
+}
+
+// AI vslot 0x1FC (RW 0x664D12, ZH getEnterTarget AIUpdate.cpp:4292): the machine's goal object (RW 0x8DBACE) while the state type (RW 0x662D70) is 15 (AI_ENTER),
+// 0x18, 0x19, 0x2B, 0x31 or 52 (AI_HORDE_ENTER), or 56 (AI_MOVE_TO_POSITION_AND_ENTER) with a SHIP goal (its template + 0x11F bit 0x80); else none
+PathfindObjectID AIUpdateInterface::enterTargetOf(const PathfindObject &o) const
+{
+	Object *obj = getObject()->logic().findObjectByID((ObjectID)o.getID());
+	const AIUpdateInterface *ai = obj ? obj->getAIUpdateInterface() : nullptr;
+	const Object *target = ai ? ai->enterTarget() : nullptr;
+	return target ? (PathfindObjectID)target->getID() : PATHFIND_INVALID_ID;
+}
+
+// lane PORT-9: RW 0x664D12 itself, without the PathfindObject wrapper the pathfinder's two queries take. OpenContain::onCollide (RW 0x865A00) calls the
+// slot with the object it touched and compares the answer with the container
+const Object *AIUpdateInterface::enterTarget() const
+{
+	// RW 0x664D16 the state type (RW 0x662D70), RW 0x664D20 the machine's goal object (RW 0x8DBACE); RW 0x664D29 .. 0x664D45 the entering states
+	const AIStateMachine *m = stateMachineOrNull();
+	const Object *goal = m ? m->goalObject() : nullptr;
+	if (goal == nullptr)
+	{
+		return nullptr;
+	}
+	static const int kShip = ObjectTemplateInfoBuilder::kindOfIndex("SHIP");
+	const unsigned t = aiStateType();
+	const bool entering = t == 15 || t == 0x31 || t == 0x18 || t == 0x2B || t == 0x19 || t == 52 || (t == 56 && hasKind(*goal, kShip));
+	return entering ? goal : nullptr;
+}
+
+bool AIUpdateInterface::crushOrSquishPolicy(const PathfindObject &other) const
+{
+	// lane ATTACK-1: RW 0x69519A(other, 2) is HordeSquishState's crush policy (AttackCrushPolicy, HordeAIUpdateCombat.cpp; its line test RW 0x6F5BB0 is
+	// stop S-583's inference)
+	Object *o = getObject()->logic().findObjectByID((ObjectID)other.getID());
+	return o && AttackCrushPolicy(*getObject(), *o);
+}
+
+float AIUpdateInterface::wanderFactor() const
+{
+	return m_curLocomotor ? m_curLocomotor->getTemplate().m_wanderWidthFactor : 0.0f;
+}
+
+float AIUpdateInterface::closeEnoughDist() const
+{
+	return m_curLocomotor ? m_curLocomotor->getTemplate().m_closeEnoughDist : 0.0f;
+}
+
+float AIUpdateInterface::locomotorSpeed() const
+{
+	return m_curLocomotor ? m_curLocomotor->speed() : 0.0f;
+}
+
+bool AIUpdateInterface::isInfantryKind() const
+{
+	return hasKind(*getObject(), kindBits().infantry);
+}
+
+bool AIUpdateInterface::isUsingSpecialAbility() const
+{
+	const int bit = statusBits().packingUsing;
+	return bit >= 0 && getObject()->testStatus((unsigned)bit);
+}
+
+bool AIUpdateInterface::isOffMapObject() const
+{
+	return getObject()->isOffMap();
+}
+
+bool AIUpdateInterface::isLargeRectanglePathfind() const
+{
+	return hasKind(*getObject(), kindBits().largeRectangle);
+}
+
+bool AIUpdateInterface::movingBackwards() const
+{
+	return m_curLocomotor && (m_curLocomotor->flags() & LOCOMOTOR_FLAG_BACKING_UP) != 0;
+}
+
+namespace
+{
+// RW 0x748B14 (lane AUDIO-3): the one-shot move start of `obj`: SoundMoveStartDamaged (row 0x22, RW 0x74868F) when the body is worse than DAMAGED (vslot 0x24
+// > 1) and it has one, else SoundMoveStart (row 0x21, RW 0x748676), added for the object (no handle kept)
+void playMoveStart(const Object &obj)
+{
+	const ThingTemplate *tt = obj.getTemplate();
+	if (!tt)
+	{
+		return;
+	}
+	const BodyModuleInterface *body = obj.getBodyModule();
+	std::string sound;
+	if (body && body->getDamageState() > BODY_DAMAGED)
+	{
+		sound = UnitSpecificSound::templateSound(*tt, "SoundMoveStartDamaged");
+	}
+	if (sound.empty())
+	{
+		sound = UnitSpecificSound::templateSound(*tt, "SoundMoveStart");
+	}
+	if (!sound.empty())
+	{
+		AudioApi::playSoundForObject(sound, obj.getID());
+	}
+}
+} // namespace
+
+void AIUpdateInterface::startMoveSound()
+{
+	if (m_destroying)
+	{
+		return;
+	}
+	// RW 0x748C0B: the object's one-shot start (RW 0x748B14), then its loop: SoundMoveLoopDamaged (row 0x24) when worse than DAMAGED and set, else SoundMoveLoop
+	// (row 0x23); a loop that exists replaces the kept one (RW 0x748CC3) and its handle is kept (state + 0x40); then the one-shot start of every object the
+	// object contains (RW 0x748D32: its contain's list, vslot 0x108)
+	const Object *obj = getObject();
+	playMoveStart(*obj);
+	const BodyModuleInterface *body = obj->getBodyModule();
+	std::string loop;
+	if (body && body->getDamageState() > BODY_DAMAGED)
+	{
+		loop = UnitSpecificSound::templateSound(*obj->getTemplate(), "SoundMoveLoopDamaged");
+	}
+	if (loop.empty())
+	{
+		loop = UnitSpecificSound::templateSound(*obj->getTemplate(), "SoundMoveLoop");
+	}
+	if (!loop.empty())
+	{
+		AudioApi::postHeldSound(AudioApi::HELD_MOVE_LOOP, loop, obj->getID(), obj->getID());
+		m_moveLoopPosted = true;
+	}
+	if (const ContainModuleInterface *contain = obj->getContain())
+	{
+		if (const ContainModuleInterface::ContainedItemsList *items = contain->getContainedItemsList())
+		{
+			for (const Object *member : *items)
+			{
+				if (member)
+				{
+					playMoveStart(*member);
+				}
+			}
+		}
+	}
+}
+
+void AIUpdateInterface::stopMoveSound()
+{
+	if (m_moveLoopPosted)
+	{
+		m_moveLoopPosted = false;
+		AudioApi::stopHeldSound(AudioApi::HELD_MOVE_LOOP, getObject()->getID());
+	}
+}
+
+// lane WALL-2, RW 0x66A143 .. 0x66A166: the object's StealthUpdate (RW 0x68FBD3) with a disguise (+ 0x3C) marks it detected (RW 0x7767A9(0, 1, null, 1))
+void AIUpdateInterface::revealDisguiseOnClimb()
+{
+	StealthUpdate *st = StealthUpdate::of(*getObject());
+	if (st && st->disguiseTemplate())
+	{
+		st->markAsDetected(0, 1, nullptr, true);
+	}
+}
+
+// lane WALL-2, RW 0x662A0E: AI vslot 0x60 (RW 0x66D8F5) with CMD_FROM_AI; RW 0x66D8F5 is read as the AI's private idle (the riders of its contain idle too, the
+// machine goes to AI_IDLE): INFERENCE S-4857, the port's aiIdle(CMD_FROM_AI)
+void AIUpdateInterface::idleFromAI()
+{
+	aiIdle(CMD_FROM_AI);
+}
+
+bool AIUpdateInterface::setModelCondition(const char *name, bool on)
+{
+	if (m_destroying)
+	{
+		return true;
+	}
+	getObject()->setModelConditionState(modelConditionIndex(name), on);
+	return true;
+}
+
+// lane AIRBORNE-1: the AIRBORNE_TARGET status write of doLocomotor (RW 0x66A49E: push 6; call 0x62684D Object::setStatus)
+void AIUpdateInterface::setAirborneTarget(bool on)
+{
+	static const int kAirborneTarget = CombatNames::status("AIRBORNE_TARGET");
+	getObject()->setStatus((unsigned)kAirborneTarget, on);
+}
+
+// lane SAILS-1: RW 0x666FA3 (BFME2 0x66717B), the sails of a SHIP from its facing. The decomp misnames the body: its row sits in
+// AIUpdateInterface_computeAttackPath.cpp (lines 251-264) as rva0026717B, it is not computeAttackPath. Called from doLocomotor (RW 0x66A4B7).
+// The wind is a function static (0.5, 0.5, 0) that the retail Vector3::Normalize (BFME2 0x405A70, length BFME2 0x405A26) scales IN PLACE on every
+// call, with no zero test: the first call of the process leaves (0x3F3504F3, 0x3F3504F3, 0), every later one (0x3F3504F4, 0x3F3504F4, 0), as retail.
+void AIUpdateInterface::updateSailModelConditions()
+{
+	static const int kShip = ObjectTemplateInfoBuilder::kindOfIndex("SHIP"); // KindOf 191 (BFME2 0x667185: template byte 0x17, mask 0x80)
+	Object &obj = *getObject();
+	if (!hasKind(obj, kShip))
+	{
+		return;
+	}
+	static Coord3D wind{ 0.5f, 0.5f, 0.0f };
+	// the length: fld x, y, z; z*z + y*y, + x*x under PC24, fstp qword, the CRT sqrt, fst dword; then 1 / len (divss) and the three mulss
+	const double sq = SimMath::pc24AddW(SimMath::pc24AddW(SimMath::pc24MulW((double)wind.z, (double)wind.z), SimMath::pc24MulW((double)wind.y, (double)wind.y)),
+		SimMath::pc24MulW((double)wind.x, (double)wind.x));
+	const float len = SimMath::fstpDword(SimMath::sqrtPC24(sq));
+	const float inv = SimMath::divf32(1.0f, len);
+	wind.x = SimMath::mulf32(wind.x, inv);
+	wind.y = SimMath::mulf32(inv, wind.y);
+	wind.z = SimMath::mulf32(inv, wind.z);
+	// the clear (BFME2 0x665254 builds the flags, 0x5E42F2 clears them) of SAIL_FLAPPING / SAIL_BLOWN_RIGHT / SAIL_BLOWN_LEFT (0x151 .. 0x153)
+	static const int kFlapping = modelConditionIndex("SAIL_FLAPPING");
+	static const int kRight = modelConditionIndex("SAIL_BLOWN_RIGHT");
+	static const int kLeft = modelConditionIndex("SAIL_BLOWN_LEFT");
+	Object::ModelConditionBits clear{};
+	for (const int bit : { kFlapping, kRight, kLeft })
+	{
+		clear[(size_t)bit >> 5] |= 1u << (bit & 31);
+	}
+	obj.clearAndSetModelConditionFlags(clear, Object::ModelConditionBits{});
+	// the X axis of the transform (Object +0x0C, +0x1C, +0x2C: the basis's first column) dotted with the wind: z, then y, then x (mulss / addss)
+	const float *b = obj.getBasis();
+	const float dot = SimMath::addf32(SimMath::addf32(SimMath::mulf32(wind.z, b[6]), SimMath::mulf32(wind.y, b[3])), SimMath::mulf32(wind.x, b[0]));
+	const int bit = dot > 0.0f ? kLeft : kRight;
+	if (!obj.testModelCondition(bit))
+	{
+		obj.setModelConditionState(bit, true);
+	}
+}
+
+// RW relAngle2D(obj, p): the angle to the point relative to the object's facing, in [-pi, pi]
+float AIUpdateInterface::relativeAngleTo(const Coord3D &p) const
+{
+	const Coord3D &pos = *getObject()->getPosition();
+	const float dx = SimMath::subf32(p.x, pos.x), dy = SimMath::subf32(p.y, pos.y);
+	const double a = SimMath::atan2d(dy, dx);
+	return normalizeAngle(NumericState::pc24SubD(a, (double)getObject()->getOrientation())); // fld double; fsub dword; fstp dword (PC24, one store)
+}
+
+bool AIUpdateInterface::isCellTypeTwo(const Coord3D &p, PathfindLayerEnum layer) const
+{
+	if (!m_world->mapReady())
+	{
+		return false;
+	}
+	const PathfindCell *cell = m_world->pathfinder().getCell(layer, &p);
+	return cell && cell->getType() == PathfindCell::CELL_CLIFF; // RW 0x6EAD0E: the cell type is 2
+}
+
+std::vector<std::string> AIUpdateInterface::allStops()
+{
+	return { kStopCommands, kStopUpdate, kStopLocomotor, kStopHost, kStopStates, hordeMemberUpdateStop() };
+}
+
+std::vector<std::string> AIUpdateInterface::stopsRaised() const
+{
+	std::vector<std::string> out = m_mover->stops();
+	if (m_curLocomotor)
+	{
+		for (const std::string &s : m_curLocomotor->unverified())
+		{
+			out.push_back(s);
+		}
+	}
+	out.push_back(kStopHost);
+	out.push_back(kStopStates);
+	return out;
+}
+
+TurretAI *AIUpdateInterface::turretForCurWeapon() const
+{
+	return m_turret && m_turret->isOwnersCurWeaponOnTurret() ? m_turret.get() : nullptr;
+}
+
+float AIUpdateInterface::turretTurnRate() const
+{
+	return m_turret ? m_turret->data().m_turnRate : 0.0f;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// the OpenBFME state hash
+// ---------------------------------------------------------------------------------------------------------------------------------
+void AIUpdateInterface::crc(StateHasher &h) const
+{
+	UpdateModule::crc(h);
+	for (std::uint32_t w : m_luaConditionSnapshot) // lane HERO-2
+	{
+		h.addU32(w);
+	}
+	h.addU32(currentStateId());
+	if (m_defectedMachine) // lane BACKLOG4: hashed while a machine is kept (RW AI + 0x38): the whole machine (its state, goals, path, temporary state)
+	{
+		h.addU32(0x663128u);
+		m_defectedMachine->crc(h);
+	}
+	if (m_temporaryKeptMachine) // lane MODCOMPAT-MOD1: hashed while a machine is kept (RW AI + 0x34): the whole machine
+	{
+		h.addU32(0x6630A9u);
+		m_temporaryKeptMachine->crc(h);
+	}
+	h.addI32(m_curLocomotorSet);
+	h.addU32((std::uint32_t)m_lastCommandSource);
+	h.addU32(m_currentVictim);
+	if (m_teamPathAngle != 0.0f || m_currentGoalPathIndex != -1) // lane BACKLOG-8 r2: hashed once a formation march used them
+	{
+		h.addFloat(m_teamPathAngle);
+		h.addI32(m_currentGoalPathIndex);
+	}
+	if (m_formationId != 0 || m_formationOffset.x != 0.0f || m_formationOffset.y != 0.0f) // lane BACKLOG-8: hashed once a formation placed the unit
+	{
+		h.addI32(m_formationId);
+		h.addFloat(m_formationOffset.x);
+		h.addFloat(m_formationOffset.y);
+	}
+	if (m_guardMode != 0 || m_guardTargetType != 0 || m_guardLocation.x != 0.0f || m_guardLocation.y != 0.0f) // lane PLAY-4: hashed once a guard was set
+	{
+		h.addI32(m_guardMode);
+		h.addI32(m_guardTargetType);
+		h.addFloat(m_guardLocation.x);
+		h.addFloat(m_guardLocation.y);
+		h.addFloat(m_guardLocation.z);
+		h.addFloat(m_guardAngle);
+	}
+	if (m_areaToGuard != -1) // lane BFME2CAMP1: hashed once an area was set (AI + 0x6C)
+	{
+		h.addI32(m_areaToGuard);
+	}
+	if (m_guardTeam != 0) // lane BFME2CAMP1: hashed once a team guard set it (AI + 0x68)
+	{
+		h.addU32(0x68u);
+		h.addU32(m_guardTeam);
+	}
+	if (m_attackInfoOverride) // lane BFME2CAMP1: hashed once a script or the team set AI + 0x70
+	{
+		h.addU32(0x70u);
+		h.addString(m_attackInfoName);
+	}
+	h.addU32(m_targetHorde);
+	h.addU32(m_moveAwayRequesters[0]); // lane PHYS-1
+	h.addU32(m_moveAwayRequesters[1]);
+	h.addBool(m_canPathThroughUnits);
+	h.addBool(m_attackMoveActive);
+	if (m_attitude != 0) // lane SCRIPT-3: hashed once a script changed it
+	{
+		h.addI32(0x218 + m_attitude);
+	}
+	h.addBool(m_preventPlayerCommands); // lane MODULES-3
+	h.addBool(m_fastCower);
+	h.addU32(m_minCowerTime);
+	h.addU32(m_maxCowerTime);
+	h.addFloat(m_attackMoveGoal.x);
+	h.addFloat(m_attackMoveGoal.y);
+	h.addFloat(m_attackMoveGoal.z);
+	h.addU32(m_nextMoodCheck);
+	h.addBool(m_randomlyOffsetMoodCheck); // lane TARGET-1: AI + 0x3BC / + 0x1A4
+	h.addU32(m_orderedMeleeTarget);
+	h.addBool(m_isInUpdate);
+	h.addBool(m_pendingValid);
+	h.addFloat(m_pendingPosition.x);
+	h.addFloat(m_pendingPosition.y);
+	h.addFloat(m_pendingPosition.z);
+	h.addBool(m_turret != nullptr); // lane GARRISON-2
+	if (m_turret)
+	{
+		m_turret->crc(h);
+	}
+	m_mover->crc(h);
+	{
+		// the unit's reservations in the pathfinder (goal cell and position cell: -1 when none)
+		const ICoord2D g = m_world->pathfinder().pathfindGoalCell(m_id), c = m_world->pathfinder().curPathfindCell(m_id);
+		h.addI32(g.x);
+		h.addI32(g.y);
+		h.addI32(c.x);
+		h.addI32(c.y);
+		h.addI32((int)m_adapter->getLayer());
+	}
+	h.addBool(m_curLocomotor != nullptr);
+	for (const std::unique_ptr<Locomotor> &l : m_locomotors)
+	{
+		h.addBool(l.get() == m_curLocomotor);
+		l->crc(h);
+	}
+	h.addFloat(m_locomotorSetSpeed);
+	h.addBool(m_upgradedLocomotors);
+	h.addBool(m_canPathThroughUnits);
+	h.addBool(m_machine != nullptr);
+	if (m_machine)
+	{
+		m_machine->crc(h);
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// the module classes
+// ---------------------------------------------------------------------------------------------------------------------------------
+void AIUpdateInterface::registerClasses(ModuleFactory &modules)
+{
+	// every AI module class of the registry (RW module-registry golden: isAiModuleData true). The classes with behaviour of their own that is not ported
+	// run as the base AI and report it (S-222); HordeAIUpdate is ported here
+	for (const std::string &name : modules.unportedModuleClassNames())
+	{
+		const ModuleFactory::ModuleTemplate *info = modules.findModuleTemplate(name, MODULETYPE_BEHAVIOR);
+		if (!info || !info->isAiModuleData)
+		{
+			continue;
+		}
+		const bool horde = name == "HordeAIUpdate";
+		modules.bindModuleProc(name, MODULETYPE_BEHAVIOR, [horde, name](Thing *thing, const ModuleData *data, const ModuleFactory::ModuleTemplate &info) -> std::unique_ptr<Module> {
+			// a logic without an AIWorld (the LOGIC-1 fixtures) has no pathfinder to move on: the class is then the explicit unported module of S-140, as before
+			if (!thing->asObject() || !thing->asObject()->logic().aiWorld())
+			{
+				return makeUnportedModule(thing, data, info.name, info.type, info.interfaceMask);
+			}
+			if (horde)
+			{
+				return std::make_unique<HordeAIUpdate>(thing, data);
+			}
+			if (name == "AnimalAIUpdate" || name == "WanderAIUpdate")
+			{
+				return std::make_unique<AmbientAIUpdate>(thing, data, name == "AnimalAIUpdate");
+			}
+			return std::make_unique<AIUpdateInterface>(thing, data);
+		});
+	}
+}
+
+void AIUpdateInterface::finishExitQuickPath(const Coord3D &destination)
+{
+	// RW 0x666079 clears +0x3BA; 0x6654AD -> 0x6636D9 -> 0x8DB810 sets
+	// the machine goal with CMD_FROM_AI (no player clipping).
+	m_canPathThroughUnits = false;
+	if (m_machine && !m_machine->isLocked()) // RW 0x8DB810
+	{
+		m_machine->setGoalPosition(destination);
+		m_machine->clearGoalAngle();
+	}
+}

@@ -1,0 +1,792 @@
+// OpenBFME. GPL-3.0.
+// Lane SCRIPT-1: GameWorld's view of the map script engine (see GodotDevice/GodotGameWorld.h): the client requests (camera, letterbox, captions,
+// fades), the script camera director that applies them on the render clock, and the engine's report. Nothing here writes logic state.
+
+#include "GodotDevice/GodotGameWorld.h"
+
+#include "Common/ArchiveFileSystem.h"
+#include "GameClient/CommandButtonHelp.h"
+#include "GameClient/GameText.h"
+#include "GameClient/LiveGame.h"
+#include "GameClient/LiveGameAudio.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/Module/AIUpdate.h"
+#include "GameLogic/Damage.h"
+#include "GameLogic/Module/BehaviorModule.h"
+#include "GameClient/MapChunks.h"
+#include "GameClient/ScriptCameraDirector.h"
+#include "GameLogic/GameLogic.h"
+#include "GameLogic/ScriptEngine/MissionObjectiveTracker.h"
+#include "GameLogic/Map/TerrainLogic.h"
+#include "GameLogic/ScriptEngine/ScriptEngine.h"
+#include "GameLogic/ScriptEngine/ScriptTemplates.h"
+#include "GameLogic/ScriptEngine/Scripts.h"
+#include "GameLogic/ScriptEngine/ScriptConditions.h"
+#include "Common/Team.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "Common/Thing/ThingFactory.h"
+#include "GodotDevice/GodotRetailFileSystem.h"
+
+#include <godot_cpp/core/class_db.hpp>
+
+using namespace godot;
+
+namespace
+{
+String g(const std::string &s)
+{
+	return String::utf8(s.c_str());
+}
+
+// the game text the captions show: data/lotr.str (the table the shell reads), loaded once per process
+const GameTextTable *gameText(ArchiveFileSystem *fs)
+{
+	static GameTextTable table;
+	static bool tried = false;
+	if (!tried && fs)
+	{
+		tried = true;
+		std::vector<std::uint8_t> bytes;
+		std::string error;
+		table.loadRetail(*fs, &error);
+	}
+	return tried ? &table : nullptr;
+}
+} // namespace
+
+void GameWorld::bindScriptMethods()
+{
+	ClassDB::bind_method(D_METHOD("take_script_requests"), &GameWorld::take_script_requests);
+	ClassDB::bind_method(D_METHOD("update_script_view", "delta_ms", "camera"), &GameWorld::update_script_view);
+	ClassDB::bind_method(D_METHOD("get_script_report"), &GameWorld::get_script_report);
+	ClassDB::bind_method(D_METHOD("get_military_caption_settings"), &GameWorld::get_military_caption_settings); // lane CAMPUI-1
+	ClassDB::bind_method(D_METHOD("get_mission_objectives"), &GameWorld::get_mission_objectives); // lane CAMPUI-1
+	ClassDB::bind_method(D_METHOD("get_template_button_image", "name"), &GameWorld::get_template_button_image); // lane CAMPUI-1
+	ClassDB::bind_method(D_METHOD("get_waypoint", "name"), &GameWorld::get_waypoint);
+	ClassDB::bind_method(D_METHOD("debug_script_place", "name", "where"), &GameWorld::debug_script_place);
+	ClassDB::bind_method(D_METHOD("debug_script_kill", "name"), &GameWorld::debug_script_kill);
+	ClassDB::bind_method(D_METHOD("debug_script_victory"), &GameWorld::debug_script_victory); // lane CAMPSAVE-1 (test hooks)
+	ClassDB::bind_method(D_METHOD("debug_script_unit", "name"), &GameWorld::debug_script_unit);
+	ClassDB::bind_method(D_METHOD("debug_script_team", "name"), &GameWorld::debug_script_team);
+	ClassDB::bind_method(D_METHOD("debug_script_place_at", "name", "x", "y"), &GameWorld::debug_script_place_at);
+	ClassDB::bind_method(D_METHOD("debug_script_move_to", "name", "team", "x", "y"), &GameWorld::debug_script_move_to); // lane BFME2CAMP1
+	ClassDB::bind_method(D_METHOD("debug_script_teleport", "name", "team", "x", "y"), &GameWorld::debug_script_teleport);
+	ClassDB::bind_method(D_METHOD("debug_script_kill_team", "name"), &GameWorld::debug_script_kill_team);
+	ClassDB::bind_method(D_METHOD("debug_defer_script_audio", "sound"), &GameWorld::debug_defer_script_audio); // RENDERWAIT-1 r3 (tests)
+	ClassDB::bind_method(D_METHOD("get_pending_script_audio"), &GameWorld::get_pending_script_audio);
+	ClassDB::bind_method(D_METHOD("get_script_audio_applied"), &GameWorld::get_script_audio_applied);
+	ClassDB::bind_method(D_METHOD("debug_script_action", "name", "params"), &GameWorld::debug_script_action); // lane BACKLOG3
+}
+
+Dictionary GameWorld::get_military_caption_settings() const
+{
+	Dictionary d;
+	d["ok"] = false;
+	ArchiveFileSystem *fs = m_fs.is_valid() ? m_fs->archive_fs() : nullptr;
+	if (!fs)
+	{
+		d["error"] = "no game file system";
+		return d;
+	}
+	MilitaryCaptionSettings c;
+	std::string error;
+	if (!MilitaryCaptionSettings::load(*fs, c, &error))
+	{
+		d["error"] = g(error);
+		return d;
+	}
+	d["ok"] = true;
+	d["color"] = Color(c.color.red / 255.0f, c.color.green / 255.0f, c.color.blue / 255.0f, c.color.alpha / 255.0f);
+	d["position"] = Vector2(c.position.x, c.position.y);
+	d["centered"] = c.centered;
+	d["font"] = g(c.text.name);
+	d["point_size"] = c.text.pointSize;
+	d["bold"] = c.text.bold;
+	d["title_font"] = g(c.title.name);
+	d["title_point_size"] = c.title.pointSize;
+	d["title_bold"] = c.title.bold;
+	d["delay_ms"] = c.delayMs;
+	return d;
+}
+
+Dictionary GameWorld::get_template_button_image(const String &name) const
+{
+	Dictionary d;
+	d["ok"] = false;
+	d["image"] = String();
+	if (!m_game)
+	{
+		return d;
+	}
+	// template data only (never changed by the logic): no wait for the logic worker
+	const ThingTemplate *tt = const_cast<LiveGame &>(*m_game).logic().things().findTemplate(name.utf8().get_data());
+	if (!tt)
+	{
+		return d;
+	}
+	d["ok"] = true;
+	if (const FieldValue *v = tt->findField("ButtonImage"))
+	{
+		if (const std::string *str = std::get_if<std::string>(v))
+		{
+			d["image"] = g(*str);
+		}
+	}
+	return d;
+}
+
+Dictionary GameWorld::get_mission_objectives()
+{
+	if (!m_game)
+	{
+		Dictionary d;
+		d["has_list"] = false;
+		d["screen_enabled"] = true;
+		d["objectives"] = Array();
+		d["held"] = false;
+		return d;
+	}
+	if (!m_game->logicHeld())
+	{
+		Dictionary d = m_objectivesView.duplicate();
+		d["held"] = false; // lane RENDERWAIT-1: no wait for the logic worker: the last held frame's copy
+		if (!d.has("objectives"))
+		{
+			d["has_list"] = false;
+			d["screen_enabled"] = true;
+			d["objectives"] = Array();
+		}
+		return d;
+	}
+	const MissionObjectiveTracker &t = m_game->logic().missionObjectives();
+	const GameTextTable *table = gameText(m_fs.is_valid() ? m_fs->archive_fs() : nullptr);
+	Array list;
+	for (const MissionObjective &o : t.objectives())
+	{
+		Dictionary od;
+		std::string text;
+		if (!table || !table->lookup(o.label, text))
+		{
+			text = "MISSING: '" + o.label + "'"; // GameText::fetch of an unknown label
+		}
+		od["label"] = g(o.label);
+		od["text"] = g(text);
+		od["bonus"] = o.bonus;
+		od["shown"] = o.shown;
+		od["completed"] = o.completed;
+		list.push_back(od);
+	}
+	Dictionary d;
+	d["has_list"] = t.hasList();
+	d["screen_enabled"] = t.screenEnabled();
+	d["objectives"] = list;
+	m_objectivesView = d.duplicate(true);
+	d["held"] = true;
+	return d;
+}
+
+Dictionary GameWorld::get_waypoint(const String &name) const
+{
+	Dictionary d;
+	d["ok"] = false;
+	if (!m_game)
+	{
+		return d;
+	}
+	const TerrainLogic *terrain = m_game->logic().terrain();
+	const Waypoint *w = terrain ? terrain->findWaypointByName(name.utf8().get_data()) : nullptr;
+	if (w)
+	{
+		d["ok"] = true;
+		d["x"] = w->location.x;
+		d["y"] = w->location.y;
+		d["z"] = w->location.z;
+	}
+	return d;
+}
+
+Array GameWorld::take_script_requests()
+{
+	// lane SAVEUIHELD-1: the requests update_script_view took from the game since the last call come first, in order (it takes them for the director
+	// on the render clock; dropping them lost a published batch, e.g. a mission intro's CAMERA_LETTERBOX_END / ENABLE_INPUT, for the script side)
+	Array out = m_untakenScriptRequests;
+	m_untakenScriptRequests = Array();
+	if (!m_game)
+	{
+		return out;
+	}
+	if (!m_scriptView)
+	{
+		m_scriptView = std::make_unique<ScriptCameraDirector>();
+	}
+	for (const ScriptClientRequest &r : m_game->takeScriptRequests())
+	{
+		Dictionary d;
+		d["frame"] = (int64_t)r.frame;
+		d["action"] = g(r.action);
+		d["player"] = (int64_t)r.playerIndex;
+		d["script"] = g(r.script);
+		Array params;
+		for (const ScriptParameter &p : r.params)
+		{
+			Dictionary pd;
+			pd["type"] = (int64_t)p.type;
+			pd["int"] = (int64_t)p.intValue;
+			pd["real"] = (double)p.realValue;
+			pd["string"] = g(p.stringValue);
+			params.push_back(pd);
+		}
+		d["params"] = params;
+		d["has_position"] = r.hasPosition;
+		d["x"] = r.position.x;
+		d["y"] = r.position.y;
+		d["z"] = r.position.z;
+		d["object"] = (int64_t)r.objectId;
+		out.push_back(d);
+		// lane SCRIPT-2: the script's sounds, speech and music (S-1182). RENDERWAIT-1 r2 (Sol r1 #2): the audio side reads the live game (the local
+		// player, the speaking object), so the requests wait, in order, for a point the logic is held (here, or heldClientWork in the client window)
+		m_pendingScriptAudio.push_back(r);
+		m_pendingScriptRequests.push_back(r);
+	}
+	applyPendingScriptAudio();
+	return out;
+}
+
+// RENDERWAIT-1 r3 (test hook): queues a PLAY_SOUND_EFFECT request as a script of the running game would, for the audio waiting on a held logic
+void GameWorld::debug_defer_script_audio(const String &sound)
+{
+	ScriptClientRequest r;
+	r.action = "PLAY_SOUND_EFFECT";
+	ScriptParameter p;
+	p.stringValue = sound.utf8().get_data();
+	r.params.push_back(p);
+	m_pendingScriptAudio.push_back(r);
+}
+
+int64_t GameWorld::get_pending_script_audio() const
+{
+	return (int64_t)m_pendingScriptAudio.size();
+}
+
+int64_t GameWorld::get_script_audio_applied() const
+{
+	return (int64_t)m_scriptAudioApplied; // requests handed to the audio side since the world was made
+}
+
+void GameWorld::applyPendingScriptAudio()
+{
+	if (m_pendingScriptAudio.empty() || !m_game || !m_game->logicHeld())
+	{
+		return;
+	}
+	std::vector<ScriptClientRequest> requests;
+	requests.swap(m_pendingScriptAudio);
+	m_scriptAudioApplied += requests.size();
+	if (m_audio)
+	{
+		for (const ScriptClientRequest &r : requests)
+		{
+			m_audio->applyScriptRequest(r);
+		}
+	}
+}
+
+Dictionary GameWorld::update_script_view(double delta_ms, const Dictionary &camera)
+{
+	if (!m_scriptView)
+	{
+		m_scriptView = std::make_unique<ScriptCameraDirector>();
+	}
+	if (m_game)
+	{
+		// lane SAVEUIHELD-1: a batch the logic published after the script side's take this frame reaches the director now and the script side at its
+		// next take_script_requests (kept, never dropped)
+		m_untakenScriptRequests = take_script_requests();
+	}
+	Coord3D cur;
+	cur.x = (float)(double)camera.get("x", 0.0);
+	cur.y = (float)(double)camera.get("y", 0.0);
+	cur.z = (float)(double)camera.get("z", 0.0);
+	const float angle = (float)(double)camera.get("angle", 0.0);
+	for (const ScriptClientRequest &r : m_pendingScriptRequests)
+	{
+		m_scriptView->apply(r, cur, angle);
+	}
+	m_pendingScriptRequests.clear();
+	// lane FADETIME-1: the fade steps per published logic frame (RW 0x60CC67) and lerps by the frame fraction (GameEngine + 0x3C,
+	// LiveGame::alpha); no game: no frames and no fade
+	m_scriptView->update(delta_ms, m_game ? m_game->frame() : 0u, m_game ? m_game->alpha() : 0.0);
+	const ScriptCameraDirector &v = *m_scriptView;
+	Dictionary d;
+	d["moving"] = v.moving();
+	d["has_target"] = v.hasTarget();
+	d["x"] = v.target().x;
+	d["y"] = v.target().y;
+	d["z"] = v.target().z;
+	// lane SCRIPT-2: CAMERA_FOLLOW_NAMED: the followed object's position wins over the director's target
+	if (v.followId() != 0 && m_game)
+	{
+		// RENDERWAIT-1 r2 (Sol r1 #2): from the presented snapshot, as the tactical camera's lock (never the live object: no wait for the worker)
+		Coord3D at;
+		if (m_game->presentedObjectPosition((::ObjectID)v.followId(), at) == 1)
+		{
+			d["has_target"] = true;
+			d["x"] = at.x;
+			d["y"] = at.y;
+			d["z"] = at.z;
+		}
+	}
+	d["following"] = (int64_t)v.followId();
+	d["zoom"] = v.zoom();
+	d["pitch"] = v.pitch();
+	{
+		std::string note;
+		if (!v.notificationLabel().empty())
+		{
+			const GameTextTable *table = gameText(m_fs.is_valid() ? m_fs->archive_fs() : nullptr);
+			if (!table || !table->lookup(v.notificationLabel(), note))
+			{
+				note = "MISSING: '" + v.notificationLabel() + "'";
+			}
+		}
+		d["notification_text"] = g(note);
+		Array objectives;
+		for (const auto &o : v.objectives())
+		{
+			Dictionary od;
+			od["index"] = (int64_t)o.first;
+			od["completed"] = o.second;
+			objectives.push_back(od);
+		}
+		d["objectives"] = objectives;
+	}
+	d["has_angle"] = v.hasAngle();
+	d["angle"] = v.angle();
+	d["reset_view"] = v.resetView();
+	d["letterbox"] = v.letterbox();
+	d["input_disabled"] = v.inputDisabled();
+	d["caption"] = g(v.captionLabel());
+	d["caption_serial"] = (int64_t)v.captionSerial(); // lane CAMPUI-1: a new SHOW_MILITARY_CAPTION (the typing restarts, RW 0x69FF85)
+	d["caption_duration_ms"] = v.captionDurationMs();
+	std::string text;
+	if (!v.captionLabel().empty())
+	{
+		const GameTextTable *table = gameText(m_fs.is_valid() ? m_fs->archive_fs() : nullptr);
+		if (!table || !table->lookup(v.captionLabel(), text))
+		{
+			text = "MISSING: '" + v.captionLabel() + "'"; // ZH GameText::fetch of an unknown label
+		}
+	}
+	d["caption_text"] = g(text);
+	d["caption_ms"] = v.captionMsLeft();
+	d["fade"] = v.fade();
+	d["fade_type"] = (int64_t)v.fadeType(); // lane FADETIME-1: retail TFade (0 none, 1 subtract, 2 add, 3 saturate, 4 multiply)
+	return d;
+}
+
+namespace
+{
+void killThroughMembers(::Object &o)
+{
+	if (o.isEffectivelyDead() || o.isDestroyed())
+	{
+		return;
+	}
+	if (o.isKindOfName("HORDE") && o.getContain() && o.getContain()->getContainedItemsList())
+	{
+		const std::vector<::Object *> members(o.getContain()->getContainedItemsList()->begin(), o.getContain()->getContainedItemsList()->end());
+		for (::Object *m : members)
+		{
+			killThroughMembers(*m);
+		}
+		return;
+	}
+	if (o.getBodyModule())
+	{
+		o.getBodyModule()->setIndestructible(false);
+	}
+	o.kill(DAMAGE_UNRESISTABLE, DEATH_NORMAL);
+}
+} // namespace
+
+Dictionary GameWorld::debug_script_place(const String &name, const String &where)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (!m_game || !m_testHooks || m_netHost || m_netClient || m_netStarted || m_netSession)
+	{
+		out["error"] = "refused (no game, test_hooks off or a network game)";
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	GameLogic &logic = m_game->logic();
+	ScriptEngine &e = logic.scriptEngine();
+	::Object *o = e.getUnitNamed(name.utf8().get_data());
+	if (!o)
+	{
+		out["error"] = "no unit of that name";
+		return out;
+	}
+	const std::string w = where.utf8().get_data();
+	Coord3D p{ 0.0f, 0.0f, 0.0f };
+	if (const TriggerArea *t = e.findTrigger(w))
+	{
+		for (const Point2F &q : t->points)
+		{
+			p.x += q.x / (float)t->points.size();
+			p.y += q.y / (float)t->points.size();
+		}
+	}
+	else if (const Waypoint *wp = logic.terrain() ? logic.terrain()->findWaypointByName(w) : nullptr)
+	{
+		p = wp->location;
+	}
+	else
+	{
+		out["error"] = "no trigger area or waypoint of that name";
+		return out;
+	}
+	p.z = logic.getGroundHeight(p.x, p.y);
+	o->setPosition(&p);
+	out["ok"] = true;
+	return out;
+}
+
+Dictionary GameWorld::debug_script_kill(const String &name)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (!m_game || !m_testHooks || m_netHost || m_netClient || m_netStarted || m_netSession)
+	{
+		out["error"] = "refused (no game, test_hooks off or a network game)";
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	::Object *o = m_game->logic().scriptEngine().getUnitNamed(name.utf8().get_data());
+	if (!o)
+	{
+		out["error"] = "no unit of that name";
+		return out;
+	}
+	killThroughMembers(*o);
+	out["ok"] = true;
+	return out;
+}
+
+// lane CAMPSAVE-1: the decisive moment of any mission by the cheat hook: the VICTORY script action's own effect (ScriptActions: QUICKVICTORY, RW 0x7BE0A2),
+// which the end sequence, the score screen and the campaign flow then take as they take a map script's. The missions' own scripts win them in
+// test_camp1_missions.cpp; the flow tests (scripts/campaign_save_test.gd "eight") need all eight to end, which only the flow is under test in
+Dictionary GameWorld::debug_script_victory()
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (!m_game || !m_testHooks || m_netHost || m_netClient || m_netStarted || m_netSession)
+	{
+		out["error"] = "refused (no game, test_hooks off or a network game)";
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	ScriptEngine &engine = m_game->logic().scriptEngine();
+	if (!engine.endRequests().empty())
+	{
+		out["error"] = "the mission has ended already";
+		return out;
+	}
+	// lane BFME2CAMP1: the QUICKVICTORY action itself (ScriptActions: the end request and RW 0x7BE0C6's onCurrentMissionWon, so a campaign's
+	// carry-over records the mission as its own win does)
+	ScriptActionRec a;
+	a.internalName = "QUICKVICTORY";
+	a.type = a.resolved = ScriptTemplates::findAction(a.internalName.c_str());
+	if (a.resolved < 0)
+	{
+		out["error"] = "no QUICKVICTORY action template";
+		return out;
+	}
+	engine.executeAction(a);
+	out["ok"] = !engine.endRequests().empty();
+	return out;
+}
+
+// ---- lane SCRIPT-3: the hooks of the campaign drives (map_viewer --cine-drive) -------------------------------------------------------------------
+
+namespace
+{
+bool hooksRefused(const LiveGame *game, bool testHooks, bool net, Dictionary &out)
+{
+	if (!game || !testHooks || net)
+	{
+		out["error"] = "refused (no game, test_hooks off or a network game)";
+		return true;
+	}
+	return false;
+}
+} // namespace
+
+Dictionary GameWorld::debug_script_unit(const String &name)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	const ::Object *o = m_game->logic().scriptEngine().getUnitNamed(name.utf8().get_data());
+	if (o)
+	{
+		out["ok"] = true;
+		out["x"] = o->getPosition()->x;
+		out["y"] = o->getPosition()->y;
+		out["z"] = o->getPosition()->z;
+		out["dead"] = o->isEffectivelyDead();
+		out["id"] = (int64_t)o->getID(); // lane CAMPUI-1: the proof run selects it (InGameHudNode.select_object)
+	}
+	return out;
+}
+
+// lane BACKLOG3 (a test hook, as the others here): one script action run by the script engine (ScriptEngine::executeAction), by its template's internal
+// name; `params` are dictionaries { type, int, real, string, x, y, z } in the template's order (the proof scenario's RADAR_CREATE_EVENT)
+Dictionary GameWorld::debug_script_action(const String &name, const Array &params)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	ScriptActionRec a;
+	a.internalName = name.utf8().get_data();
+	a.type = a.resolved = ScriptTemplates::findAction(a.internalName.c_str());
+	if (a.resolved < 0)
+	{
+		out["error"] = "no script action of that name";
+		return out;
+	}
+	a.version = 3;
+	for (int i = 0; i < params.size(); ++i)
+	{
+		const Dictionary pd = params[i];
+		ScriptParameter p;
+		p.type = (std::int32_t)(int64_t)pd.get("type", 0);
+		p.intValue = (std::int32_t)(int64_t)pd.get("int", 0);
+		p.realValue = (float)(double)pd.get("real", 0.0);
+		p.stringValue = String(pd.get("string", "")).utf8().get_data();
+		p.x = (float)(double)pd.get("x", 0.0);
+		p.y = (float)(double)pd.get("y", 0.0);
+		p.z = (float)(double)pd.get("z", 0.0);
+		a.params.push_back(p);
+	}
+	m_game->logic().scriptEngine().executeAction(a);
+	out["ok"] = true;
+	return out;
+}
+
+Dictionary GameWorld::debug_script_team(const String &name)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	Team *t = ScriptConditions::team(m_game->logic().scriptEngine(), name.utf8().get_data());
+	if (t && t->getFirstMember())
+	{
+		out["ok"] = true;
+		out["x"] = t->getFirstMember()->getPosition()->x;
+		out["y"] = t->getFirstMember()->getPosition()->y;
+		out["z"] = t->getFirstMember()->getPosition()->z;
+		out["count"] = (int64_t)t->getMemberCount();
+	}
+	return out;
+}
+
+Dictionary GameWorld::debug_script_place_at(const String &name, double x, double y)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	::Object *o = m_game->logic().scriptEngine().getUnitNamed(name.utf8().get_data());
+	if (o)
+	{
+		Coord3D p{ (float)x, (float)y, 0.0f };
+		p.z = m_game->logic().getGroundHeight(p.x, p.y);
+		o->setPosition(&p);
+		out["ok"] = true;
+	}
+	return out;
+}
+
+// lane BFME2CAMP1: see GodotGameWorld.h
+Dictionary GameWorld::debug_script_move_to(const String &name, bool team, double x, double y)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	std::vector<::Object *> units;
+	if (team)
+	{
+		if (Team *t = ScriptConditions::team(m_game->logic().scriptEngine(), name.utf8().get_data()))
+		{
+			units = ScriptConditions::members(*t);
+		}
+	}
+	else if (::Object *o = m_game->logic().scriptEngine().getUnitNamed(name.utf8().get_data()))
+	{
+		units.push_back(o);
+	}
+	int64_t n = 0;
+	for (::Object *o : units)
+	{
+		AIUpdateInterface *ai = o->isEffectivelyDead() ? nullptr : o->getAIUpdateInterface();
+		if (ai)
+		{
+			ai->aiMoveToPosition(Coord3D{ (float)x, (float)y, 0.0f }, CMD_FROM_PLAYER);
+			++n;
+		}
+	}
+	out["ok"] = n > 0;
+	out["count"] = n;
+	return out;
+}
+
+Dictionary GameWorld::debug_script_teleport(const String &name, bool team, double x, double y)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	std::vector<::Object *> units;
+	if (team)
+	{
+		if (Team *t = ScriptConditions::team(m_game->logic().scriptEngine(), name.utf8().get_data()))
+		{
+			units = ScriptConditions::members(*t);
+		}
+	}
+	else if (::Object *o = m_game->logic().scriptEngine().getUnitNamed(name.utf8().get_data()))
+	{
+		units.push_back(o);
+	}
+	int64_t n = 0;
+	for (::Object *o : units)
+	{
+		if (o->isEffectivelyDead() || o->getContainedBy())
+		{
+			continue; // a horde's members go with their horde (its contain re-places them)
+		}
+		Coord3D p{ (float)x, (float)y, 0.0f };
+		p.z = m_game->logic().getGroundHeight(p.x, p.y);
+		o->teleportTo(&p, false);
+		++n;
+	}
+	out["ok"] = n > 0;
+	out["count"] = n;
+	return out;
+}
+
+Dictionary GameWorld::debug_script_kill_team(const String &name)
+{
+	Dictionary out;
+	out["ok"] = false;
+	if (hooksRefused(m_game.get(), m_testHooks, m_netHost || m_netClient || m_netStarted || m_netSession, out))
+	{
+		return out;
+	}
+	const auto worldContext = m_world ? m_world->enterContext() : nullptr;
+	Team *t = ScriptConditions::team(m_game->logic().scriptEngine(), name.utf8().get_data());
+	if (t)
+	{
+		for (::Object *o : ScriptConditions::members(*t))
+		{
+			killThroughMembers(*o);
+		}
+		out["ok"] = true;
+	}
+	return out;
+}
+
+Dictionary GameWorld::get_script_report() const
+{
+	Dictionary d;
+	d["loaded"] = false;
+	if (!m_game)
+	{
+		return d;
+	}
+	const GameLogic &logic = m_game->logic();
+	const ScriptEngine &e = logic.scriptEngine();
+	d["loaded"] = e.loaded();
+	const ScriptEngine::Stats &s = e.stats();
+	d["scripts"] = (int64_t)s.scripts;
+	d["groups"] = (int64_t)s.groups;
+	d["updates"] = (int64_t)s.updates;
+	d["scripts_evaluated"] = (int64_t)s.scriptsEvaluated;
+	d["scripts_fired"] = (int64_t)s.scriptsFired;
+	d["false_fired"] = (int64_t)s.falseFired;
+	d["actions_run"] = (int64_t)s.actionsRun;
+	d["conditions_evaluated"] = (int64_t)s.conditionsEvaluated;
+	auto counts = [](const std::map<std::string, unsigned long long> &m) {
+		Dictionary out;
+		for (const auto &kv : m)
+		{
+			out[g(kv.first)] = (int64_t)kv.second;
+		}
+		return out;
+	};
+	d["unported_conditions"] = counts(s.unportedConditions);
+	d["unported_actions"] = counts(s.unportedActions);
+	d["client_requests"] = counts(s.clientRequests);
+	d["notes"] = counts(s.notes);
+	Array sides;
+	for (const ScriptEngine::RSide &side : e.sides())
+	{
+		Dictionary sd;
+		sd["name"] = g(side.name);
+		sd["scripts"] = (int64_t)side.root.scripts.size();
+		sd["groups"] = (int64_t)side.root.groups.size();
+		sides.push_back(sd);
+	}
+	d["sides"] = sides;
+	Array ends;
+	for (const ScriptEngine::EndRequest &r : e.endRequests())
+	{
+		Dictionary ed;
+		ed["frame"] = (int64_t)r.frame;
+		ed["player"] = (int64_t)r.playerIndex;
+		ed["victory"] = r.victory;
+		ed["action"] = g(r.action);
+		ends.push_back(ed);
+	}
+	d["end_requests"] = ends;
+	if (m_audio) // lane SCRIPT-2: the script audio played on this client
+	{
+		d["audio_played"] = (int64_t)m_audio->scriptAudioStats().played;
+		PackedStringArray last;
+		for (const std::string &n : m_audio->scriptAudioStats().lastEvents)
+		{
+			last.push_back(g(n));
+		}
+		d["audio_last"] = last;
+	}
+	PackedStringArray setup;
+	for (const std::string &l : m_game->report().mapScripts)
+	{
+		setup.push_back(g(l));
+	}
+	d["setup"] = setup;
+	return d;
+}

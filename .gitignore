@@ -1,11 +1,128 @@
-# Local retail game data and staged Google Drive transfers. Never commit
-# proprietary BFME installations; runtime assets are restored into .retail/.
+# WOTR Remaster local retail inputs and Drive staging. Never commit these.
 /BFME2/
 /RotWK/
 /.retail/
 /.retail-transfer/
 /google_drive/
 
-# Local Python artefacts.
+# Optional local Godot binary drop (portable; never commit engines)
+.tools/
+
+# Godot
+game/.godot/
+game/*.translation
+game/export/
+game/exports/
+game/.import/
+**/*.obj.import
+**/*.tmp
+
+# Lane A — never commit
+workspace/retail-extract/
+**/workspace/retail-extract/
+
+# Private retail development workspace. Payloads may live here locally but are
+# never part of git, exports, or the later code-only public-release tree.
+/workspace/
+
+# Raw generation dumps
+_imagine_raw/
+**/_imagine_raw/
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
+.venv/
+
+# Build outputs
+build/
+**/bin/
+**/obj/
+
+# Release staging. Contains packaged builds and converted retail content-packs
+# (dist/bundle/*/content-packs). Never commit-reachable — publication boundary.
+/dist/
+
+# Claude Code session state (worktrees, local settings)
+.claude/
+
+# Retail-derived reference captures stay out of git (publication boundary)
+/reference/
+
+# Local Codex/MCP wiring is machine-specific (absolute node + checkout paths).
+.codex/
+
+# Git-Bash debris: a literal relative `dev/null` path created when a command
+# meant for POSIX `/dev/null` runs from a non-POSIX shell (e.g. git-lfs writing
+# hooks into `-c core.hooksPath=dev/null`). Salvaged from
+# claude/distracted-herschel-c99a60, whose only unique content this was.
+dev/null/
+
+# Lane run artifacts (temporary debugging logs)
+/.lane-*
+# Session/oracle captures (local only; not product source)
+.captures/
+captures/
+game/.captures/
+game/workspace/
+
+# Python and Ruff caches
+.pytest_cache/
+.ruff_cache/
+importer/.ruff_cache/
+
+.agenttrail/
+
+# scratch artifact from the carve pipeline; must never ride into a commit
+game/src/retail_slice/*.pending
+
+# Transient test-run logs (pytest/godot runners), never part of the repo.
+*.log
+
+# Archived legacy codebase: the same local-only paths, one level down
+archive/game/.godot/
+archive/game/*.translation
+archive/game/export/
+archive/game/exports/
+archive/game/.import/
+archive/game/.captures/
+archive/game/workspace/
+archive/game/src/retail_slice/*.pending
+archive/importer/.ruff_cache/
+
+# Fleet tools: machine-local state
+workspace/attempts/
+workspace/locks/
+workspace/fleet/
+workspace/agents/
+
+# Rebuild: engine build tree, Godot import cache, built GDExtension binaries
+/engine/build/
+# Per-platform CMake/Xcode output trees, including iOS device and simulator builds.
+/engine/build-*/
+/godot/.godot/
+/godot/bin/
+/launcher/.godot/
+# written by tools/release/package.sh into the staged launcher (version, commit, repo, release key): never committed
+/launcher/build_info.json
+
+# Replays a test run writes under a relative name when it is cut short (GitHub #23; run_tests.bat runs the tests from engine/build)
+*.replay
+# the one recording kept as a test fixture (NETLAG-1: a replay of the previous build, tools/release/public_binaries.txt)
+!/engine/tests/data/netlag1/*.replay
+
+# lane CRASHACT-1: the crash service key script tools/release/crash_key.py writes into a package stage (never committed)
+godot/scripts/crash_client_key.gd
+launcher/scripts/crash_client_key.gd
+
+# Online service compiler output and local runtime state.
+/services/online/.build/
+/services/online/.state/

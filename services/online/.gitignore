@@ -1,0 +1,9 @@
+# secrets and deploy-local files never enter git (the deploy notes, kept outside this repository)
+*.keys
+keys.txt
+*.env
+*.secret
+*.key
+wrangler.toml
+.wrangler/
+node_modules/

@@ -1,0 +1,311 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+//
+// TacticalCamera (lane CAM-1): the tactical view of RotWK, W3DView / View of ZH (W3DView.cpp, View.cpp) with the RotWK differences read in game.dat. It is CLIENT
+// state: the logic never sees it (only ground points and object ids a translator derives from it), a float result is never compared between peers, and it is
+// not in the state hash. It has no Godot dependency; the device layer reads eye() / target() and sets its camera from them (GodotInGameHud.cpp).
+//
+// TARGET FACTS (RotWK game.dat, caveat S-001, addresses are virtual addresses of that image; the W3DView vtable is RW 0xBDD490, its CameraSettings object has the
+// vtable RW 0xBE5648):
+//   update                  RW 0x48BCF2 (W3DView + 0xB4 interface; the lock branch, the terrain height under the camera, the zoom follow with CameraAdjustSpeed,
+//                           ScrollAmountCutoff and EnforceMaxCameraHeight, the camera offset recomputed every frame, setCameraTransform when something moved)
+//   setCameraTransform      RW 0x48B7B1 (near 10.0, far = GlobalData + 0x950 (1.0) * 1800.0, horizontal field of view View + 0x6C = 50 degrees (RW 0xBDD410, set
+//                           by resetCamera RW 0x48CB99), constraint clamp when zoom limited, buildCameraTransform RW 0x489F96 -> state RW 0x502858)
+//   buildCameraTransform    RW 0x502858 mode 0 (ZH W3DView::buildCameraTransform): eye = pos + angle(Z) * pitch(X) * (offset * zoom) * (1 - groundLevel / (offset.z * zoom)),
+//                           target = pos, both lifted by the ground level; looking at the target with up = Z
+//   calcCameraConstraints   RW 0x489364 (the ZH body plus an isnan and a quarter-map-width guard; picks at 0.5 and 0.95 of the viewport height)
+//   scrollBy                RW 0x48C774 (RW's own: the ground move is S = zoom * 0.25 * scroll speed scalar times the screen delta turned by the horizontal heading
+//                           of the centre pick ray; the x part of the y component is multiplied by the INTEGER width / height)
+//   setHeightAboveGround    RW 0x48CBFE (clamped to the map's min / max height while zoom limited), zoomIn RW 0x65E803 (height * 0.96 - 1.0), zoomOut RW 0x65E82A
+//                           (height * 1.05 + 1.0), setPitch RW 0x65E8D0 (clamped to +- 0.6283185 rad), setAngle RW 0x48CA7F (normalised to +- pi)
+//   CameraSettings object   RW 0x50136C .. 0x501454 (min / max height, pitch, yaw, scroll scalar: the map dict's reals else GameData's), RW 0x5011D5 (the camera
+//                           offset: pitch 37.5, yaw 0, min 120, max 300 -> ZH's offset (z = max height, y = -z / tan(pitch)); any other value -> the offset along
+//                           pitch measured from straight down), RW 0x501162 (the choice flag)
+//   height field            RW 0x710107 (build) / 0x70FE22 (sample), see CameraHeightField
+//   init / initHeightForMap RW 0x48B6A4.. (position (870, 770)), BFME1 initHeightForMap (max ground level 700)
+//
+// What is not ported (stops S-450 .. S-459, TacticalCamera::acceptanceStops()): see there. Lane ZOOM-1's Max zoom-out: stop S-3501.
+
+#pragma once
+
+#include <functional>
+
+#include "Common/INIDataTypes.h"
+#include "GameClient/CameraSettings.h"
+#include "GameClient/CameraShaker.h"
+#include "GameClient/TacticalView.h"
+#include "GameLogic/ObjectTypes.h"
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+class Dict;
+class GameLogic;
+class WorldHeightMap;
+
+// RW 0x710107 (build) and 0x70FE22 (sample): the height the camera follows. One cell per 4 x 4 height samples (40 world units), the highest sample of the block
+// (clamped to the map's ground limits, never below 0), then a slope limited grow: a cell is at least a neighbour minus smoothness * 40 * 0.6 (diagonals * 1.4),
+// at most max(width, height) passes.
+class CameraHeightField
+{
+public:
+	// `smoothness` 0 builds nothing (RW 0x710157: the field stays not ready and the camera samples the terrain around the point instead)
+	void build(const WorldHeightMap &map, float smoothness, float groundMin, float groundMax);
+	bool ready() const { return m_ready; }
+	float sample(float x, float y) const;
+	int gridWidth() const { return m_gridW; }
+	int gridHeight() const { return m_gridH; }
+	float cell(int x, int y) const { return m_data[(size_t)y * (size_t)m_gridW + (size_t)x]; }
+	int passes() const { return m_passes; }
+
+private:
+	std::vector<float> m_data;
+	int m_gridW = 0, m_gridH = 0, m_border = 0, m_passes = 0;
+	bool m_ready = false;
+	static constexpr float kScale = 40.0f;
+};
+
+class TacticalCamera : public TacticalView
+{
+public:
+	explicit TacticalCamera(const CameraSettings &gameData);
+
+	// ---- the map (RW initHeightForMap / View::reset) ----
+	// Loads the map's camera values (`worldInfo` = the map's WorldInfo dict, may be null), builds the height field, sets the default view and looks at `start` at the
+	// default zoom. The logic must have its terrain set.
+	void startMap(const GameLogic &logic, const WorldHeightMap &heights, const Dict *worldInfo, const Coord3D &start);
+	bool hasMap() const { return m_logic != nullptr; }
+	// lane SMOOTH-1 (S-810): where the camera's lock / follow target is. Set: the camera asks it (the device layer answers from the presented snapshot
+	// of the last completed logic frame: the logic may be running on its worker); unset: the live logic object (tests without a worker)
+	// of the last completed logic frame: the logic may be running on its worker); unset: the live logic object (tests without a worker).
+	// The source answers 1 (found, `position` set), 0 (gone: the lock is lost) or -1 (not published yet: a new object; the lock stays, no move)
+	void setObjectSource(std::function<int(ObjectID id, Coord3D &position)> source) { m_objectSource = std::move(source); }
+	const MapCameraValues &mapValues() const { return m_map; }
+	const CameraHeightField &heightField() const { return m_field; }
+
+	// ---- the viewport (window pixels) ----
+	void setViewport(int width, int height);
+
+	// ---- TacticalView ----
+	ICoord2D size() const override { return m_pinhole.size(); }
+	bool worldToScreen(const Coord3D &world, ICoord2D &screen) const override { return m_pinhole.worldToScreen(world, screen); }
+	bool screenToRay(const ICoord2D &pixel, Coord3D &origin, Coord3D &direction) const override { return m_pinhole.screenToRay(pixel, origin, direction); }
+	Coord3D position() const override { return m_pos; }
+	// RW 0x48CEA3 / BFME2 W3DView::lookAt: centre on the ground point immediately, including the displayed pose (z is not used).
+	void lookAt(const Coord3D &world) override;
+
+	// ---- View state ----
+	float getAngle() const { return m_angle; }
+	float getPitch() const { return m_pitch; }
+	float getZoom() const { return m_zoom; }
+	float getHeightAboveGround() const { return m_heightAboveGround; }
+	float getGroundLevel() const { return m_groundLevel; }
+	float terrainHeightUnderCamera() const { return m_terrainHeight; }
+	const Coord3D &cameraOffset() const { return m_cameraOffset; }
+	float minHeight() const { return m_minHeight; }
+	float maxHeight() const { return m_maxHeight; }
+	bool constraintValid() const { return m_constraintValid; }
+	// lo.x, lo.y, hi.x, hi.y
+	void constraint(float out[4]) const;
+	bool zoomLimited() const { return m_zoomLimited; }
+	void setZoomLimited(bool on) { m_zoomLimited = on; }
+
+	void setAngle(float angle);
+	void setPitch(float pitch);
+	void setAngleAndPitchToDefault();
+	void setHeightAboveGround(float h);
+	void zoomIn();
+	void zoomOut();
+	void setZoomToDefault();
+	// RW 0x48D26B (milliseconds 0): the camera back to the map's default view at `location` (null: the current position); the game start and the middle click call it
+	void resetCamera(const Coord3D *location = nullptr);
+	// moves by a screen delta (RW 0x48C774); returns the bit mask of the constraint edges the new position is outside of (1 lo.x, 2 hi.x, 4 lo.y, 8 hi.y)
+	int scrollBy(float dx, float dy);
+	float lastScrollX() const { return m_scrollX; }
+	float lastScrollY() const { return m_scrollY; }
+	// lane BFME2CAMP1: TheTacticalView vslot 0x23C (RW 0x48731A: W3DView + 0x24F4), the length of every scroll move added up (RW 0x48C9B9 .. 0x48C9D4:
+	// Coord3D::length of the ground move, x87, stored as a float) since the last resetCamera (RW 0x48D286: RW 0x485126 clears it); CAMERA_SCROLL_DISTANCE
+	float scrollDistance() const { return m_scrollDistance; }
+
+	// ---- the follow lock (RW update, the lock branch) ----
+	enum LockType
+	{
+		LOCK_FOLLOW = 0,
+		LOCK_TETHER = 1
+	};
+	void setCameraLock(ObjectID id);
+	ObjectID getCameraLock() const { return m_lockObject; }
+	void setSnapMode(LockType type, float distance)
+	{
+		m_lockType = type;
+		m_lockDistance = distance;
+	}
+	void snapToLockTarget() { m_snapImmediate = true; }
+
+	// ---- lane FX-4: the camera shake (FXList ViewShake, RW TheTacticalView vslot 0x1AC = W3DView::shake RW 0x486D86) ----
+	// `angle` is the caller's GameClientRandomValueReal(0, 6.2831855f) (RW 0x6D33AB, drawn first in RW 0x486D86: the FX player draws it from the client stream).
+	// The intensity of `type` (0 SUBTLE .. 5 CINE_INSANE; another value adds 0) falls off with the 2D distance of `epicenter` from the view's position (View +
+	// 0xC) over MaxShakeRange and adds to the current one, capped at MaxShakeIntensity; beyond the range nothing changes. Without the GameData fields nothing
+	// happens (counted in shakesWithoutData)
+	void shake(const Coord3D &epicenter, int type, float angle);
+	float shakeIntensity() const { return m_shakeIntensity; }
+	float shakeOffsetX() const { return m_shakeOffsetX; }
+	float shakeOffsetY() const { return m_shakeOffsetY; }
+	unsigned long long shakesWithoutData() const { return m_shakesWithoutData; }
+	// ---- lane FEAT-BLDFX-1: CameraShakerVolume (TARGET RW 0x5DFE90 -> DONOR BFME2 0x65DAD Add_Camera_Shake -> CameraShakeSystemClass) ----
+	// The FXList nugget's shaker joins the queue; each client frame adds the rotations of every active shaker that covers the view
+	// (DONOR BFME2 0x65B09 Compute_Rotations). Presentation only: the simulation never reads it.
+	void addCameraShake(const CameraShakerFx &shaker) { m_cameraShakers.addRadians(shaker.position, shaker.radius, shaker.durationSeconds, shaker.amplitudeRadians); }
+	const CameraShakerQueue &cameraShakers() const { return m_cameraShakers; }
+	float cameraShakePitch() const { return m_shakerAngles[0]; }
+	float cameraShakeYaw() const { return m_shakerAngles[1]; }
+	float cameraShakeRoll() const { return m_shakerAngles[2]; }
+
+	// One client frame (RW updates the camera once per displayed frame; retail runs at FramesPerSecondLimit 30). `uiScrolling` is InGameUI::isScrolling.
+	void update(bool uiScrolling, bool gamePaused = false);
+
+	// the camera pose: the eye and the point it looks at (SAGE axes: x east, y north, z up)
+	const Coord3D &eye() const { return m_eye; }
+	const Coord3D &target() const { return m_target; }
+	// The pose committed at the end of the previous client frame (render interpolation: previous -> eye() / target(), the live pose). commitFrame() closes a client frame: it makes
+	// the live pose the committed one, so the movement of the next frame (the translator's scroll, then update) is interpolated from it.
+	const Coord3D &previousEye() const { return m_prevEye; }
+	const Coord3D &previousTarget() const { return m_prevTarget; }
+	// lane MOVE-2 r2: a pose set from outside the 30 Hz client frames (a script's lookAt / height, called every render frame by the viewers) is drawn at once: the
+	// committed and previous poses become the live one. Without it the render interpolation mixed the previous committed pose with a live pose that had moved
+	// meanwhile, and a camera moved every render frame stepped at 30 Hz (frame-to-frame screen motion alternating about 4 : 1 at 60 fps)
+	void snapInterpolation();
+	// Device presentation may already have run when an Apt button jumps the camera.
+	void setJumpHandler(std::function<void()> handler) { m_jumpHandler = std::move(handler); }
+	void commitFrame();
+	float nearPlane() const { return 10.0f; }
+	// retail's 1800 (RW 0x48B7B1) times GlobalData + 0x950 (1.0; a map script's SET_CAMERA_CLIP_DEPTH_MULTIPLIER sets it); with the free camera or a zoom-out
+	// factor, plus twice fogShift() so the far map stays drawn when zoomed out beyond retail's limit
+	float farPlane() const;
+	void setClipDepthMultiplier(float m) { m_clipDepthMultiplier = m; }
+	float clipDepthMultiplier() const { return m_clipDepthMultiplier; }
+
+	// ---- lane PLAY-1: the free camera (the owner's presentation option, NOT retail; client state only, never seen by the logic) ----
+	// Off (the default): retail's limits. On: the camera may zoom out up to freeMaxHeight() above the ground (the larger map extent, at least the map's
+	// maximum height); the default view, the start of a map and a reset still use the map's maximum height. The far plane and the fog range move out by
+	// the distance the eye is beyond retail's maximum (fogShift), so the zoomed-out picture is not cut off or fogged over; at retail heights nothing changes.
+	void setFreeCamera(bool on);
+	// lane OPTS-2: GlobalData::applyOptionPreferences (RW 0x641E0C .. 0x641E1F) replaces GameData's HorizontalScrollSpeedFactor and
+	// VerticalScrollSpeedFactor (+ 0xA9C / + 0xAA0) with OptionPreferences::getScrollFactor (Options.ini ScrollFactor * 0.02, missing: GlobalData + 0xAFC
+	// KeyboardDefaultScrollSpeedFactor) right after GameData.ini is parsed (RW 0x6441DE, GlobalData::parseGameDataDefinition RW 0x644148), and the Options
+	// screen's Save sets them again. The device calls this with that value.
+	void setScrollFactor(float factor);
+	bool freeCamera() const { return m_free; }
+	float freeMaxHeight() const;
+	// lane ZOOM-1: the Max zoom-out option (the owner's presentation option, NOT retail; client state only). The player's zoom-out limit is `factor` times
+	// the map's maximum height (retail: 1, RW 0x48CBFE clamps setHeightAboveGround to the settings object's max height, GameData DefaultCameraMaxHeight or
+	// the map's cameraMaxHeight). The default view, the start of a map, a reset, the lock and the scripted / AI cameras keep retail's heights; only the
+	// player's zoom (the wheel, the keys: zoomOut / setHeightAboveGround) may go beyond. Values below 1 are taken as 1.
+	void setZoomOutFactor(float factor);
+	float zoomOutFactor() const { return m_zoomOutFactor; }
+	// the zoom-out limit setHeightAboveGround and the scroll's EnforceMaxCameraHeight use: the map's max height times zoomOutFactor(), or freeMaxHeight() with the
+	// free camera when that is higher
+	float zoomOutLimit() const;
+	// how much farther the eye is from its target than at retail's maximum height (0 at retail heights, and always 0 when neither the free camera nor a
+	// zoom-out factor above 1 is on: retail's fog and far plane are untouched)
+	float fogShift() const;
+	// the horizontal field of view of the 3D camera (radians; View + 0x6C, RW 0xBDD410 = 50 degrees)
+	float horizontalFov() const { return m_fov; }
+	// the vertical field of view for the current viewport (the W3D view plane: height = width / aspect)
+	float verticalFov() const;
+	// Lane UI-6 (FB-0021, the owner's decision 2026-10-11: "we need to support widescreen for people, but we need backwards compatibility also"): the
+	// OpenBFME Display option "Widescreen view". TARGET FACT (RotWK, tier A byte-matched): W3DView::setWidth (RW 0x4874A7) gives the camera a horizontal
+	// field of view of 50 degrees times the view's share of the display width (Set_View_Plane(hfov, -1), RW 0x533590) and setWidth / setHeight
+	// (RW 0x4874A7 / 0x48741A) set the aspect, whose view plane height is its width / aspect (Set_Aspect_Ratio, RW 0x533630): the horizontal view is fixed,
+	// a screen wider than 4:3 sees LESS vertically (Vert-: 38.6 degrees at 4:3, 29.4 at 16:9, 22.6 at 21:9, 14.9 at 32:9). Original (false, the default)
+	// is exactly that. Wider (true, NOT RETAIL) keeps 4:3's vertical view (2 atan(tan(25 degrees) * 3 / 4)) on screens wider than 4:3 and widens the
+	// horizontal one (Hor+); 4:3 and narrower screens are retail in both. Client only: the picking, the radar's view box and the scroll constraints follow
+	// the view (PinholeView), the logic never reads the camera
+	void setWidescreenView(bool wider)
+	{
+		m_widescreenWider = wider;
+		rebuildPinhole();
+	}
+	bool widescreenView() const { return m_widescreenWider; }
+	// the horizontal field of view of the view as drawn (radians): horizontalFov() for Original or a screen up to 4:3, wider for Wider on a wider screen
+	float viewHorizontalFov() const;
+	unsigned long long frame() const { return m_frame; }
+
+	const CameraSettings &gameData() const { return m_gd; }
+
+	// Stops of the camera: one "[S-45x] ..." line each (docs/STOPS.md)
+	static std::vector<std::string> acceptanceStops();
+
+	// the camera offset of the settings object (RW 0x5011D5), exposed for the tests: min / max / pitch / yaw of the map, `legacy` = pitch 37.5, yaw 0, min 120, max 300
+	static void computeCameraOffset(const MapCameraValues &v, Coord3D &offset, float &angle, bool &legacy);
+	// RW getHeightAroundPos (BFME1 W3DViewGetHeightAroundPosBfme.cpp, 5 samples at +- CameraTerrainSampleRadiusForHeight)
+	float heightAroundPos(float x, float y) const;
+
+private:
+	void buildPose(Coord3D &eye, Coord3D &target) const;
+	void setCameraTransform();
+	void calcCameraConstraints();
+	void refreshCameraOffset();
+	float sampleTerrainHeight(float x, float y) const;
+	void rebuildPinhole();
+	void zoomFromHeightField();
+
+	CameraSettings m_gd;
+	MapCameraValues m_map;
+	CameraHeightField m_field;
+	const GameLogic *m_logic = nullptr;
+	PinholeView m_pinhole;
+
+	// View + 0xC, + 0x28, + 0x2C, + 0x3C, + 0x40, + 0x44
+	Coord3D m_pos{ 870.0f, 770.0f, 0.0f }; // RW 0x48B6A4 (87.0f * 10, 77.0f * 10)
+	float m_angle = 0.0f, m_pitch = 0.0f, m_zoom = 1.0f, m_heightAboveGround = 0.0f;
+	bool m_zoomLimited = true;
+	float m_clipDepthMultiplier = 1.0f; // GlobalData + 0x950 (lane MODCOMPAT-AI)
+	float m_defaultAngle = 0.0f, m_defaultPitch = 0.0f;
+	float m_fov = 0.8726646f; // RW 0xBDD410: 50 degrees
+	bool m_widescreenWider = false; // lane UI-6: the Widescreen view option (Wider = Hor+; false = retail)
+	float m_terrainHeight = 0.0f, m_currentHeightAboveGround = 0.0f;
+	float m_groundLevel = 0.0f;
+	// the settings object (RW 0x501xxx)
+	float m_minHeight = 0.0f, m_maxHeight = 0.0f, m_scrollScalar = 1.0f;
+	bool m_legacyOffset = true;
+	Coord3D m_cameraOffset{ 0.0f, 0.0f, 1.0f };
+	float m_constraintLo[2] = { 0, 0 }, m_constraintHi[2] = { 0, 0 };
+	bool m_constraintValid = false;
+	float m_scrollX = 0.0f, m_scrollY = 0.0f;
+	float m_scrollDistance = 0.0f; ///< lane BFME2CAMP1: W3DView + 0x24F4
+	// the lock
+	ObjectID m_lockObject = 0;
+	std::function<int(ObjectID, Coord3D &)> m_objectSource;
+	std::function<void()> m_jumpHandler;
+	int lockTarget(Coord3D &position) const; ///< the lock object's position (m_objectSource, else the live object): 1 found, 0 gone, -1 not published yet
+	LockType m_lockType = LOCK_FOLLOW;
+	float m_lockDistance = 0.0f;
+	bool m_snapImmediate = false;
+	float m_followFactor = -1.0f;
+	bool m_okToAdjustHeight = true;
+	bool m_free = false; ///< lane PLAY-1
+	float m_zoomOutFactor = 1.0f; ///< lane ZOOM-1 (retail: 1)
+	Coord3D m_eye{ 0, -400, 300 }, m_target{ 0, 0, 0 }, m_prevEye{ 0, -400, 300 }, m_prevTarget{ 0, 0, 0 }, m_committedEye{ 0, -400, 300 }, m_committedTarget{ 0, 0, 0 };
+	unsigned long long m_frame = 0;
+	// lane FX-4: W3DView + 0x118 / + 0x11C (the shake offset), + 0x120 / + 0x124 (cos / sin of the shake angle), + 0x128 (the intensity)
+	float m_shakeOffsetX = 0.0f, m_shakeOffsetY = 0.0f, m_shakeCos = 0.0f, m_shakeSin = 0.0f, m_shakeIntensity = 0.0f;
+	unsigned long long m_shakesWithoutData = 0;
+	// lane FEAT-BLDFX-1: the CameraShakerVolume rotations of the current client frame (DONOR BFME2 0x65B09) and their queue
+	CameraShakerQueue m_cameraShakers;
+	float m_shakerAngles[3] = { 0.0f, 0.0f, 0.0f };
+};
+
+// lane BUILD-5 r3 (moved here from GodotInGameHud.cpp so the tests project through it too): the view the HUD picks, projects and places the placement ghost
+// with: the pose the player SEES, the eye and target mixed between the camera's previous and current client frames by the render frame's fraction, with the
+// displayed viewport and field of view; the camera's own movement (lookAt, the translator) stays on the current client pose.
+class DisplayedCameraView : public PinholeView
+{
+public:
+	TacticalCamera *cam = nullptr;
+	// the displayed pose of a render frame: `alpha` = the fraction of the client frame elapsed (InGameHudNode: clientClock / step)
+	void present(int width, int height, double alpha);
+	Coord3D position() const override { return cam->position(); }
+	void lookAt(const Coord3D &world) override { cam->lookAt(world); }
+};
