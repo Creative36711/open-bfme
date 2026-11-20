@@ -37,7 +37,15 @@ tools/arena/build_engine.sh --core      # core static library only
 tools/arena/build_engine.sh --tests     # extension and C++ tests
 tools/arena/build_engine.sh --check     # inspect existing products
 tools/arena/build_engine.sh --clean     # clean runnable build
+tools/arena/smoke_godot.sh              # extension/script load, no retail needed
 ```
+
+The smoke script copies the small Godot project to `/tmp` and performs the
+required import there; without generated `.godot/extension_list.cfg` Godot does
+not load the GDExtension. Isolating the import also prevents generated
+`.uid`/`.import` sidecars from dirtying the checkout. The source-only test
+accepts the intentional "no game folders chosen" stop but rejects an unloaded
+extension or GDScript parse error.
 
 The script resolves the exact `godot-cpp` gitlink from the checked-out
 OpenBFME commit and downloads that revision through `codeload.github.com` when
