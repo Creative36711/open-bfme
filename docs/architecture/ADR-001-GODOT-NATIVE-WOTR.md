@@ -98,5 +98,8 @@ Required tests include:
   incomplete result data.
 - **Godot UI with an independent strategic backend:** rejected because it would
   duplicate Living World state and create two authorities.
-- **Copy OpenBFME as an `upstream/` snapshot:** rejected because future nightly
-  updates would be file-copy imports without useful Git ancestry.
+- **Copy OpenBFME into a nested `upstream/` directory:** rejected because it
+  creates two source roots and encourages blind file replacement. The accepted
+  root-level import instead pins the prior upstream SHA and performs an explicit
+  three-way tree merge; see `docs/UPSTREAM_SYNC.md`. Full commit ancestry was
+  attempted but GitHub rejected upstream's historical LFS ownership (`GH008`).
