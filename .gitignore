@@ -1,0 +1,11 @@
+# Local retail game data and staged Google Drive transfers. Never commit
+# proprietary BFME installations; runtime assets are restored into .retail/.
+/BFME2/
+/RotWK/
+/.retail/
+/.retail-transfer/
+/google_drive/
+
+# Local Python artefacts.
+__pycache__/
+*.py[cod]
