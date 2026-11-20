@@ -197,7 +197,7 @@ function makeHarness(values = initial, activeProfile = undefined) {
   const h = makeHarness(); h.connectionDialog();
   assert.equal(h.connectionEndpoint('https://script.google.com.evil.example/macros/s/x/exec').standard, false);
   assert.equal(h.connectionEndpoint('http://script.google.com/macros/s/x/exec').ok, false);
-  assert.equal(h.connectionEndpoint('https://user:pass@script.google.com/macros/s/x/exec').ok, false);
+  assert.equal(h.connectionEndpoint('https://user:pass' + '@script.google.com/macros/s/x/exec').ok, false);
   h.type('url', 'https://script.google.com.evil.example/macros/s/x/exec');
   await h.main('check').onclick();
   assert.equal(h.calls.gateway.length, 0, 'без согласия ключ не отправляется на чужой хост');

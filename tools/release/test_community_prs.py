@@ -702,6 +702,7 @@ def test_the_public_tree_holds_the_contributor_files():
     assert {".github", "CONTRIBUTING.md"} <= names and "archive" not in names
     assert {".github", "CONTRIBUTING.md"} <= autorelease.PUBLIC_TOP
     assert {".greptile", ".macroscope", "REVIEW.md"} <= autorelease.PUBLIC_TOP
+    assert {"OPENBFME_UPSTREAM", "package.json"} <= autorelease.PUBLIC_TOP
 
 
 def test_pr_audit_passes_the_real_public_tree_and_refuses_an_empty_one(tmp_path):

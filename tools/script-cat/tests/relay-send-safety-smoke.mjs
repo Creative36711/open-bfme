@@ -104,7 +104,7 @@ const completionPanels = () => [];
 const ui = { panel: 'cfn-panel' };
 
 const buildPage = ({ sendLabel = 'Send', sendDisabled = false, withStop = false, noSend = false } = {}) => {
-  const account = makeNode({ tag: 'BUTTON', label: 'kreative36711@gmail.com', box: R.account });
+  const account = makeNode({ tag: 'BUTTON', label: 'kreative36711@example.com', box: R.account });
   const sidebar = makeNode({ cls: 'group/sidebar-wrapper fixed sidebar', box: { left: 0, top: 0, width: 260, height: 900 }, children: [account] });
   sidebar.sidebar = true;
 

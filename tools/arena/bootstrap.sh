@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Recreate the Arena toolchain from files pinned in this repository.
+# Recreate the Arena toolchain from source archives pinned by this repository.
 #
 #   tools/arena/bootstrap.sh                 # runtime + art tools
 #   tools/arena/bootstrap.sh --runtime       # CMake/Ninja + Godot/SwiftShader
@@ -50,17 +50,48 @@ install_toolchain() {
 GODOT_DIR="$WORK/godotbin"
 GODOT_BIN="$GODOT_DIR/godot"
 GODOT_RUN="$GODOT_DIR/godot-swiftshader"
-GODOT_VENDOR="$REPO/tools/vendor/godot"
+GODOT_VENDOR="$WORK/openbfme-godot-vendor"
+GODOT_MANIFEST="$REPO/tools/vendor/godot/SHA256SUMS"
+GODOT_SOURCE_REPOSITORY="https://github.com/Creative36711/advanced-randomizer.git"
+GODOT_SOURCE_COMMIT="cda1b7d9b12beefc75b8f7cd440b8dd239fec8ad"
+GODOT_SOURCE_PATH="tools/vendor/godot"
+
+hydrate_godot_vendor() {
+  local names=(godot-linux-x86_64.xz.part-00 godot-linux-x86_64.xz.part-01 swiftshader-linux-x86_64.tar.xz)
+  local name source="$WORK/openbfme-godot-vendor-source.git"
+  for name in "${names[@]}"; do
+    [ -f "$GODOT_VENDOR/$name" ] || break
+  done
+  if [ "$name" = "${names[-1]}" ] && [ -f "$GODOT_VENDOR/$name" ]; then
+    return
+  fi
+  command -v git >/dev/null || die "git is required to hydrate the pinned Godot runtime"
+  say "Hydrate the pinned Godot/SwiftShader archives from Creative36711/advanced-randomizer"
+  if [ ! -d "$source" ]; then
+    git init --bare -q "$source"
+    git --git-dir="$source" remote add origin "$GODOT_SOURCE_REPOSITORY"
+    git --git-dir="$source" config remote.origin.promisor true
+    git --git-dir="$source" config remote.origin.partialclonefilter blob:none
+  fi
+  if ! git --git-dir="$source" cat-file -e "$GODOT_SOURCE_COMMIT^{commit}" 2>/dev/null; then
+    git --git-dir="$source" -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=blob:none origin "$GODOT_SOURCE_COMMIT"
+  fi
+  rm -rf "$GODOT_VENDOR"
+  mkdir -p "$GODOT_VENDOR"
+  for name in "${names[@]}"; do
+    git --git-dir="$source" show "$GODOT_SOURCE_COMMIT:$GODOT_SOURCE_PATH/$name" > "$GODOT_VENDOR/$name"
+  done
+}
 
 verify_godot_vendor() {
-  python3 - "$GODOT_VENDOR" <<'PY'
+  python3 - "$GODOT_VENDOR" "$GODOT_MANIFEST" <<'PY'
 import hashlib
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
 checksums = {}
-for line in (root / "SHA256SUMS").read_text(encoding="ascii").splitlines():
+for line in pathlib.Path(sys.argv[2]).read_text(encoding="ascii").splitlines():
     if not line or line.startswith("#"):
         continue
     digest, name = line.split("  ", 1)
@@ -106,8 +137,9 @@ install_godot() {
     return
   fi
   if [ "$CHECK" = 1 ]; then miss "Godot/SwiftShader missing in $GODOT_DIR"; return; fi
-  [ -f "$GODOT_VENDOR/SHA256SUMS" ] || die "missing $GODOT_VENDOR/SHA256SUMS"
-  say "Godot 4.7.2 + SwiftShader from the repository"
+  [ -f "$GODOT_MANIFEST" ] || die "missing $GODOT_MANIFEST"
+  hydrate_godot_vendor
+  say "Install Godot 4.7.2 + SwiftShader from the verified hydration cache"
   verify_godot_vendor
   rm -rf "$GODOT_DIR"
   mkdir -p "$GODOT_DIR"
@@ -116,7 +148,7 @@ install_godot() {
   xz -d "$GODOT_DIR/godot.xz"
   chmod +x "$GODOT_BIN"
   tar -xJf "$GODOT_VENDOR/swiftshader-linux-x86_64.tar.xz" -C "$GODOT_DIR"
-  python3 - "$GODOT_BIN" "$GODOT_VENDOR/SHA256SUMS" <<'PY'
+  python3 - "$GODOT_BIN" "$GODOT_MANIFEST" <<'PY'
 import hashlib
 import pathlib
 import sys

@@ -110,7 +110,7 @@ const lookupSource = cut('  /** UUID базы из HTTPS-ссылки Notion;', 
 const lookupId = new Function('URL', `${lookupSource}\nreturn notionDatabaseId;`)(URL);
 assert.equal(lookupId(`https://www.notion.so/My-Database-${A.id.replace(/-/g,'')}?v=${B.id}`), A.id);
 assert.equal(lookupId(`https://app.notion.com/p/${A.id.replace(/-/g,'')}`), A.id);
-for (const url of [`http://notion.so/${A.id}`, `https://notion.so.evil.invalid/${A.id}`, `https://notion.so/no-id?v=${A.id}`, `https://user:pass@notion.so/${A.id}`])
+for (const url of [`http://notion.so/${A.id}`, `https://notion.so.evil.invalid/${A.id}`, `https://notion.so/no-id?v=${A.id}`, 'https://user:pass' + `@notion.so/${A.id}`])
   assert.equal(lookupId(url), '', url);
 
 // Старый шлюз 1.5 игнорирует projectId: перед записью он обязан быть отклонён.

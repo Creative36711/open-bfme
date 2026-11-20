@@ -52,7 +52,7 @@ Therefore remediation requires explicit Master authorization and an owner/dedica
 ### 2. Full disposable mirror and private rollback copy
 
 ```bash
-git clone --mirror git@github.com:Creative36711/open-bfme.git open-bfme-purge.git
+git clone --mirror https://github.com/Creative36711/open-bfme.git open-bfme-purge.git
 cd open-bfme-purge.git
 git fsck --full
 git show-ref > ../refs.before.txt

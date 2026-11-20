@@ -88,16 +88,12 @@ def test_an_allowlisted_container_passes_with_exactly_its_bytes(tmp_path):
     assert gate(tmp_path / "c", {"tests/elsewhere.zip": data}, allow).returncode == 1
 
 
-def test_the_allowlist_contains_only_the_pinned_arena_runtime():
-    assert precommit.container_allowlist() == {
-        ("tools/vendor/godot/godot-linux-x86_64.xz.part-00", "40100eaefca9f4296524af5613d36afb543533ac13cc40896509fc2c0abc9153"),
-        ("tools/vendor/godot/godot-linux-x86_64.xz.part-01", "f026073535fe76a15e0ce048ad8516cb6b9e7144e456ac0c1ebcae3a44587579"),
-        ("tools/vendor/godot/swiftshader-linux-x86_64.tar.xz", "4d438564ffc6d48a1de3d23a2418ac14a798dffa07ae32bb47decb75584476bd"),
-    }
+def test_the_allowlist_starts_empty():
+    assert precommit.container_allowlist() == set()
 
 
-def test_each_tracked_container_is_allowlisted_with_its_exact_hash():
-    """Today's tree (every tracked blob, sparse checkouts included) has no unreviewed container and no stale allowlist entry."""
+def test_no_tracked_file_is_a_container():
+    """Today's tree (every tracked blob, sparse checkouts included) holds no container: the rule needs no allowlist entry."""
     if not (REPO / ".git").exists():
         pytest.skip("not a git checkout")
     env = dict(os.environ, GIT_NO_LAZY_FETCH="1")
@@ -105,7 +101,7 @@ def test_each_tracked_container_is_allowlisted_with_its_exact_hash():
     blobs = [(line.split(b"\t", 1)[1].decode(), line.split()[1].decode()) for line in names if line.startswith(b"100")]
     batch = subprocess.Popen(["git", "-C", str(REPO), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, env=env)
-    hits, checked = set(), 0
+    hits, checked = [], 0
     for path, sha in blobs:
         batch.stdin.write(sha.encode() + b"\n")
         batch.stdin.flush()
@@ -115,10 +111,8 @@ def test_each_tracked_container_is_allowlisted_with_its_exact_hash():
         data = batch.stdout.read(int(header[2]))
         batch.stdout.read(1)
         checked += 1
-        # A split stream's later part need not carry the xz magic, but its reviewed allowlist entry is still live and must match exactly.
-        digest = hashlib.sha256(data).hexdigest()
-        if precommit.container_kind(path, data) or (path, digest) in precommit.container_allowlist():
-            hits.add((path, digest))
+        if precommit.container_kind(path, data):
+            hits.append(path)
     batch.stdin.close()
     batch.wait()
-    assert checked > 1000 and hits == precommit.container_allowlist(), hits
+    assert checked > 1000 and hits == [], hits
