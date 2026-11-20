@@ -70,7 +70,7 @@ if grep -q 'SCRIPT ERROR: Parse Error' "$log"; then
   echo "SMOKE FAIL: GDScript parse error" >&2
   exit 1
 fi
-if ! grep -Eq '^OpenBFME (v[0-9]|[0-9a-f]{10})( |$)' "$log"; then
+if ! grep -Eq '^OpenBFME (v[0-9][^ ]*|[0-9a-f]{10}(-dirty)?)( |$)' "$log"; then
   echo "SMOKE FAIL: native OpenBFME version banner is absent" >&2
   exit 1
 fi
