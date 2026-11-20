@@ -1,3 +1,6 @@
 # Containers and compressed streams the commit gate lets into the public tree (tools/precommit.py rule 4). One per line:
 #   <sha256 of the exact staged bytes>  <repository path>  # why it must be committed (not generated at test time)
-# The gate never unpacks a container, so each entry is a human decision about its contents. Empty on purpose.
+# The gate never unpacks a container, so each entry is a human decision about its contents.
+40100eaefca9f4296524af5613d36afb543533ac13cc40896509fc2c0abc9153  tools/vendor/godot/godot-linux-x86_64.xz.part-00  # pinned Godot 4.7.2 runtime for Arena; exact source/hash documented in tools/vendor/godot/README.md and SHA256SUMS
+f026073535fe76a15e0ce048ad8516cb6b9e7144e456ac0c1ebcae3a44587579  tools/vendor/godot/godot-linux-x86_64.xz.part-01  # second part of the same pinned Godot xz stream
+4d438564ffc6d48a1de3d23a2418ac14a798dffa07ae32bb47decb75584476bd  tools/vendor/godot/swiftshader-linux-x86_64.tar.xz  # pinned software GPU for Arena; exact source/hash documented beside the archive

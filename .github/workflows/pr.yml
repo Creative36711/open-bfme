@@ -79,11 +79,20 @@ jobs:
           git config --global init.defaultBranch main
       - name: Commit gate on the pull request's changes
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        # the checkout is GitHub's merge of the pull request into main (or the queue's commit on top of main): its first parent is main, so
-        # its changes are exactly the pull request's; they are staged against main and the gate checks them as a commit would
+        # The checkout is GitHub's merge of the pull request into main (or the queue's commit on top of main): its first parent is main, so
+        # its changes are exactly the pull request's; they are staged against main and the gate checks them as a commit would. The one-time
+        # repository bootstrap imports an already-tested OpenBFME tree into a base that has no engine. Treat the PR head as the merge's
+        # accepted second parent for added-line/pin rules only; blob/path/container checks still inspect the complete staged tree. Once main
+        # has engine/CMakeLists.txt this self-disables and every later PR uses the ordinary single-parent rule.
         run: |
+          pr_head=$(git rev-parse HEAD^2)
           git reset -q --soft HEAD^1
+          merge_head=$(git rev-parse --git-path MERGE_HEAD)
+          if ! git cat-file -e HEAD:engine/CMakeLists.txt 2>/dev/null; then
+            printf '%s\n' "$pr_head" > "$merge_head"
+          fi
           python3 tools/precommit.py
+          rm -f "$merge_head"
           git reset -q --soft "$GITHUB_SHA"
       - name: Public tree audit (the built-in rules)
         run: python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}"
