@@ -15,7 +15,7 @@
 
 ## WOTR adaptation
 
-Local version `1.16.2` changes project-facing defaults/prompts/profile naming, separates frozen upstream regression documents from operational WOTR documents, removes obsolete project lifecycle wording, and embeds WOTR regulation 1.0. Transport delivery behavior through upstream D-122 remains covered by the imported tests.
+Local version `1.16.2` introduced the project-facing defaults/prompts/profile naming, separated frozen upstream regression documents from operational WOTR documents, removed obsolete project lifecycle wording, and embedded WOTR regulation 1.0. Local version `1.16.3` refreshes only WOTR process prompts/profile for regulation 1.1 (role classification, cost tiers and required locales). Transport delivery behavior through upstream D-122 remains covered by the imported tests.
 
 Frozen historical documents used only as regression fixtures live under `upstream-fixtures/`. They are never embedded in prompts and are not product authority.
 

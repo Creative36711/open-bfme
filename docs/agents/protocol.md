@@ -1,6 +1,6 @@
 # ScriptCat protocol · WOTR Remaster
 
-Transport protocol version: 1.11. ScriptCat release: 1.16.2 (upstream behavior through D-122 plus WOTR project adaptation).
+Transport protocol version: 1.11. ScriptCat release: 1.16.3 (upstream behavior through D-122 plus WOTR project adaptation).
 
 ## 1. Identity
 
@@ -38,7 +38,7 @@ The profile names and exact blocks are generated in `tools/script-cat/contracts/
 ## 4. Ordinary cycle
 
 1. Coordinator sees the current mission queue.
-2. It accepts/reworks a submitted card and issues one eligible Ready/Draft card.
+2. It accepts/reworks a submitted card and issues one eligible Ready/Draft card with declared `build: none|focused|full` and `retail: none|reuse|hydrate` Cost gate.
 3. ScriptCat resolves the fresh role row, target repo/base and zone.
 4. Transport stores run identity and delivers the compiled prompt.
 5. Agent reports work and emits the required marker.

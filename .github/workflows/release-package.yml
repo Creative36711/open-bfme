@@ -101,6 +101,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.commit }}
+          fetch-depth: 0
           persist-credentials: false
           submodules: true
       - name: Tag the commit locally as the release (never pushed)
@@ -113,6 +114,8 @@ jobs:
           git config --local filter.lfs.clean ""
           git config --local filter.lfs.smudge ""
           git config --local filter.lfs.required false
+          # A clean tip is insufficient: release builds require every fetched head/tag to be free of reachable BFME2/RotWK blobs.
+          python3 tools/release/retail_history_audit.py
           [ "$(git rev-parse HEAD)" = "$IN_COMMIT" ] || { echo "the checkout is not $IN_COMMIT"; exit 1; }
           [ -z "$(git status --porcelain --untracked-files=all)" ] || { git status --short | head -20; echo "the checkout is not clean"; exit 1; }
           git tag "$IN_VERSION" "$IN_COMMIT"
@@ -191,6 +194,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.commit }}
+          fetch-depth: 0
           path: src
           persist-credentials: false
           submodules: true
@@ -204,6 +208,8 @@ jobs:
           git config --local filter.lfs.clean ""
           git config --local filter.lfs.smudge ""
           git config --local filter.lfs.required false
+          # A clean tip is insufficient: release builds require every fetched head/tag to be free of reachable BFME2/RotWK blobs.
+          python3 tools/release/retail_history_audit.py
           [ "$(git rev-parse HEAD)" = "$IN_COMMIT" ] || { echo "the checkout is not $IN_COMMIT"; exit 1; }
           [ -z "$(git status --porcelain --untracked-files=all)" ] || { git status --short | head -20; echo "the checkout is not clean"; exit 1; }
           git tag "$IN_VERSION" "$IN_COMMIT"
@@ -253,6 +259,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.commit }}
+          fetch-depth: 0
           path: src
           persist-credentials: false
           submodules: true
@@ -266,6 +273,8 @@ jobs:
           git config --local filter.lfs.clean ""
           git config --local filter.lfs.smudge ""
           git config --local filter.lfs.required false
+          # A clean tip is insufficient: release builds require every fetched head/tag to be free of reachable BFME2/RotWK blobs.
+          python3 tools/release/retail_history_audit.py
           [ "$(git rev-parse HEAD)" = "$IN_COMMIT" ] || { echo "the checkout is not $IN_COMMIT"; exit 1; }
           [ -z "$(git status --porcelain --untracked-files=all)" ] || { git status --short | head -20; echo "the checkout is not clean"; exit 1; }
           git tag "$IN_VERSION" "$IN_COMMIT"

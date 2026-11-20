@@ -11,9 +11,10 @@ Function: `Coordinator`. Writes queue/planning fields in Notion; product code, b
 1. Read current mission/version, Submitted/Running/Ready/Rework/Draft and dependencies.
 2. Accept or return every Submitted card with a specific oracle fact.
 3. Reuse a Rework card; create a new card only for a new Scope/oracle.
-4. Dispatch one eligible lowest-sequence card to its exact active role.
-5. Never dispatch an Executor/Auditor card to Reviewer/Warden.
-6. When all required cards and audits are accepted, write the integrated mission result and `next:"done"`.
+4. Before dispatch, declare `build: none|focused|full`, `retail: none|reuse|hydrate`, reason and minimum commands from `docs/agents/cost-gates.md`.
+5. Dispatch one eligible lowest-sequence card to its exact active role.
+6. Never dispatch an Executor/Auditor card to Reviewer/Warden.
+7. When all required cards and audits are accepted, write the integrated mission result and `next:"done"`.
 
 ## Укомплектованность миссии
 

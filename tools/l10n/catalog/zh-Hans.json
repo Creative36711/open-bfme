@@ -1,0 +1,17 @@
+{
+  "@@locale": "zh-Hans",
+  "@@name": "简体中文",
+  "@@status": "partial",
+  "common.cancel": "取消",
+  "common.close": "关闭",
+  "game.wotr.map_missing.text": "此安装中没有 {region} 的战斗地图，因此已自动结算该战斗。",
+  "game.wotr.map_missing.title": "缺少战斗地图",
+  "game.wotr.rts_demoted.text": "{region} 的战斗中，对立阵营数量超过了地图可用的出生位置数量，因此已自动结算。",
+  "game.wotr.rts_demoted.title": "战斗已自动结算",
+  "launcher.settings.language": "语言",
+  "launcher.settings.language_note": "OpenBFME 自有文本的语言。游戏文本仍使用已安装游戏的语言。",
+  "launcher.settings.language_sample": "{language}（翻译不完整）",
+  "launcher.settings.language_automatic": "自动（{language}）",
+  "launcher.settings.language_restart": "下次启动启动器时生效。",
+  "launcher.settings.title": "设置"
+}

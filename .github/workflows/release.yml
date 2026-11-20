@@ -83,7 +83,9 @@ jobs:
           persist-credentials: false
       - name: Check the inputs, the ref, the tag and the commit
         id: plan
-        run: python3 tools/release/actions_release.py plan
+        run: |
+          python3 tools/release/retail_history_audit.py
+          python3 tools/release/actions_release.py plan
 
   # RELSIGN-1: the three builds are release-package.yml's jobs, the same ones the Deck dispatches on a staging branch (MACACT-1): one
   # definition, the build host's folder layout and ccache rewriting (so the Linux library is the build host's byte for byte and the Windows

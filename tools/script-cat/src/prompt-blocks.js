@@ -8,7 +8,10 @@
     const def = (id, spec) => { B[id] = { id, version: 1, audience: ["Executor", "Auditor", "Coordinator", "Reviewer"], ruleIds: [], verbatim: false, ...spec }; };
     const line = (label, value) => (String(value || "").trim() ? `${label}: ${String(value).trim()}` : "");
 
-    def("identity.task", { ruleIds: [], render: (c) => [
+    // Title, dispatch/run IDs and recipient are immutable card facts. They stay
+    // under the total prompt limit but, like mission and role-zone facts, do not
+    // consume the instruction-overhead budget when their labels are long.
+    def("identity.task", { version: 2, verbatim: true, ruleIds: [], render: (c) => [
       `Карточка «${c.task?.title || c.task?.id}» · dispatch ${c.task?.id} · run ${c.task?.runId}` + (c.mission?.id ? ` · миссия ${c.mission.id}` : ""),
       `Адресат: ${c.role?.name} (${c.role?.fn}).`,
     ].join("\n") });
@@ -45,8 +48,8 @@
     // executor.card (2859 > 2800); вынос факта даёт запас без подъёма бюджета.
     def("role.zone", { verbatim: true, render: (c) => line("Зона роли", c.role?.zone) });
 
-    def("authority.core", { version: 2, ruleIds: ["R-ZONES", "R-SECRETS"], render: () =>
-      "Зона роли — рамка, Scope расширяет на ход; чужие зоны читай. Оракул не ослаблять. Неоднозначность — сам, обратимо, «Допущение:» в отчёт. Секреты не в чат/логи/Git. Показ файлов не открывай." });
+    def("authority.core", { version: 3, ruleIds: ["R-ZONES", "R-SECRETS"], render: () =>
+      "Зона роли — рамка, Scope расширяет на ход; чужое читай. Оракул не ослаблять. Неясность решай сам, обратимо; отчёт: «Допущение:». Секреты не в чат/логи/Git. Показ файлов не открывай." });
 
     def("authority.executor", { version: 2, ruleIds: ["R-ROLES"], audience: ["Executor"], render: () =>
       "Исполнитель: правишь зону+Scope, PR мержишь сам. Чужая правка — карточкой владельцу." });
@@ -162,18 +165,15 @@
     // читал запрет про каталог и не понимал, к чему он относится. Фаза не
     // называется в блоке намеренно: активная фаза меняется (сейчас Ф1), а
     // правило остаётся. Источник фаз — docs/PHASES.md через краткий регламент.
-    def("phases.bans", { ruleIds: ["R-PHASES"], render: () =>
-      "Фазы: не забегай вперёд активной; retail только read-only; advanced AI/multiplayer не раньше Ф8; платное — только с лимитом Мастера; пустых сервисов «под будущее» нет; оракул не ослаблять." });
+    def("phases.bans", { version: 2, ruleIds: ["R-PHASES"], render: () =>
+      "Фазы: активную не опережай; retail read-only; advanced AI/multiplayer — Ф8+; платное — с лимитом Мастера; без сервисов «на будущее»; оракул не ослаблять. Cost gate: build none/focused/full; retail none/reuse/hydrate. Без tier нельзя full build/hydrate." });
 
-    // D-111: «8 локалей» и «локаль не меняет правил» — из D-013…D-019 прошлого
-    // прежнего продукта. В WOTR локали являются presentation data, а
-    // каталогов перевода (`locales/**`) в репозитории нет: агент искал путь,
-    // которого не существует, и писал в отчёт «не нашёл». Правило переписано под
-    // то, что действительно проверяется сейчас: текст не хардкодить в разметку,
-    // а строки-литералы выносить по мере появления каталогов (миссия локализации
-    // — отдельная, Ф4). Состав локалей — решение Мастера, не агента.
-    def("i18n.rule", { ruleIds: ["R-I18N"], audience: ["Executor"], render: () =>
-      "i18n: текст UI не хардкодь в разметку — строки отдельно от логики; диагностика код+параметры. Языки решает Мастер." });
+    // WOTR-D-013: состав локалей теперь принят и обеспечен реальными каталогами
+    // tools/l10n/catalog. Теги zh-Hans и pt-BR не сокращаются: это часть
+    // публичного контракта, хотя plural rules могут делить реализацию с языком.
+    // Локаль остаётся presentation-only и не входит в canonical hash.
+    def("i18n.rule", { version: 3, ruleIds: ["R-I18N"], audience: ["Executor"], render: () =>
+      "i18n: en, ru, zh-Hans, ja, pt-BR, de, fr, ko; UI — tools/l10n catalog. Locale ≠ state/save/network hash. Production: coverage+native/cultural+render/font/input." });
 
     def("card.fields", { ruleIds: ["R-CARD-FIELDS"], audience: ["Executor", "Auditor"], render: () =>
       "Поля карточки (Dispatch State, Run ID, Output Drive File ID, Recipient Agent ID, Started At, Submitted At, PR, Check) ставит скрипт; отчёт — поле report маркера." });

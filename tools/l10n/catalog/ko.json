@@ -1,0 +1,17 @@
+{
+  "@@locale": "ko",
+  "@@name": "한국어",
+  "@@status": "partial",
+  "common.cancel": "취소",
+  "common.close": "닫기",
+  "game.wotr.map_missing.text": "이 설치에는 {region} 전투 지도가 없으므로 전투가 자동 해결되었습니다.",
+  "game.wotr.map_missing.title": "전투 지도 없음",
+  "game.wotr.rts_demoted.text": "{region} 전투의 적대 진영 수가 지도에서 사용할 수 있는 시작 지점 수보다 많아 자동 해결되었습니다.",
+  "game.wotr.rts_demoted.title": "전투 자동 해결",
+  "launcher.settings.language": "언어",
+  "launcher.settings.language_note": "OpenBFME 자체 텍스트의 언어입니다. 게임 텍스트는 설치된 게임의 언어를 그대로 사용합니다.",
+  "launcher.settings.language_sample": "{language}(번역 미완료)",
+  "launcher.settings.language_automatic": "자동({language})",
+  "launcher.settings.language_restart": "런처를 다음에 시작할 때 적용됩니다.",
+  "launcher.settings.title": "설정"
+}

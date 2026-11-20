@@ -10,7 +10,21 @@
 
 - Published base SHA / upstream pin.
 - Предыдущие принятые миссии.
-- Нужные роли и независимые аудиторы.
+- Нужные роли и независимые аудиторы; specialization записывается с точной функцией из «Ролей».
+- Locale impact для `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko` и license/provenance impact для content.
+
+## Cost gate
+
+Для каждой карточки до выдачи зафиксировать по `docs/agents/cost-gates.md`:
+
+```text
+build: none | focused | full
+retail: none | reuse | hydrate
+reason: <затронутая граница>
+commands: <минимальный обязательный набор>
+```
+
+Начинать с T0/T1. T2/T3 выполняются один раз на финальном SHA, если обязательны; отсутствующий retail остаётся `not run`, а не pass. Release-кандидат дополнительно требует clean all-ref history gate из `docs/RETAIL-HISTORY-AUDIT.md`.
 
 ## Инварианты
 
@@ -36,22 +50,22 @@
 
 ## Карточки
 
-| ID | Роль | Зависит от | Выход |
-|---|---|---|---|
-| `<MISSION-ID>-K1` | Executor | — | … |
-| `<MISSION-ID>-A1` | Auditor | K1 | независимый отчёт |
+| ID | Роль / функция | Зависит от | Build | Retail | Выход |
+|---|---|---|---|---|---|
+| `<MISSION-ID>-K1` | `<specialization>` / Executor | — | focused | none | … |
+| `<MISSION-ID>-A1` | `<specialization>` / Auditor | K1 | focused | none | независимый отчёт |
 
 ## Оракул карточек
 
-Для каждой карточки: точная команда/fixture, ожидаемый rc и измеримый результат. Отчёт агента не является оракулом.
+Для каждой карточки: reason/commands объявленного Cost gate, точная команда/fixture, ожидаемый rc и измеримый результат. Отчёт агента не является оракулом. Для пользовательских строк — catalog/generated/coverage checks, точные product tags, locale-invariant hash и назначенный rendering/native-cultural gate.
 
 ## Финальный оракул миссии
 
-Проверка интегрированного SHA, включая required retail/Arena path. `not run`, timeout и mock не pass.
+Проверка интегрированного SHA, включая required retail/Arena path и обязательный T2/T3 handoff. `not run`, timeout и mock не pass. Release/final publication дополнительно требует rc 0 от `tools/release/retail_history_audit.py` в complete clone.
 
 ## Evidence
 
-BASE_SHA, HEAD/merge SHA, команды+rc, существенный вывод, артефакты+hash, визуальное описание, список `not run`.
+BASE_SHA, HEAD/merge SHA, объявленные и фактические `build`/`retail`, команды+rc, существенный вывод, артефакты+hash, visual/locale description, список `not run`. При hydration: pinned manifest SHA, volumes и archive validation без Drive IDs/retail payload.
 
 ## Допустимая свобода
 

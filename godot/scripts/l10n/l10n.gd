@@ -16,11 +16,11 @@ extends RefCounted
 const Catalog := preload("res://scripts/l10n/catalog.gd")
 const SOURCE := "en"
 # languages that write 1,5 instead of 1.5 (CLDR decimal symbol)
-const DECIMAL_COMMA := ["de", "fr", "es", "it", "nl", "pl", "ru", "cs", "hu", "sv", "no", "pt"]
-# lang/<Name>.big of a retail install (RetailArchivePolicy.cpp: the game mounts lang\<Language>*.big) -> language code
+const DECIMAL_COMMA := ["de", "fr", "es", "it", "nl", "pl", "ru", "cs", "hu", "sv", "no", "pt", "pt-BR"]
+# lang/<Name>.big of a retail install (RetailArchivePolicy.cpp: the game mounts lang\<Language>*.big) -> exact product locale code
 const RETAIL_LANGUAGES := {"english": "en", "german": "de", "french": "fr", "spanish": "es", "italian": "it", "dutch": "nl",
-	"polish": "pl", "russian": "ru", "swedish": "sv", "norwegian": "no", "czech": "cs", "hungarian": "hu", "chinese": "zh",
-	"korean": "ko", "brazilian": "pt", "portuguese": "pt"}
+	"polish": "pl", "russian": "ru", "swedish": "sv", "norwegian": "no", "czech": "cs", "hungarian": "hu", "chinese": "zh-Hans",
+	"korean": "ko", "brazilian": "pt-BR", "portuguese": "pt-BR"}
 
 static var _language := SOURCE
 
@@ -92,7 +92,7 @@ static func text_in(code: String, id: String, args: Dictionary = {}) -> String:
 static func plural_category(code: String, n: int) -> String:
 	var a := absi(n)
 	match code:
-		"fr", "pt":
+		"fr", "pt", "pt-BR":
 			return "one" if a <= 1 else "other"
 		"pl":
 			if a == 1:
@@ -106,7 +106,7 @@ static func plural_category(code: String, n: int) -> String:
 			if a == 1:
 				return "one"
 			return "few" if a in [2, 3, 4] else "other"
-		"zh", "ko":
+		"zh", "zh-Hans", "ja", "ko":
 			return "other"
 	return "one" if a == 1 else "other"
 

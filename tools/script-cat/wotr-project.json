@@ -26,7 +26,7 @@
     "agentProvisionRepoAllowlist": [
       "Creative36711/open-bfme"
     ],
-    "agentBootstrapPrompt": "Открой AGENTS.md в целевом репозитории и кратко назови три обязательных архитектурных границы, ничего не изменяя.",
+    "agentBootstrapPrompt": "Открой AGENTS.md и docs/agents/cost-gates.md в целевом репозитории. Ничего не меняя, кратко назови три архитектурные границы, функцию своей роли и допустимые значения полей build/retail Cost gate, которые должна задать карточка.",
     "agentProvisionMaxJobs": 3,
     "agentProvisionDailyMax": 5,
     "agentBootstrapWaitMs": 600000,

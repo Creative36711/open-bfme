@@ -25,6 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 CATALOG = REPO / "tools/l10n/catalog"
 SOURCE = "en"
+REQUIRED_LOCALES = ("en", "ru", "zh-Hans", "ja", "pt-BR", "de", "fr", "ko")
 ALLOW = REPO / "tools/l10n/lint_allow.json"
 
 ID = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+")
@@ -35,7 +36,8 @@ PLURAL_CATEGORIES = {
     "en": ("one", "other"), "de": ("one", "other"), "nl": ("one", "other"), "sv": ("one", "other"), "no": ("one", "other"),
     "it": ("one", "other"), "es": ("one", "other"), "hu": ("one", "other"), "fr": ("one", "other"), "pt": ("one", "other"),
     "pl": ("one", "few", "many"), "ru": ("one", "few", "many"), "cs": ("one", "few", "other"),
-    "zh": ("other",), "ko": ("other",),
+    "zh": ("other",), "zh-Hans": ("other",), "ja": ("other",), "ko": ("other",),
+    "pt-BR": ("one", "other"),
 }
 
 # Who gets which ids: each consumer's generated catalog holds its own prefix plus common.*.
@@ -111,6 +113,12 @@ def languages(catalog: Path = CATALOG) -> dict[str, dict]:
 
 def messages(data: dict) -> dict:
     return {k: v for k, v in data.items() if not k.startswith("@")}
+
+
+def required_locale_problems(langs: dict[str, dict]) -> list[str]:
+    """The WOTR-D-013 product baseline; partial catalogs are allowed, missing catalogs are not."""
+    return [f"tools/l10n/catalog/{code}.json is required by the product locale baseline"
+            for code in REQUIRED_LOCALES if code not in langs]
 
 
 def validate(langs: dict[str, dict]) -> list[str]:
@@ -538,7 +546,7 @@ def check() -> list[str]:
         langs = languages()
     except (ValueError, json.JSONDecodeError) as e:
         return [f"tools/l10n/catalog: {e}"]
-    problems = validate(langs)
+    problems = required_locale_problems(langs) + validate(langs)
     if problems:
         return problems
     used, use_problems = usage(langs)
@@ -565,7 +573,7 @@ def add(fragment: Path) -> list[str]:
         data.update(new)
         langs = languages()
         langs[SOURCE] = data
-        problems = validate(langs)
+        problems = required_locale_problems(langs) + validate(langs)
         if problems:
             return problems
         write_catalog(path, data)
@@ -583,7 +591,7 @@ def main(argv: list[str]) -> int:
         return 1 if problems else 0
     if cmd == "generate":
         langs = languages()
-        problems = validate(langs)
+        problems = required_locale_problems(langs) + validate(langs)
         if problems:
             print("\n".join(problems))
             return 1

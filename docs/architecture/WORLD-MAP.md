@@ -5,10 +5,12 @@
 Build a **2.5D board-like world in 3D**, not a flat image and not an unrestricted
 open-world terrain.
 
-The legacy `wotr` image is a good composition and registration reference for
-coasts, mountain ranges, rivers, colour, and atmosphere. It should not be the
-final map by itself, and it should not be converted into one enormous hand-made
-mesh. The robust pipeline is data-driven:
+The audited legacy `wotr` world is a useful authored source candidate for
+geography, ownership, locations and registration. Its publication license is not
+yet established, so it may guide planning but cannot be copied into a release or
+this repository until authorized. It should not become the final map image by
+itself, and it should not be converted into one enormous hand-made mesh. The
+robust pipeline is data-driven:
 
 ```text
 reference/albedo + heightmap + biome masks + water/river masks
@@ -46,11 +48,18 @@ The source reference is `Creative36711/wotr` commit
 - pointy axial grid with 72-pixel radius and origin `(36, 36)`;
 - 1,412 authored cells: 541 water and 871 land/passable candidates;
 - terrain tags for plains, mountains, hills, forest, swamp, snow, and desert;
-- A* movement, roads/rivers/fords/bridges, fog, reachability, and region data.
+- 186 locations, 24 regions, 125 domains, 61 strongholds and 13 armies;
+- 51 RTS-enabled locations; all audited tactical entries declare eight starts;
+- A* movement, roads/rivers/fords/bridges, fog, reachability, ownership and region data.
 
-We preserve the image and extracted grid as **design references**, not runtime
-React assets. The axial IDs (`q:r`) and authored terrain classifications are
-worth porting; DOM/SVG/Canvas rendering is not.
+The accepted path is a versioned one-way importer (ADR-002), not a runtime
+React/Tauri dependency. It maps explicit legacy identifiers through an
+append-only stable-ID table, validates topology/ownership/references, emits
+canonical Campaign Pack data and a source/hash/loss report. DOM/SVG/Canvas,
+Tauri, Win32 click/OCR automation and external retail processes are not ported.
+The image, generated dataset and `__wotr_maps.big` are not published until the
+Master records their license/provenance authorization; clean-room fixtures prove
+the importer meanwhile.
 
 ## Canonical layers
 
@@ -129,8 +138,10 @@ must demonstrate all of these together:
 
 ### M0 — registration prototype
 
-Import the reference image, legacy hex dataset, and a generated low-resolution
-heightfield. Prove raycast → axial cell → C++ path → 3D route.
+Run the one-way importer on a small clean-room fixture (or an explicitly
+authorized source subset), use a generated low-resolution heightfield, and prove
+raycast → stable axial cell → C++ path → 3D route. Do not copy the legacy image
+or full dataset merely to make the prototype convenient.
 
 ### M1 — vertical slice
 

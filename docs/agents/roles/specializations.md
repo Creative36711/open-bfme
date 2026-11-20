@@ -10,6 +10,8 @@ All engineering specializations inherit `executor.md`; all audits inherit `audit
 | Campaign Editor Engineer | `godot/wotr_remaster/editor/**`, campaign schemas/migrations | validation, undo/redo, export/reopen identical hash and malformed input failures |
 | Technical Artist | `art/**`, assigned presentation assets | provenance/license/hash, opened visual, retail/custom references and budget |
 | AI & Simulation Engineer | WOTR AI/autoresolve modules | ordinary commands only, named RNG, fixed-seed repeatability, no hidden mutation |
+| Localization & Cultural QA Engineer | `tools/l10n/**`, assigned localization runtime/font/input paths | required-locale coverage, native review, rendering/font/input smoke and locale-invariant hash |
+| Upstream Integrator | `OPENBFME_UPSTREAM`, sync report/tooling and named conflicts | range/conflict report, full build/regressions and native retail round-trip |
 | Integration Auditor | isolated tests/evidence | clean-checkout Arena strategic→tactical→result→save proof |
 | Determinism & Save Auditor | test fixtures/evidence | independent dual run, save/load/replay, corruption/migration and RNG audit |
 | UX & Modding Auditor | UX/mod compatibility tests/evidence | readability/accessibility, pack validation, Vanilla isolation and no retail copies |

@@ -1,7 +1,7 @@
 {
   "@@locale": "de",
   "@@name": "Deutsch",
-  "@@status": "sample",
+  "@@status": "partial",
   "common.cancel": "Abbrechen",
   "common.close": "Schließen",
   "launcher.main.check_for_updates": "Nach Updates suchen",
@@ -45,10 +45,14 @@
   "launcher.settings.language_automatic_unknown": "Die Sprache des Spiels ist noch nicht bekannt, daher zeigt Automatisch Englisch.",
   "launcher.settings.language_note": "Die eigenen Texte von OpenBFME. Die Texte des Spiels bleiben in der Sprache deines Spiels.",
   "launcher.settings.language_restart": "Gilt ab dem nächsten Start des Launchers.",
-  "launcher.settings.language_sample": "{language} (Beispiel, unvollständig)",
+  "launcher.settings.language_sample": "{language} (Übersetzung unvollständig)",
   "launcher.settings.online_count": "Anzeigen, wie viele Spieler online sind",
   "launcher.settings.tab_about": "Info & Protokolle",
   "launcher.settings.tab_display": "Anzeige",
   "launcher.settings.tab_general": "Allgemein",
-  "launcher.settings.title": "Einstellungen"
+  "launcher.settings.title": "Einstellungen",
+  "game.wotr.map_missing.text": "Die Gefechtskarte für {region} ist in dieser Installation nicht vorhanden. Das Gefecht wurde daher automatisch berechnet.",
+  "game.wotr.map_missing.title": "Gefechtskarte fehlt",
+  "game.wotr.rts_demoted.text": "Am Gefecht in {region} nehmen mehr gegnerische Seiten teil, als die Karte nutzbare Startpositionen hat. Es wurde daher automatisch berechnet.",
+  "game.wotr.rts_demoted.title": "Gefecht automatisch berechnet"
 }

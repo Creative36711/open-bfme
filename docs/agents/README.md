@@ -1,6 +1,6 @@
 # Агентный контур WOTR Remaster
 
-ScriptCat 1.16.2 доставляет карточки между четырьмя базами Notion и Arena-агентами. Он не заменяет регламент, GitHub или продуктовый oracle.
+ScriptCat 1.16.3 доставляет карточки между четырьмя базами Notion и Arena-агентами. Он не заменяет регламент, GitHub или продуктовый oracle.
 
 ## Источники истины
 
@@ -17,6 +17,7 @@ ScriptCat 1.16.2 доставляет карточки между четырьм
 - `markers.md` — exact machine markers;
 - `notion.md` — базы и authority;
 - `drive.md` — logs/payloads/artifacts;
+- `cost-gates.md` — declared build/retail tiers, full-build triggers and Drive hydration policy;
 - `pr-rules.md` — Git safety and preflight;
 - `onboarding.md` — подключение роли;
 - `troubleshooting.md` — отказ без потери identity;

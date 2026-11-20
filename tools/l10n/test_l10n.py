@@ -26,6 +26,11 @@ def test_catalog_is_valid(langs):
     assert l10n.validate(langs) == []
 
 
+def test_product_locale_baseline_is_present(langs):
+    assert l10n.required_locale_problems(langs) == []
+    assert set(l10n.REQUIRED_LOCALES).issubset(langs)
+
+
 def test_generated_files_are_current(langs):
     assert l10n.stale_generated(langs) == []
 

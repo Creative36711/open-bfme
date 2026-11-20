@@ -15,3 +15,12 @@ OpenBFME tree at the repository root. Notable changes include:
 - removal of paths and claims specific to Advanced Randomizer/Chaos.
 
 Use `bootstrap.sh --check` to inspect the environment without changing it.
+
+Build cost is selected by the card, not by habit (`docs/agents/cost-gates.md`):
+
+- `build_engine.sh --check` for inventory;
+- `--quick` or `--core` for a focused edit/compile loop;
+- `--tests` for the full source handoff gate;
+- the default runnable extension only when a Godot/runtime check needs it.
+
+Retail hydration is separate and is never implied by these scripts. It requires a declared `retail: hydrate`, metadata/canary checks and the resumable `tools/retail_big_transfer.py ingest` flow.

@@ -120,7 +120,7 @@ void report(std::vector<std::string> *errors, std::string message)
 
 bool decimalComma(std::string_view language)
 {
-	for (std::string_view l : { "de", "fr", "es", "it", "nl", "pl", "ru", "cs", "hu", "sv", "no", "pt" })
+	for (std::string_view l : { "de", "fr", "es", "it", "nl", "pl", "ru", "cs", "hu", "sv", "no", "pt", "pt-BR" })
 	{
 		if (l == language)
 		{
@@ -163,7 +163,7 @@ std::string_view pluralCategory(std::string_view language, long long n)
 {
 	const long long a = n < 0 ? -n : n;
 	const bool few = (a % 10 >= 2 && a % 10 <= 4) && !(a % 100 >= 12 && a % 100 <= 14);
-	if (language == "fr" || language == "pt")
+	if (language == "fr" || language == "pt" || language == "pt-BR")
 	{
 		return a <= 1 ? "one" : "other";
 	}
@@ -179,7 +179,7 @@ std::string_view pluralCategory(std::string_view language, long long n)
 	{
 		return a == 1 ? "one" : (a >= 2 && a <= 4) ? "few" : "other";
 	}
-	if (language == "zh" || language == "ko")
+	if (language == "zh" || language == "zh-Hans" || language == "ja" || language == "ko")
 	{
 		return "other";
 	}

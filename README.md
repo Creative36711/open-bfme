@@ -14,9 +14,10 @@ The current engine baseline is OpenBFME `v0.4.12-nightly.261118100`
 
 This is one repository for product code, OpenBFME integration, process documents,
 and the ScriptCat transport. Start with `AGENTS.md`, `docs/REGULATION.md`,
-`docs/PHASES.md`, and the active specification in `docs/missions/`. ScriptCat
-1.16.2 and its WOTR profile live in `tools/script-cat/`; its complete local gate
-is `npm run verify:scriptcat`.
+`docs/PHASES.md`, the active specification in `docs/missions/`, and the tiered
+build/retail policy in `docs/agents/cost-gates.md`. ScriptCat 1.16.3 and its WOTR
+profile live in `tools/script-cat/`; its complete local gate is
+`npm run verify:scriptcat`.
 
 ## Arena bootstrap
 
@@ -37,9 +38,12 @@ tools/arena/bootstrap.sh --art
 ## Retail assets
 
 BFME2 and RotWK installations are proprietary runtime inputs and must never be
-committed. OpenBFME requires the original BIG files byte-for-byte and validates
-their sizes and MD5 hashes. Local data belongs in the ignored `.retail/`
-directory:
+committed or remain in reachable Git history. OpenBFME requires the original BIG
+files byte-for-byte and validates their sizes and MD5 hashes. Local data belongs
+in the ignored `.retail/` directory. Agents must not hydrate the 5.249-GiB Drive
+snapshot unless the card declares `retail: hydrate`; reuse a verified local copy
+when possible and follow `docs/agents/cost-gates.md`. The current history audit
+and safe purge runbook are in `docs/RETAIL-HISTORY-AUDIT.md`.
 
 ```text
 .retail/BFME2

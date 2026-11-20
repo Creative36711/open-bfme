@@ -2394,16 +2394,23 @@ func _automatic_language() -> Dictionary:
 		return {"code": "", "why": "no %s translation Automatic may use" % found.name, "label": english,
 			"note": L10n.t("launcher.settings.language_automatic_missing", {"language": name if name != "" else found.name})}
 	return {"code": found.code, "why": "the game is %s" % found.name,
-		"label": L10n.t("launcher.settings.language_automatic", {"language": L10n.language_name(found.code)}),
+		"label": L10n.t("launcher.settings.language_automatic", {"language": _catalog_language_label(found.code)}),
 		"note": L10n.t("launcher.settings.language_automatic_found", {"language": L10n.language_name(found.code)})}
 
 
-## the Settings Language choices: Automatic, then every catalog language (a sample marked as such)
+## A partial/sample catalog is usable through English per-message fallback, but the selector must not present it as complete.
+static func _catalog_language_label(code: String) -> String:
+	for language in L10n.languages():
+		if language.code == code:
+			return language.name if language.status in ["source", "complete"] else L10n.t("launcher.settings.language_sample", {"language": language.name})
+	return code
+
+
+## the Settings Language choices: Automatic, then every catalog language; every incomplete catalog is visibly marked
 func _language_choices(automatic: Dictionary) -> Array:
 	var out := [{"code": "", "label": automatic.label}]
-	for l in L10n.languages():
-		var label: String = l.name if l.status != "sample" else L10n.t("launcher.settings.language_sample", {"language": l.name})
-		out.append({"code": l.code, "label": label})
+	for language in L10n.languages():
+		out.append({"code": language.code, "label": _catalog_language_label(language.code)})
 	return out
 
 

@@ -1,0 +1,17 @@
+{
+  "@@locale": "ja",
+  "@@name": "日本語",
+  "@@status": "partial",
+  "common.cancel": "キャンセル",
+  "common.close": "閉じる",
+  "game.wotr.map_missing.text": "このインストールには{region}の戦闘マップがないため、戦闘は自動解決されました。",
+  "game.wotr.map_missing.title": "戦闘マップがありません",
+  "game.wotr.rts_demoted.text": "{region}の戦闘では、対立する陣営の数がマップで使用可能な開始位置の数を超えているため、自動解決されました。",
+  "game.wotr.rts_demoted.title": "戦闘を自動解決しました",
+  "launcher.settings.language": "言語",
+  "launcher.settings.language_note": "OpenBFME 独自テキストの言語です。ゲーム本体のテキストは、インストールされたゲームの言語のままです。",
+  "launcher.settings.language_sample": "{language}（翻訳未完了）",
+  "launcher.settings.language_automatic": "自動（{language}）",
+  "launcher.settings.language_restart": "ランチャーの次回起動時に適用されます。",
+  "launcher.settings.title": "設定"
+}

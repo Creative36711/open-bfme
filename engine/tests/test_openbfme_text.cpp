@@ -26,7 +26,10 @@ TEST_CASE("openbfme text: the generated catalog, English first, a translation fa
 	REQUIRE(!langs.empty());
 	CHECK(langs.front().code == "en");
 	CHECK(langs.front().status == "source");
-	CHECK(OpenBFMEText::hasLanguage("de"));
+	for (std::string_view code : { "en", "ru", "zh-Hans", "ja", "pt-BR", "de", "fr", "ko" })
+	{
+		CHECK(OpenBFMEText::hasLanguage(code));
+	}
 	CHECK(OpenBFMEText::has("common.cancel"));
 	CHECK(!OpenBFMEText::has("launcher.settings.language")); // the launcher's ids are not compiled into the engine
 	std::vector<std::string> errors;
@@ -75,7 +78,8 @@ TEST_CASE("openbfme text: CLDR plural categories match the launcher's")
 	for (const Case &c : { Case{ "en", 0, "other" }, Case{ "en", 1, "one" }, Case{ "de", 5, "other" }, Case{ "fr", 0, "one" },
 			 Case{ "fr", 2, "other" }, Case{ "pl", 3, "few" }, Case{ "pl", 5, "many" }, Case{ "pl", 22, "few" }, Case{ "pl", 12, "many" },
 			 Case{ "ru", 21, "one" }, Case{ "ru", 11, "many" }, Case{ "ru", 23, "few" }, Case{ "cs", 3, "few" }, Case{ "cs", 5, "other" },
-			 Case{ "zh", 1, "other" } })
+			 Case{ "zh-Hans", 1, "other" }, Case{ "ja", 1, "other" }, Case{ "ko", 1, "other" }, Case{ "pt-BR", 0, "one" },
+			 Case{ "pt-BR", 2, "other" } })
 	{
 		CAPTURE(c.language);
 		CAPTURE(c.n);

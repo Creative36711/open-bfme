@@ -1,6 +1,6 @@
 # Executor
 
-Function: `Executor`. Applies to Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist and AI & Simulation specializations; the role row and card narrow the concrete zone.
+Function: `Executor`. Applies to Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist, AI & Simulation, Localization & Cultural QA and Upstream Integrator specializations; the role row and card narrow the concrete zone.
 
 ## Contract rule IDs
 

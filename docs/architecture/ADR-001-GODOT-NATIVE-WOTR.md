@@ -35,9 +35,10 @@ WOTR Remaster is maintained as a downstream of the current
 - **Heroes use the normal subsystem.** A hero present in strategic state is in
   the deterministic spawn plan before map load and returns through native hero
   state. No post-load process injection or synthetic UI click is allowed.
-- **The legacy Tauri app is a design/data reference only.** Its axial-hex
-  concepts may be ported and tested, but React, Rust Win32 automation, and its
-  state store do not become runtime dependencies.
+- **The legacy Tauri app is not a runtime dependency.** Its authored world may
+  be converted by the versioned one-way importer accepted in ADR-002 after the
+  license/provenance gate. React, Rust Win32 automation, OCR and its state store
+  do not become runtime dependencies.
 
 ## Module boundary
 

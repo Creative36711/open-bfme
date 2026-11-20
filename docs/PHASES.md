@@ -1,6 +1,6 @@
 # War Of The Ring: Remaster · фазы 1–8
 
-Редакция 1.0 · 2026-11-20 · владелец: Warden.
+Редакция 1.1 · 2026-11-20 · владелец: Warden.
 
 Источник статуса исполнения — база Notion «Миссии»; этот файл фиксирует продуктовую последовательность и опубликованную редакцию. Фаза — рамка результата, миссия — принимаемая работа внутри неё. В каждой фазе есть минимум одна миссия.
 
@@ -12,7 +12,13 @@
 2. независимые аудиторы воспроизвели оракул на принятом SHA;
 3. save/schema migration и deterministic hash не имеют незакрытой регрессии;
 4. retail-dependent критерии проверены в Arena на реальных BFME2 1.06 + RotWK 2.01 данных;
-5. документация, Campaign Pack schema и upstream pin соответствуют коду.
+5. заявленный Cost gate соответствует `docs/agents/cost-gates.md`; full build/Drive hydration не запускаются для несвязанных карточек;
+6. обязательные локали `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko` имеют coverage report, а локаль не меняет canonical hash;
+7. документация, Campaign Pack schema и upstream pin соответствуют коду.
+
+## Фаза 0 · Baseline decisions (решения приняты; history sanitation открыта)
+
+Приняты ADR-001…003: Godot-native boundary; перенос legacy world через one-way importer без legacy runtime; tactical capacity по opposed sides с fallback/autoresolve; custom maps как лицензированные content-addressed overlays; eight-locale baseline; tiered build/retail cost policy; Upstream Integrator как Executor. Полный legacy dataset и `__wotr_maps.big` остаются заблокированы license/provenance gate. Retail history всё ещё содержит запрещённые объекты: cleanup выполняется отдельно как destructive owner-approved repository operation, не блокирует проектирование, но release workflow остаётся заблокирован до fresh-clone audit rc 0.
 
 ## Фаза 1 · Technical walking skeleton
 
@@ -30,7 +36,7 @@
 
 ### WOTR-2.1 · Campaign Pack v1 и editor loop
 
-Schema/versioning, topology and hex presentation data, factions/regions/armies, asset references, validation diagnostics, migrations, undo/redo, import/export and reopen-identical hash. Vanilla sample pack и custom-asset sample проходят один validator.
+Schema/versioning, topology and hex presentation data, factions/regions/armies, ordered primary/fallback map references, content-addressed map components, validation diagnostics, migrations, undo/redo, import/export and reopen-identical hash. Versioned one-way legacy importer проходит clean-room fixture, stable-ID/canonical-output/provenance-loss tests; full legacy content не публикуется до license gate. Vanilla sample pack и licensed custom-map sample проходят один validator.
 
 ## Фаза 3 · Strategic MVP
 
@@ -38,7 +44,7 @@ Schema/versioning, topology and hex presentation data, factions/regions/armies, 
 
 ### WOTR-3.1 · WEGO strategic MVP
 
-Turn planning/resolution, movement, conflicts, economy/recruitment baseline, fog/visibility baseline, simple command-producing AI, autoresolve baseline, campaign victory/defeat and repeatable 20-turn simulation. Narrative content не является условием MVP.
+Turn planning/resolution, movement, conflicts, economy/recruitment baseline, fog/visibility baseline, simple command-producing AI, autoresolve baseline, campaign victory/defeat and repeatable 20-turn simulation. Conflict setup partitions armies into opposed tactical sides; allies share a start, capacity overflow uses a compatible declared fallback map or canonical autoresolve with explicit reason. Narrative content не является условием MVP.
 
 ## Фаза 4 · Isengard–Rohan–Gondor visual slice
 
@@ -46,7 +52,7 @@ Turn planning/resolution, movement, conflicts, economy/recruitment baseline, fog
 
 ### WOTR-4.1 · Трёхфракционный visual slice
 
-2.5D terrain and landmarks, readable hex/region overlays, strategic armies, weather/time presentation, polished HUD, editor workflow and tactical transitions for Isengard, Rohan and Gondor. Visual/performance budgets проверяются на целевом профиле.
+2.5D terrain and landmarks, readable hex/region overlays, strategic armies, weather/time presentation, polished HUD, editor workflow and tactical transitions for Isengard, Rohan and Gondor. Importer is exercised on an authorized or clean-room representative slice. Visual/performance budgets and locale screenshots/font coverage are checked on the target profile.
 
 ## Фаза 5 · Full Middle-earth
 
@@ -54,7 +60,7 @@ Turn planning/resolution, movement, conflicts, economy/recruitment baseline, fog
 
 ### WOTR-5.1 · Middle-earth campaign pack
 
-Полная topology, основные factions, стартовые сценарии, map art/LOD/streaming, regional encounters and balanced strategic data. Content validation и deterministic simulation остаются зелёными на полном объёме.
+Полная topology, основные factions, стартовые сценарии, map art/LOD/streaming, regional encounters and balanced strategic data. Legacy-authored dataset enters the distributable pack only with recorded license/provenance authorization; otherwise equivalent clean-room data replaces it. Content validation, locale coverage и deterministic simulation остаются зелёными на полном объёме.
 
 ## Фаза 6 · Mods и custom content
 
@@ -62,7 +68,7 @@ Turn planning/resolution, movement, conflicts, economy/recruitment baseline, fog
 
 ### WOTR-6.1 · Mod-aware Campaign Packs
 
-Profile inheritance/overrides, dependency and conflict diagnostics, custom asset provenance/licensing, pack discovery, deterministic load order and compatibility matrix. Vanilla RotWK 2.01 не меняется при установке mod pack.
+Profile inheritance/overrides, dependency and conflict diagnostics, licensed custom tactical maps with declared starts/capacity and content hashes, custom asset provenance/licensing, pack discovery, deterministic overlay order and compatibility matrix. Vanilla RotWK 2.01 не меняется при установке mod pack.
 
 ## Фаза 7 · Advanced systems и narrative/hybrid
 

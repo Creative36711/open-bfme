@@ -1,6 +1,6 @@
 # Регламент команды War Of The Ring: Remaster
 
-Версия 1.0 · 2026-11-20 · владелец: Мастер · хранитель: Warden.
+Версия 1.1 · 2026-11-20 · владелец: Мастер · хранитель: Warden.
 
 Это полный источник процессных правил. Notion-копия: [«Регламент команды WOTR Remaster»](https://app.notion.com/p/WOTR-Remaster-41e6f0cf57058178ac91c320891b1d7b). Краткий вход для каждого хода лежит в `docs/regulation-digest.md` и вшивается в ScriptCat. Номер краткой и полной копий обязан совпадать; краткая копия не может разрешать запрещённое полной.
 
@@ -33,9 +33,13 @@
 8. **Campaign Packs.** Vanilla RotWK 2.01 — первый профиль. Формат обязан поддерживать retail references, custom assets с provenance и mod-aware overrides без копирования нелицензированных retail assets.
 9. **Sandbox-first.** Сначала — системная песочница и editor; narrative/hybrid расширяется позднее через данные и события, а не через ветвление ядра.
 10. **Поздние системы.** Глубокий AI и multiplayer — фаза 8. MVP использует простой AI, который отдаёт обычные команды и не обходит правила.
-11. **Legacy boundary.** Механики из `Creative36711/wotr` не переносятся без отдельного обсуждения и решения владельца.
+11. **Legacy import, не runtime.** Мир и контент `Creative36711/wotr` переносятся versioned one-way importer со stable IDs и provenance report. React/Tauri/Win32/OCR и внешний retail process не становятся runtime-зависимостью. Публикация полного dataset и `__wotr_maps.big` запрещена до подтверждения лицензии.
+12. **Tactical capacity.** Вместимость считается по противоборствующим tactical sides: союзные армии делят start. Если сторон больше, чем проверенных starts, выбирается первый совместимый declared fallback map, иначе выполняется deterministic autoresolve; участника нельзя молча отбросить.
+13. **Custom maps.** Карты, которых нет в RotWK 2.01, поставляются как лицензированные content-addressed Campaign Pack overlays с metadata/starts/profile, SHA-256 и provenance, а не как private loose path.
+14. **Локали.** Обязательный product baseline: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`. Locale и display strings не меняют simulation/save/network hash.
+15. **Минимально достаточная стоимость.** Карточка заранее объявляет build/retail Cost gate. Полная сборка движка и Drive hydration запускаются только по матрице `docs/agents/cost-gates.md`; успешный mock/focused test не отменяет обязательный полный или retail gate.
 
-Подробная схема: `docs/ARCHITECTURE.md`.
+Подробная схема: `docs/ARCHITECTURE.md` и принятые ADR в `docs/architecture/`.
 
 ## 3. Роли
 
@@ -52,8 +56,9 @@
 | **Campaign Editor Engineer** | Executor | Campaign Pack editor, schema, migrations, validators |
 | **Technical Artist** | Executor | custom assets, strategic presentation, provenance and budgets |
 | **AI & Simulation Engineer** | Executor | simple command-producing AI, autoresolve/simulation within mission scope |
-| **Upstream Integrator** | Maintainer | pinned OpenBFME synchronization, conflict report, upstream regression gate |
-| **Transport Maintainer** | Maintainer | ScriptCat and relay tooling only |
+| **Localization & Cultural QA Engineer** | Executor | required locale catalogs/runtime, fonts/input, cultural review and locale-invariance evidence |
+| **Upstream Integrator** | Executor | specialized pinned OpenBFME synchronization, conflict report and upstream regression gate |
+| **Transport Maintainer** | Maintainer | единственная Maintainer-функция: починка ScriptCat и relay transport |
 | **Integration Auditor** | Auditor | clean-checkout and Arena end-to-end evidence |
 | **Determinism & Save Auditor** | Auditor | dual-run hashes, save/load/replay, migration failures, RNG audit |
 | **UX & Modding Auditor** | Auditor | map/editor UX, accessibility, Campaign Pack and mod compatibility |
@@ -69,9 +74,10 @@
 | Чужая зона | только чтение; изменение выдаётся владельцу отдельной карточкой |
 | Оракул | только аддитивное усиление; ослабление, skip/todo или подгонка ожиданий запрещены |
 | Retail data | только чтение и проверка, если карточка явно не про byte-exact transfer |
+| Cost gate | до выдачи фиксирует `build: none/focused/full` и `retail: none/reuse/hydrate`; агент не повышает стоимость молча |
 | Transport | отдельная карточка Transport Maintainer и отдельный выпуск |
 
-Перед первой правкой агент фиксирует `BASE_SHA`, ветку и `git status --short`. Чужие локальные изменения нельзя сбрасывать, чистить, прятать или включать в свой коммит.
+Перед первой правкой агент фиксирует `BASE_SHA`, ветку и `git status --short`. Чужие локальные изменения нельзя сбрасывать, чистить, прятать или включать в свой коммит. Политика дешёвых/focused и дорогих build/retail проверок: `docs/agents/cost-gates.md`.
 
 ## 5. Фазы и миссии
 
@@ -108,6 +114,7 @@
 - Источник OpenBFME фиксируется в `OPENBFME_UPSTREAM`. Обновление — отдельная карточка Upstream Integrator.
 - Sync обязан показать старый pin, новый pin, upstream range, конфликтные WOTR-owned paths и результаты build/smoke/round-trip. Молчаливое копирование `main` запрещено.
 - Базовый tactical profile: `v0.4.12-nightly.261118100`, commit `4a8d82727c2664c381b7b1c07344881760c4765b`, пока отдельная принятая карточка не изменит pin.
+- Retail paths/objects запрещены не только в tip, но и во всех публикуемых refs. Проверка дерева коммита не доказывает чистоту history; перед release и после rewrite выполняется reachability audit всех heads/tags. Переписывание истории — отдельная destructive Master-approved операция из полного mirror clone с backup refs и coordinated force-push, не обычная карточка продукта.
 
 ## 8. Доказательства и гейты
 
@@ -117,9 +124,9 @@
 - точные команды, коды возврата и существенный вывод;
 - список изменённых файлов;
 - путь к артефакту и его hash, если критерий создаёт артефакт;
-- честный список `not run` с причиной.
+- заявленный и фактически выполненный Cost gate (`build`, `retail`) и честный список `not run` с причиной.
 
-`not run`, тайм-аут, непроверенный отчёт, зелёный нерелевантный CI и mock вместо требуемого retail-пути не равны pass.
+`not run`, тайм-аут, непроверенный отчёт, зелёный нерелевантный CI и mock вместо требуемого retail-пути не равны pass. Агент начинает с static/focused проверки; full engine build и retail hydration обязательны только для перечисленных в `docs/agents/cost-gates.md` границ или когда их прямо требует карточка. Это снижает стоимость, но не разрешает пропустить финальный гейт.
 
 | Изменение | Минимальный гейт |
 |---|---|
@@ -128,6 +135,8 @@
 | Godot world/editor | headless smoke + deterministic interaction + открытый screenshot/video + frame/memory facts |
 | Save/schema | round-trip + corruption/migration failures + unknown-version refusal |
 | AI/simulation | fixed seed, normal commands only, no hidden mutation, repeatable scenario |
+| Localization | catalog/coverage/generated checks + locale-invariant hash + target screenshots/font/input smoke; independent UX audit |
+| Legacy importer/maps | byte-stable import + stable-ID/provenance report + invalid-reference/capacity/fallback tests + license gate |
 | OpenBFME pin | C++/GDExtension build + focused upstream tests + WOTR regressions + retail smoke |
 | ScriptCat | build check + portability guard + smoke + regression + tool-limit suites |
 
@@ -144,6 +153,7 @@
 
 - Репозиторий не распространяет retail assets EA. Runtime проверяет и читает установленную пользователем копию.
 - Custom assets имеют source/provenance, лицензию, author, allowed use и content hash.
+- Новая tactical map — typed `pack:` component с declared starts/supported sides/profile, file SHA-256, content-root hash, localization IDs и license/provenance; она монтируется content-addressed overlay.
 - Campaign Pack не полагается на абсолютный путь машины автора. References resolution детерминирован и диагностирует missing/ambiguous asset.
 - Vanilla RotWK 2.01 — обязательный первый профиль; mod profile не может молча менять Vanilla.
 - Retail BIG при переносе сохраняется байт-в-байт и проверяется hash. Массовая передача начинается только после успешного канареечного тома.
@@ -177,7 +187,7 @@ Drive layout: `Arena/wotr-remaster/{logs,payloads,artifacts}`. Секреты, r
 
 ## 14. Язык
 
-Процессные документы и общение с Мастером — по-русски. Код, API names, schemas, diagnostics IDs и commit subjects — по-английски. Пользовательские строки отделены от логики; локаль не меняет состояние и hash.
+Процессные документы и общение с Мастером — по-русски. Код, API names, schemas, diagnostics IDs и commit subjects — по-английски. Пользовательские строки отделены от логики. Product baseline — `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; английский — source и per-message fallback. Production claim требует 100% coverage, native-language/cultural review и rendering/font/input gate. Локаль не меняет состояние, RNG, save/network hash или Campaign Pack identity.
 
 ## 15. Инциденты транспорта
 

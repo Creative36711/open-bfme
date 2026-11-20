@@ -7,6 +7,7 @@ extends SceneTree
 
 const L10n := preload("res://scripts/l10n/l10n.gd")
 const Catalog := preload("res://scripts/l10n/catalog.gd")
+const LauncherMain := preload("res://scripts/main.gd")
 
 var failures := 0
 
@@ -38,10 +39,15 @@ func _run() -> void:
 	# the generated catalog: English is the source of every id, a language translates a subset
 	check(L10n.language() == "en", "the default language is the source")
 	check(L10n.languages()[0].code == "en" and L10n.languages().size() == Catalog.LANGUAGES.size(), "languages(): source first")
+	for required in ["en", "ru", "zh-Hans", "ja", "pt-BR", "de", "fr", "ko"]:
+		check(Catalog.LANGUAGES.has(required), "required product locale %s" % required)
+		var label := LauncherMain._catalog_language_label(required)
+		check(label.contains(Catalog.LANGUAGES[required].name), "the selector names product locale %s" % required)
+		check(required == "en" or label != Catalog.LANGUAGES[required].name, "partial locale %s is visibly incomplete" % required)
 	check(L10n.t("common.cancel") == "Cancel", "an English message")
 	check(L10n.has("common.cancel") and not L10n.has("common.no_such_id"), "has()")
 	check(L10n.text_in("de", "common.cancel") == "Abbrechen", "a German message")
-	check(not L10n.automatic_ok("de") and L10n.automatic_ok("en"), "Automatic never picks a sample translation")
+	check(L10n.automatic_ok("de") and L10n.automatic_ok("en"), "Automatic may pick a partial product locale, never a sample")
 	for code in Catalog.TEXT:
 		for id in Catalog.TEXT[code]:
 			check(Catalog.TEXT["en"].has(id), "%s translates %s, which English does not have" % [code, id])
@@ -72,13 +78,14 @@ func _run() -> void:
 	for c in [["en", 0, "other"], ["en", 1, "one"], ["en", 2, "other"], ["de", 1, "one"], ["de", 5, "other"], ["fr", 0, "one"],
 			["fr", 1, "one"], ["fr", 2, "other"], ["pl", 1, "one"], ["pl", 3, "few"], ["pl", 5, "many"], ["pl", 22, "few"],
 			["pl", 12, "many"], ["ru", 21, "one"], ["ru", 11, "many"], ["ru", 23, "few"], ["cs", 3, "few"], ["cs", 5, "other"],
-			["zh", 1, "other"]]:
+			["zh-Hans", 1, "other"], ["ja", 1, "other"], ["ko", 1, "other"], ["pt-BR", 0, "one"], ["pt-BR", 2, "other"]]:
 		check(L10n.plural_category(c[0], c[1]) == c[2], "plural_category(%s, %d) = %s" % c)
 
 	# the retail install's language: lang/<Language>.big
 	if dir != "":
 		for g in [["german", ["German.big", "GermanAudio.big", "germanpatch201.big"]], ["english", ["English.big", "englishpatch201.big"]],
-				["two", ["English.big", "French.big"]], ["none", ["Splash.big"]]]:
+				["chinese", ["Chinese.big"]], ["brazilian", ["Brazilian.big"]], ["two", ["English.big", "French.big"]],
+				["none", ["Splash.big"]]]:
 			var lang := dir.path_join(g[0]).path_join("lang")
 			DirAccess.make_dir_recursive_absolute(lang)
 			for f in g[1]:
@@ -86,6 +93,8 @@ func _run() -> void:
 		var de := L10n.install_language(dir.path_join("german"))
 		check(de.code == "de" and de.name == "German" and de.error == "", "a German install: %s" % de)
 		check(L10n.install_language(dir.path_join("english")).code == "en", "an English install")
+		check(L10n.install_language(dir.path_join("chinese")).code == "zh-Hans", "a Simplified Chinese install uses the exact product tag")
+		check(L10n.install_language(dir.path_join("brazilian")).code == "pt-BR", "a Brazilian Portuguese install uses the exact product tag")
 		var two := L10n.install_language(dir.path_join("two"))
 		check(two.code == "" and two.error.contains("several languages"), "two languages are not guessed: %s" % two)
 		check(L10n.install_language(dir.path_join("none")).code == "", "no language archive: unknown")

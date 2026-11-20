@@ -1,6 +1,6 @@
 # ScriptCat для WOTR Remaster
 
-Сейчас **1.16.2** (WOTR-D-008), локальная адаптация upstream 1.16.1.
+Сейчас **1.16.3** (WOTR-D-014), локальная адаптация upstream 1.16.1.
 
 ## Источник
 
@@ -19,6 +19,16 @@
 - прежние project-specific history assertions читают frozen fixtures, а operational docs остаются WOTR-only;
 - forbidden legacy project/pre-product wording удалено из runtime and repository docs;
 - source change сопровождается plain-semver bump, rebuilt bundle and complete test gate.
+
+## Выпуск 1.16.3 (WOTR-D-014)
+
+Transport behavior не меняется. Process/profile refresh:
+
+- embedded regulation 1.1 классифицирует Upstream Integrator как Executor и оставляет единственного Maintainer транспорта;
+- prompt требует declared `build`/`retail` Cost gate и запрещает самовольные full build/Drive hydration;
+- i18n block фиксирует `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko` и locale-invariant hash;
+- WOTR bootstrap profile просит агента прочитать cost policy до работы;
+- bundle regenerated из source и digest; полный ScriptCat gate обязателен и записан в `docs/evidence/scriptcat-1.16.3.md`.
 
 ## Установка
 

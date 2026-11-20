@@ -18,7 +18,7 @@ Campaign Pack ──> WotrRemaster deterministic core ──> canonical state/sa
                                          └──────────────> core apply
 ```
 
-Стратегия и editor — продукт WOTR Remaster. OpenBFME — tactical runtime и retail asset provider. Интеграция остаётся нативной внутри одного build; JSON допустим для fixtures/debug export, но не является обязательным runtime IPC.
+Стратегия и editor — продукт WOTR Remaster. OpenBFME — tactical runtime и retail asset provider. Интеграция остаётся нативной внутри одного build; JSON допустим для fixtures/debug export, но не является обязательным runtime IPC. Legacy import/capacity/custom-map contract принят в [ADR-002](architecture/ADR-002-LEGACY-WORLD-IMPORT-AND-TACTICAL-CAPACITY.md), locale baseline — в [ADR-003](architecture/ADR-003-PRODUCT-LOCALES.md).
 
 ## 2. Upstream baseline
 
@@ -48,11 +48,12 @@ godot/
     tests/                           headless interaction/visual tests
 campaigns/
   schema/                            versioned machine-readable schemas
+  import/                            versioned one-way legacy importer + stable-ID mapping
   vanilla_rotwk_201/                 references/data, no copied retail assets
   fixtures/                          synthetic tiny packs
 art/                                 licensed custom strategic assets only
 docs/                                process, architecture, missions and ADR
- tools/script-cat/                   agent transport (protected)
+tools/script-cat/                    agent transport (protected)
 ```
 
 Фактические пути утверждаются первой карточкой source integration; смысл границ менять нельзя.
@@ -114,7 +115,8 @@ The request is immutable after launch and contains at least:
 - campaign/state hash at dispatch;
 - tactical profile and map reference;
 - region/terrain context used by strategic resolution;
-- participants, teams, human/AI assignment and deterministic tactical seed;
+- participants, canonical tactical-side partition, teams, human/AI assignment and deterministic tactical seed;
+- selected primary/fallback map component hash, required side count and verified start capacity;
 - armies and stable strategic army/member IDs;
 - templates, quantities, experience/rank and persistent upgrades;
 - heroes and revival/persistence metadata;
@@ -123,6 +125,8 @@ The request is immutable after launch and contains at least:
 - return policy and checksum.
 
 The adapter maps this into OpenBFME's native start structures. The core never depends on a Godot Dictionary as its canonical representation.
+
+Participants are partitioned by the campaign diplomacy snapshot into opposed tactical sides. Allied armies share their side's start while retaining separate army/member IDs. Real-time launch requires `side_count <= verified_usable_starts`. The core tries the location's ordered, pack-pinned compatible fallback maps; if none has capacity it emits canonical autoresolve reason `tactical_capacity_exceeded`. It never drops a participant or lets unordered local file discovery choose a map.
 
 ### 5.2 BattleResult
 
@@ -168,18 +172,21 @@ A pack is versioned data with:
 - topology/hex/region definitions and visual placement;
 - faction/player/army/hero definitions;
 - ruleset parameters, starts and objectives;
-- tactical map/template references;
+- ordered primary/fallback tactical map references;
+- content-addressed custom map components with declared starts/supported sides/profile, localization IDs, license/provenance and SHA-256 manifest;
 - custom asset manifest with license/provenance/hash;
 - dependencies and deterministic override order;
-- migration metadata.
+- migration/import metadata.
 
-Reference kinds are explicit (`retail:`, `pack:`, `custom:` or equivalent accepted schema). Absolute author-machine paths are invalid. Vanilla and mod packs pass the same validator.
+Reference kinds are explicit (`retail:`, `pack:`, `custom:` or equivalent accepted schema). Absolute author-machine paths are invalid. Vanilla and mod packs pass the same validator. `pack:` maps mount as immutable overlays through `GodotRetailFileSystem`; save/network envelopes pin pack and resolved component hashes. Missing, ambiguous, changed or incompatible maps fail before launch and can only take the declared autoresolve path.
+
+A versioned one-way importer may convert the pinned world/ownership/region/location content of `Creative36711/wotr` into this schema. It emits stable IDs, canonical bytes and a source/hash/loss report, but imports no React/Tauri/Win32/OCR runtime. Publication of generated full content or legacy BIG remains blocked until its license/provenance is authorized.
 
 ## 8. Retail boundary
 
 Retail BFME2 1.06 and RotWK 2.01 are user-supplied and read-only. OpenBFME's archive policy validates expected files by size/hash and mounts original archives in a defined order. Product tests receive locations through `BFME2_INSTALL` and `ROTWK_INSTALL` or the runtime's normal install-path configuration.
 
-No retail binary is added by WOTR product commits. Byte-exact transfer tooling is operational support, not a content packaging mechanism. A canary part is verified before any bulk transfer.
+No retail binary is added by WOTR product commits or retained in any published reachable ref. Byte-exact transfer tooling is operational support, not a content packaging mechanism. A canary part is verified before any bulk transfer. Engine build and retail hydration follow the tiered policy in `docs/agents/cost-gates.md`; retail is not a default gate for unrelated work.
 
 ## 9. Save envelope
 
@@ -201,6 +208,8 @@ WotrSave {
 
 Mid-battle saves additionally carry immutable `BattleRequest` identity and the tactical save reference required by OpenBFME. On return, result identity must match both.
 
+Locale is presentation state and is deliberately absent from this envelope and `state_bytes`. Required product catalogs are `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; English is source/per-message fallback. Campaign Pack display text uses localization IDs. Exact locale tags, completeness and cultural/rendering gates are specified by ADR-003 and `docs/L10N.md`.
+
 ## 10. Testing pyramid
 
 1. Pure unit/property tests with tiny synthetic packs.
@@ -211,7 +220,7 @@ Mid-battle saves additionally carry immutable `BattleRequest` identity and the t
 6. Arena end-to-end walking skeleton with screenshot/log/save/hash artifacts.
 7. Upstream sync gate replaying levels 1–6.
 
-The final level cannot be replaced by mocks or serialized hand-written results.
+The final level cannot be replaced by mocks or serialized hand-written results. Levels are selected by affected boundary: static/focused checks first, a full source build for engine/ABI/upstream handoff, and retail only for retail-sensitive/final integration. The normative selection matrix is `docs/agents/cost-gates.md`.
 
 ## 11. Upstream synchronization
 

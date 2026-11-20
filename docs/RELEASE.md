@@ -134,6 +134,12 @@ Not reproduced by `package.sh`, recorded instead:
   `BUILDINFO-<version>.txt` next to the archives; a different zlib can compress
   differently, so a verification runs with the same tools.
 
+## Release cost and history gates
+
+A release candidate is always `build: full` and `retail: reuse|hydrate` under `docs/agents/cost-gates.md`; iteration may use focused checks, but signing or publication may not replace the final full/retail oracle with skips or mocks. Reuse is allowed only for a revalidated pinned `.retail` snapshot; otherwise the release card must explicitly authorize hydration.
+
+Before any package build, a complete clone must pass `python3 tools/release/retail_history_audit.py`. The gate scans every fetched head/tag, not only the candidate tree, and refuses shallow clones. Exit 1 (reachable `BFME2/` or `RotWK/` ordinary/LFS blobs) or exit 2 (incomplete proof) blocks packaging, signing and publication. Both release workflows run this check after a full-history checkout. Remediation is the owner-approved mirror rewrite and fresh-clone verification in `docs/RETAIL-HISTORY-AUDIT.md`; deleting files only at the tip is not remediation.
+
 ## Making a package
 
 Run these commands from the repository root on Linux, with Bash, Python 3.11 or newer, CMake/Ninja, Git,

@@ -56,6 +56,36 @@ Godot реализует 2.5D hex map, HUD и Campaign Pack editor. OpenBFME God
 
 ## WOTR-D-009 · Legacy WOTR boundary
 
+**Дата:** 2026-11-20 · **Статус:** заменено WOTR-D-012.
+
+Механики из `Creative36711/wotr` не импортируются автоматически. Любой перенос начинается с отдельного обсуждения состава, лицензии, compatibility и migration; до решения репозиторий используется только как возможный future reference. Аудит и решение WOTR-D-012 завершили это обсуждение, сохранив запрет runtime dependency и license gate.
+
+## WOTR-D-010 · Upstream Integrator — Executor specialization
+
 **Дата:** 2026-11-20 · **Статус:** принято.
 
-Механики из `Creative36711/wotr` не импортируются автоматически. Любой перенос начинается с отдельного обсуждения состава, лицензии, compatibility и migration; до решения репозиторий используется только как возможный будущий reference.
+`Upstream Integrator` классифицируется как узкий `Executor`: он реализует конечный pinned sync и сдаёт проверяемый результат, но не содержит постоянно работающий transport. Функция `Maintainer` зарезервирована исключительно за `Transport Maintainer`, который чинит ScriptCat/relay. Upstream Integrator не принимает собственный sync; независимый audit сохраняется.
+
+## WOTR-D-011 · Tiered build и retail cost gates
+
+**Дата:** 2026-11-20 · **Статус:** принято.
+
+Каждая карточка до выдачи объявляет `build: none|focused|full` и `retail: none|reuse|hydrate`. Итерация начинается static/focused проверками. Full engine build обязателен для engine/ABI/upstream/final handoff; retail — только для archive/map/start/tactical round-trip, upstream, release и final mission boundaries. Drive hydration требует явного разрешения, metadata/canary/space checks и reuse verified `.retail`. Нормативная матрица: `docs/agents/cost-gates.md`.
+
+## WOTR-D-012 · Legacy world importer, tactical sides и custom maps
+
+**Дата:** 2026-11-20 · **Статус:** принято · **ADR:** `docs/architecture/ADR-002-LEGACY-WORLD-IMPORT-AND-TACTICAL-CAPACITY.md`.
+
+World/locations/regions/ownership/content из `Creative36711/wotr@fd12e3a3a52ad485f95af3ff559610fd2778570b` переносятся versioned one-way importer со stable IDs, canonical output и provenance/loss report; React/Tauri/Win32/OCR runtime не переносится. Публикация полного dataset и `__wotr_maps.big` ждёт подтверждённой лицензии. Tactical capacity считается по противоборствующим sides, союзники делят start; overflow выбирает первый совместимый declared fallback map либо canonical autoresolve. Новые карты поставляются как лицензированные content-addressed Campaign Pack overlays с starts/profile/hash/provenance.
+
+## WOTR-D-013 · Synapse locale baseline
+
+**Дата:** 2026-11-20 · **Статус:** принято · **ADR:** `docs/architecture/ADR-003-PRODUCT-LOCALES.md`.
+
+Обязательные product locales: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`. Английский — source/per-message fallback; production support требует 100% coverage, native-language/cultural review, rendering/font/input evidence и locale-invariant canonical hash. Добавляется Executor-specialization `Localization & Cultural QA Engineer`; независимую проверку выполняет UX & Modding Auditor.
+
+## WOTR-D-014 · ScriptCat 1.16.3 process/profile refresh
+
+**Дата:** 2026-11-20 · **Статус:** принято.
+
+Без изменения transport protocol ScriptCat обновляется с 1.16.2 до 1.16.3: embedded regulation 1.1, точная роль Upstream Integrator, declared build/retail Cost gate, eight-locale i18n block и bootstrap profile с обязательным чтением cost policy. Source/version/bundle меняются вместе и проходят полный transport gate.

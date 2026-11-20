@@ -1,0 +1,17 @@
+{
+  "@@locale": "pt-BR",
+  "@@name": "Português (Brasil)",
+  "@@status": "partial",
+  "common.cancel": "Cancelar",
+  "common.close": "Fechar",
+  "game.wotr.map_missing.text": "O mapa de batalha de {region} não está nesta instalação, então a batalha foi resolvida automaticamente.",
+  "game.wotr.map_missing.title": "Mapa de batalha ausente",
+  "game.wotr.rts_demoted.text": "A batalha em {region} tem mais lados adversários do que posições iniciais utilizáveis no mapa, então foi resolvida automaticamente.",
+  "game.wotr.rts_demoted.title": "Batalha resolvida automaticamente",
+  "launcher.settings.language": "Idioma",
+  "launcher.settings.language_note": "O idioma dos textos próprios do OpenBFME. Os textos do jogo permanecem no idioma da sua instalação.",
+  "launcher.settings.language_sample": "{language} (tradução incompleta)",
+  "launcher.settings.language_automatic": "Automático ({language})",
+  "launcher.settings.language_restart": "Será aplicado na próxima inicialização do launcher.",
+  "launcher.settings.title": "Configurações"
+}
