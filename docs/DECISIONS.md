@@ -89,3 +89,13 @@ World/locations/regions/ownership/content из `Creative36711/wotr@fd12e3a3a52ad
 **Дата:** 2026-11-20 · **Статус:** принято.
 
 Без изменения transport protocol ScriptCat обновляется с 1.16.2 до 1.16.3: embedded regulation 1.1, точная роль Upstream Integrator, declared build/retail Cost gate, eight-locale i18n block и bootstrap profile с обязательным чтением cost policy. Source/version/bundle меняются вместе и проходят полный transport gate.
+
+## WOTR-D-015 · Hybrid Godot UI art pipeline
+
+**Дата:** 2026-11-20 · **Статус:** принято · **Контракт:** `docs/tooling/ART-PIPELINE.md`.
+
+Runtime UI строится из Godot `Control`/`Container`/`Theme`: layout, input, focus, states и локализованный текст не запекаются в картинки. SVG применяется для точной геометрии, иконок и masks; материальные рамки, фактуры, портреты и атмосферный art создаются как raster assets, а растяжимые панели интегрируются через 9-slice. Native alpha предпочтителен; закреплённый `cutout-chromakey` используется как воспроизводимый fallback для строгого `#00FF00`.
+
+Visual card сначала фиксирует style brief, named asset list, consuming scenes, provenance и budget `0–10 images` в пределах текущей Arena quota. Генерация и обработка источников принадлежат Scope Technical Artist, scene structure/integration — Godot World Engineer, независимый открытый render — UX & Modding Auditor. Неиспользованные варианты, generated text, full-screen hitbox images и official/retail artwork не коммитятся.
+
+**Откат:** generated skin и Theme resources можно удалить/заменить без изменения команд, canonical state или save; Godot structural UI остаётся функциональным.

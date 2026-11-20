@@ -26,6 +26,10 @@ commands: <минимальный обязательный набор>
 
 Начинать с T0/T1. T2/T3 выполняются один раз на финальном SHA, если обязательны; отсутствующий retail остаётся `not run`, а не pass. Release-кандидат дополнительно требует clean all-ref history gate из `docs/RETAIL-HISTORY-AUDIT.md`.
 
+## Visual/UI gate, если применимо
+
+Следовать `docs/tooling/ART-PIPELINE.md`. До выдачи назвать style brief, конкретный asset list и consuming scenes/nodes, разделить Godot layout/integration и Technical Artist generation/provenance, задать budget `0–10 images` на visual card, source/runtime paths, states/resolutions/locales и открываемые acceptance renders. Текст и interaction не запекаются в изображения; unselected generations не коммитятся.
+
 ## Инварианты
 
 Нумерованный список свойств, которые нельзя нарушить. Не смешивать с выбранной реализацией.

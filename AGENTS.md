@@ -8,7 +8,8 @@ Before changing anything, read:
 2. `docs/PHASES.md` — phases 1–8 and the active mission;
 3. the active specification in `docs/missions/`;
 4. the matching role document in `docs/agents/roles/`;
-5. `docs/agents/cost-gates.md` before building the engine or hydrating retail data.
+5. `docs/agents/cost-gates.md` before building the engine or hydrating retail data;
+6. `docs/tooling/ART-PIPELINE.md` before changing UI, HUD, editor visuals, icons, textures, or generated art.
 
 ## Non-negotiable architecture
 
@@ -20,6 +21,7 @@ Before changing anything, read:
 - Import legacy world data from `Creative36711/wotr` only through the accepted versioned one-way importer with stable IDs/provenance; do not adopt its React/Tauri/Win32 runtime or publish its dataset/BIG before license authorization.
 - Count tactical capacity by opposed sides: allies share a start; side overflow uses a declared compatible fallback map or deterministic autoresolve. New maps are licensed content-addressed Campaign Pack overlays.
 - Product locales are exactly `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; locale must never alter canonical state or hashes.
+- UI structure is Godot `Control`/`Container`/`Theme`; SVG supplies precise geometry, while generated raster art supplies material and atmosphere. Never ship a whole screen as one image or bake text into generated assets. Follow `docs/tooling/ART-PIPELINE.md`.
 
 ## Repository safety
 

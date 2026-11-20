@@ -16,9 +16,10 @@ tracked in `docs/STOPS.md`. See the architecture records in
 This is one repository for product code, OpenBFME integration, process documents,
 and the ScriptCat transport. Start with `AGENTS.md`, `docs/REGULATION.md`,
 `docs/PHASES.md`, the active specification in `docs/missions/`, and the tiered
-build/retail policy in `docs/agents/cost-gates.md`. ScriptCat 1.16.3 and its WOTR
-profile live in `tools/script-cat/`; its complete local gate is
-`npm run verify:scriptcat`.
+build/retail policy in `docs/agents/cost-gates.md`. Visual cards also follow the
+hybrid Godot/SVG/generated-raster contract in `docs/tooling/ART-PIPELINE.md`.
+ScriptCat 1.16.3 and its WOTR profile live in `tools/script-cat/`; its complete
+local gate is `npm run verify:scriptcat`.
 
 ## Arena bootstrap
 
