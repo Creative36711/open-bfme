@@ -1,0 +1,6 @@
+# Machine-readable upstream pin for WOTR Remaster.
+repository=https://github.com/Open-BFME/openbfme-godot.git
+tag=v0.4.12-nightly.261118100
+commit=4a8d82727c2664c381b7b1c07344881760c4765b
+license=GPL-3.0
+pinned_at=2026-11-20
