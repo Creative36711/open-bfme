@@ -1,0 +1,88 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="OpenBFME"
+run/main_scene="res://scenes/game.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+run/max_fps=0
+
+[autoload]
+
+Release="*res://scripts/release/release.gd"
+
+[debug]
+
+file_logging/enable_file_logging=false
+file_logging/enable_file_logging.pc=false
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+textures/vram_compression/import_etc2_astc=true
+
+[openbfme]
+
+rendering/soft_particles=true
+
+[shader_globals]
+
+; lane WEATHERFX-1: the Enhanced look's weather (scripts/weather_fx.gd, shaders/weather_fx.gdshaderinc); 0 = off, the Original look
+wfx_enabled={
+"type": "float",
+"value": 0.0
+}
+wfx_time={
+"type": "float",
+"value": 0.0
+}
+wfx_wet={
+"type": "float",
+"value": 0.0
+}
+wfx_ripples={
+"type": "float",
+"value": 0.0
+}
+wfx_snow={
+"type": "float",
+"value": 0.0
+}
+wfx_clouds={
+"type": "float",
+"value": 0.0
+}
+wfx_cloud_offset={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+wfx_flash={
+"type": "float",
+"value": 0.0
+}
+wfx_gloom={
+"type": "float",
+"value": 0.0
+}
+wfx_noise_tex={
+"type": "sampler2D",
+"value": ""
+}
+
+[editor]
+
+; lane RELEASE-1: scenes are exported as their committed text (.tscn); the binary conversion gives every export new random ids, which
+; would make the packages unreproducible (docs/RELEASE.md)
+export/convert_text_resources_to_binary=false

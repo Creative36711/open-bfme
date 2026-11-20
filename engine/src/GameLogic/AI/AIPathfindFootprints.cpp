@@ -1,0 +1,432 @@
+// OpenBFME. GPL-3.0.
+// Derived from Command & Conquer Generals Zero Hour, (c) 2001-2003 Electronic Arts Inc., GPL-3.0.
+//
+// Structure footprints on the pathfind grid: which objects become obstacles and which cells they cover. Port of RW
+// Pathfinder::classifyObjectFootprint (internal_classifyObjectFootprint) 0x936B7D and its fence routine 0x934E34, with ZH
+// AIPathfind.cpp:4007-4505 as the structural donor. See docs/STOPS.md S-164.
+//
+// TARGET FACTS (RW game.dat, S-001 caveat):
+//   * skipped objects, in order: KindOf BRIDGE_TOWER, PROJECTILE, DO_NOT_CLASSIFY; a fence (template FenceWidth > 0, not
+//     WALK_ON_TOP_OF_WALL and not DEFENSIVE_WALL) goes to the fence routine; then everything that is not a STRUCTURE, a mobile object
+//     (KindOf IMMOBILE clear), an object whose geometry IsSmall, an object in construction (status index 88), an object higher than
+//     10 above the ground unless it is a wall piece (the height test is INFERRED).
+//   * `wall` = BLOCKING_GATE or the walk-on-top-of-wall flag; `s22` = SCALEABLE_WALL on insertion.
+//   * BOX (ZH's rasteriser): step 5 along the rotated axes, ceil(0.4 * radius) steps, cell = floor((v + 0.5) * 0.1), the cell must be
+//     inside 0 <= c < extent.hi; only a CLEAR (0) or RUBBLE (3) cell takes an obstacle on insertion ({3, 4} on removal); a wall piece
+//     first turns a CLIFF or RUBBLE cell into CLEAR; a wall also writes bit 17 (gate area) and every footprint writes bit 22 (s22).
+//   * SPHERE / CYLINDER: ZH's rasteriser (size = r * 0.1 + 0.4, top-left floor(0.5 + (p - r) * 0.1) - 1).
+//   * afterwards, in the box of the object grown by one cell: removal turns type 5 back to CLEAR; pass A clears bit 16 and marks a
+//     CLEAR cell pinched when it has fewer than 2 clear cross neighbours or fewer than 4 clear neighbours; pass B turns pinched CLEAR
+//     cells into type 5 (RW's IMPASSABLE role, the cell the pathfinder never enters); pass C marks CLEAR cells with an OBSTACLE cross
+//     neighbour pinched.
+//   * (lane PATH-2) every shape of the object's geometry list is rasterised (RW 0x936E25: inactive shapes and shapes with a z offset above 10
+//     are skipped, a shape sits at the object's position moved by its turned offset, RW 0xAD14F0); the post region is the box of all active
+//     shapes (RW 0xAD1D60) grown to whole cells and by one (RW 0x937469).
+//   * lane WALLFOOT-1: a cell whose layer is not the ground (a wall top or ramp cell of the ground grid, cell + 0xC & 0x3F0 != 0x10) is written by the
+//     box only for a gate or wall object ([EBP + 0x7F]) and only when its type is CLEAR / RUBBLE on insertion, RUBBLE / OBSTACLE on removal (RW
+//     0x93706D .. 0x9370BA); the cylinder skips it (RW 0x93737A); the removal's type 5 to CLEAR (RW 0x937587) and passes A, B, C (RW 0x9375F4,
+//     0x937717, 0x9377A3) touch ground-layer cells only (pass A: an off-ground cell keeps its pinched bit). The same in BFME2 1.06 (0x930212: 0x930702,
+//     0x930A0F, 0x930C1C, 0x930C89, 0x930DAC, 0x930E38).
+//   * lane WALLFOOT-1: the keep flag ([EBP + 0x78], RW 0x6E861E's removal: GateOpenAndCloseBehavior's geometry change, opening and closing) leaves bit 17
+//     on the removed box's cells (RW 0x937140); the cylinder writes bit 17 whatever it is (RW 0x9373C7) and calls no setType (no CLIFF / RUBBLE to CLEAR).
+//     BFME2 1.06: 0x9307D5, the wrapper 0x6E71AD.
+// Not modelled (S-164): the object's pathfind module calls (RW obj+0x84,
+// obj+0xA4), the BASE_SITE bit-17 window, status 77 and the WALL_UPGRADE query. The wall tops and ramps of a wall piece: AIPathfindWalls.cpp (S-4840).
+
+#include "GameLogic/AI/AIPathfind.h"
+#include "GameLogic/AI/AIPathfindStops.h"
+#include "GameLogic/SimMath.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace
+{
+inline int realToIntFloor(float f)
+{
+	return SimMath::floorToInt(f);
+}
+inline int realToIntCeil(float f)
+{
+	return SimMath::ceilToInt(f);
+}
+} // namespace
+
+void Pathfinder::classifyFence(PathfindObject &obj, bool insert)
+{
+	// TARGET RW 0x934E34 (the cell-bounds initialisation was not read: the object's own cell)
+	const Coord3D *pos = &obj.getPosition();
+	float angle = obj.getOrientation();
+	float halfsizeX = obj.getFenceWidth() / 2;
+	float halfsizeY = 10.0f / 10.0f;
+	float fenceOffset = obj.getFenceXOffset();
+	float c = SimMath::cosDet(angle);
+	float s = SimMath::sinDet(angle);
+	const float STEP_SIZE = 10.0f * 0.5f;
+	float ydx = s * STEP_SIZE;
+	float ydy = -c * STEP_SIZE;
+	float xdx = c * STEP_SIZE;
+	float xdy = s * STEP_SIZE;
+	int numStepsX = realToIntCeil(2.0f * halfsizeX / STEP_SIZE);
+	int numStepsY = realToIntCeil(2.0f * halfsizeY / STEP_SIZE);
+	float tl_x = pos->x - fenceOffset * c - halfsizeY * s;
+	float tl_y = pos->y + halfsizeY * c - fenceOffset * s;
+	PathfindRegion cellBounds;
+	cellBounds.lo.x = realToIntFloor((pos->x + 0.5f) * 0.1f);
+	cellBounds.lo.y = realToIntFloor((pos->y + 0.5f) * 0.1f);
+	cellBounds.hi = cellBounds.lo;
+	for (int iy = 0; iy < numStepsY; ++iy, tl_x += ydx, tl_y += ydy)
+	{
+		float x = tl_x;
+		float y = tl_y;
+		for (int ix = 0; ix < numStepsX; ++ix, x += xdx, y += xdy)
+		{
+			int cx = realToIntFloor((x + 0.5f) * 0.1f);
+			int cy = realToIntFloor((y + 0.5f) * 0.1f);
+			if (cx >= 0 && cy >= 0 && cx < m_extent.hi.x && cy < m_extent.hi.y)
+			{
+				PathfindCell &cellRef = *getCell(LAYER_GROUND, cx, cy);
+				bool changed = false;
+				if (insert)
+				{
+					ICoord2D p;
+					p.x = cx;
+					p.y = cy;
+					changed = cellRef.setTypeAsObstacle(m_pool, obj, true, p);
+				}
+				else
+				{
+					changed = cellRef.removeObstacle(m_pool, obj);
+				}
+				if (changed)
+				{
+					// lane QPATH-1: RW 0x93485A / 0x93491C leave the cell's zone (+ 8) alone; only the block is marked dirty (RW 0x937D96)
+					if (!m_buildingMap) m_zoneManager.markCellDirty(cx, cy);
+				}
+				if (cellBounds.lo.x > cx) cellBounds.lo.x = cx;
+				if (cellBounds.lo.y > cy) cellBounds.lo.y = cy;
+				if (cellBounds.hi.x < cx) cellBounds.hi.x = cx;
+				if (cellBounds.hi.y < cy) cellBounds.hi.y = cy;
+			}
+		}
+	}
+}
+
+void Pathfinder::classifyObjectFootprint(PathfindObject &obj, bool insert, bool keepGateFlag)
+{
+	if (obj.isKindOf(PK_BRIDGE_TOWER) || obj.isKindOf(PK_PROJECTILE) || obj.isKindOf(PK_DO_NOT_CLASSIFY))
+	{
+		return;
+	}
+	bool walkOnWall = obj.isKindOf(PK_WALK_ON_TOP_OF_WALL); // RW 0x936BCE .. 0x936BDD: template + 0x10F bit 4 (`local_16`, [EBP + 0x56])
+	if (!walkOnWall && obj.getFenceWidth() > 0.0f && !obj.isKindOf(PK_DEFENSIVE_WALL))
+	{
+		classifyFence(obj, insert);
+		return;
+	}
+	if (!insert)
+	{
+		if (obj.isKindOf(PK_BLAST_CRATER))
+		{
+			return; // these footprints are permanent (ZH)
+		}
+		removeUnitFromPathfindMap(obj);
+		classifyWall(obj, false); // lane WALL-1: a wall piece's tops and ramps leave with it (none when it never classified any)
+	}
+	if (!obj.isKindOf(PK_STRUCTURE))
+	{
+		return; // only path around structures
+	}
+	if (obj.isMobile())
+	{
+		return; // RW 0x690E97: mobile units aren't obstacles
+	}
+	if (obj.getGeometry().isSmall)
+	{
+		return; // small objects are not obstacles
+	}
+	if (obj.footprintSkippedByStatus())
+	{
+		return; // under construction
+	}
+	// review of #63 (RW 0x936C68 .. 0x936C97): the wall flag of a WALK_ON_TOP_OF_WALL template is cleared by the object status CAN_NOT_WALK_ON (RW
+	// 0x44DDEC(0x4D)) unless the template is a WALL_UPGRADE (template + 0x11A bit 6), whose flag becomes the drawable's answer instead (RW 0x672F44: the OR
+	// of every draw module's vslot 0xDC). NOT PORTED (S-4840): that answer; the W3DModelDraw family's vtables (RW 0xBE3B78, 0xBE1AD0, 0xBE1E58) have a bare
+	// `ret` there (RW 0x63F3BF), so AL is the vtable address' low byte, nonzero: set, the KindOf's value kept here
+	if (walkOnWall && !obj.isKindOf(PK_WALL_UPGRADE) && obj.cannotWalkOn())
+	{
+		walkOnWall = false;
+	}
+	if (obj.getHeightAboveTerrain() > 10.0f && !walkOnWall)
+	{
+		return; // don't add bounds that are up in the air
+	}
+	internal_classifyObjectFootprint(obj, insert, walkOnWall, keepGateFlag);
+	if (insert && walkOnWall)
+	{
+		// lane WALL-1: BFME2 0x930212 -> Pathfinder::ClassifyWall (0x92F63F) for an object whose drawable has a WallBoundsMesh / RampMesh (AIPathfindWalls.cpp).
+		// From lane BRIDGE-1: only with the wall flag (RW 0x936B7D's tail tests [EBP + 0x56] at RW 0x937881 before the call RW 0x9378A3): a structure with
+		// the meshes but without the KindOf (Erebor's DaleBridge, flush with the terrain) is no wall top or ramp
+		classifyWall(obj, true);
+	}
+}
+
+void Pathfinder::internal_classifyObjectFootprint(PathfindObject &obj, bool insert, bool walkOnWall, bool keepGateFlag)
+{
+	// RW 0x936CDF .. 0x936CF3: [EBP + 0x7F] = BLOCKING_GATE (template + 0x119 bit 1) or the wall flag above
+	const bool wall = obj.isKindOf(PK_BLOCKING_GATE) || walkOnWall;
+	const bool s22 = insert ? obj.isKindOf(PK_SCALEABLE_WALL) : false;
+	if (wall || s22)
+	{
+		note(pathstops::kBaseSiteWindow);
+	}
+	if (!wall)
+	{
+		note(pathstops::kWallFlagDrawable); // lane WALLFOOT-1: RW 0x936E21 can set [EBP + 0x7F] from the drawable (S-164)
+	}
+	const PathfindGeometry &geom = obj.getGeometry();
+	const float angle = obj.getOrientation();
+	// lane WALLFOOT-1: `box` the box rasteriser (RW 0x936EE8), else the cylinder / sphere one (RW 0x9371ED)
+	bool groundFiltered = false;
+	auto applyCell = [&](int cx, int cy, bool box) {
+		PathfindCell &cellRef = *getCell(LAYER_GROUND, cx, cy);
+		const PathfindCell::CellType t = cellRef.getType();
+		const bool proceed = insert ? (t == PathfindCell::CELL_CLEAR || t == PathfindCell::CELL_RUBBLE) : (t == PathfindCell::CELL_RUBBLE || t == PathfindCell::CELL_OBSTACLE);
+		if (cellRef.getLayer() != LAYER_GROUND)
+		{
+			// lane WALLFOOT-1: a wall top or ramp cell (the layer mask RW 0x93706D): the box writes it for a gate or wall object only (RW 0x93707C), of the
+			// types above (.. 0x9370BA); the cylinder never (RW 0x93737A)
+			if (!box || !wall || !proceed)
+			{
+				return;
+			}
+		}
+		else if (!proceed && !(wall && t == PathfindCell::CELL_CLIFF && (insert || !box)))
+		{
+			// lane WALLFOOT-1: RotWK filters the off-ground cells only (RW 0x93707A -> 0x9370C0 for a ground cell); a wall's cliff cell passes on insertion
+			// (the box clears it, RW 0x9370E3) and, review r2, the cylinder's removal (no type filter there, RW 0x9371ED: its bit 17 is cleared, as written)
+			groundFiltered = true;
+			return;
+		}
+		if (box && insert && wall && (t == PathfindCell::CELL_CLIFF || t == PathfindCell::CELL_RUBBLE))
+		{
+			// a wall piece's box overwrites a cliff or rubble cell (RW 0x9370D7 / 0x9370E3); lane WALLFOOT-1: not the cylinder, which calls no setType (RW
+			// 0x9371ED .. 0x93742C), so setTypeAsObstacle leaves such a cell as it is there
+			cellRef.setType(PathfindCell::CELL_CLEAR);
+		}
+		// lane QPATH-1: RW 0x93485A / 0x93491C (the per-cell calls of RW 0x936B7D) leave the cell's zone (+ 8) alone: it keeps its zone until the zone update
+		// (ZH reset it to UNINITIALIZED here)
+		if (insert)
+		{
+			ICoord2D p;
+			p.x = cx;
+			p.y = cy;
+			cellRef.setTypeAsObstacle(m_pool, obj, false, p);
+		}
+		else
+		{
+			cellRef.removeObstacle(m_pool, obj);
+		}
+		// lane WALLFOOT-1: the gate's keeping removal leaves the box's bit 17 (RW 0x93713A / 0x937140); the cylinder writes it regardless (RW 0x9373C7)
+		if (wall && !(box && keepGateFlag) && cellRef.getBit17() != insert)
+		{
+			cellRef.setBit17(insert);
+		}
+		cellRef.setBit22(s22);
+		if (!m_buildingMap) m_zoneManager.markCellDirty(cx, cy);
+	};
+	// RW 0x936E25 .. 0x937463: every shape of the object's geometry in turn (lane PATH-2, S-341): an inactive shape (+0x20) and a shape whose z offset is
+	// above 10 (+0x18, RW 0xBD83D8) are skipped; the others are rasterised at the object's position moved by the shape's turned offset (RW 0xAD14F0)
+	for (size_t shapeIndex = 0; shapeIndex < geom.shapeCount(); ++shapeIndex)
+	{
+		const PathfindShape shape = geom.shape(shapeIndex);
+		if (!shape.active || shape.offsetZ > 10.0f)
+		{
+			continue;
+		}
+		Coord3D shapePos = obj.getPosition();
+		PathfindGeometry::applyShapeOffset(shape, angle, shapePos);
+		const Coord3D *pos = &shapePos;
+		switch (shape.type)
+		{
+		case PATHFIND_GEOMETRY_BOX:
+		{
+			// TARGET RW 0x936EE8: ceil(radius * 0.4f) steps of 5 along each turned axis (the minor axis outside)
+			float halfsizeX = shape.majorRadius;
+			float halfsizeY = shape.minorRadius;
+			float c = SimMath::cosDet(angle);
+			float s = SimMath::sinDet(angle);
+			const float STEP_SIZE = 5.0f;
+			float ydx = SimMath::mulf32(s, STEP_SIZE);
+			float ydy = SimMath::subf32(0.0f, SimMath::mulf32(c, STEP_SIZE));
+			float xdx = SimMath::mulf32(c, STEP_SIZE);
+			float xdy = SimMath::mulf32(s, STEP_SIZE);
+			int numStepsX = realToIntCeil(SimMath::pc24Mul(halfsizeX, 0.4f));
+			int numStepsY = realToIntCeil(SimMath::pc24Mul(halfsizeY, 0.4f));
+			float tl_x = SimMath::subf32(SimMath::subf32(pos->x, SimMath::mulf32(halfsizeX, c)), SimMath::mulf32(halfsizeY, s));
+			float tl_y = SimMath::subf32(SimMath::addf32(SimMath::mulf32(halfsizeY, c), pos->y), SimMath::mulf32(halfsizeX, s));
+			for (int iy = 0; iy < numStepsY; ++iy, tl_x = SimMath::addf32(tl_x, ydx), tl_y = SimMath::addf32(tl_y, ydy))
+			{
+				float x = tl_x;
+				float y = tl_y;
+				for (int ix = 0; ix < numStepsX; ++ix, x = SimMath::addf32(x, xdx), y = SimMath::addf32(y, xdy))
+				{
+					int cx = realToIntFloor(SimMath::pc24Mul(SimMath::pc24Add(x, 0.5f), 0.1f));
+					int cy = realToIntFloor(SimMath::pc24Mul(SimMath::pc24Add(y, 0.5f), 0.1f));
+					if (cx >= 0 && cy >= 0 && cx < m_extent.hi.x && cy < m_extent.hi.y)
+					{
+						applyCell(cx, cy, true);
+					}
+				}
+			}
+		}
+		break;
+		case PATHFIND_GEOMETRY_SPHERE:
+		case PATHFIND_GEOMETRY_CYLINDER:
+		{
+			// TARGET RW 0x9371ED
+			float radius = shape.majorRadius;
+			ICoord2D topLeft, bottomRight;
+			topLeft.x = realToIntFloor(SimMath::addf32(SimMath::mulf32(SimMath::subf32(pos->x, radius), 0.1f), 0.5f)) - 1;
+			topLeft.y = realToIntFloor(SimMath::addf32(SimMath::mulf32(SimMath::subf32(pos->y, radius), 0.1f), 0.5f)) - 1;
+			const float size = SimMath::addf32(SimMath::mulf32(radius, 0.1f), 0.4f);
+			const float centerX = SimMath::mulf32(pos->x, 0.1f);
+			const float centerY = SimMath::mulf32(pos->y, 0.1f);
+			const float r2 = SimMath::mulf32(size, size);
+			const float size2 = SimMath::mulf32(size, 2.0f);
+			bottomRight.x = SimMath::cvttss2si(SimMath::addf32(SimMath::addf32(SimMath::sseFromInt32(topLeft.x), size2), 2.0f));
+			bottomRight.y = SimMath::cvttss2si(SimMath::addf32(SimMath::addf32(SimMath::sseFromInt32(topLeft.y), size2), 2.0f));
+			for (int j = topLeft.y; j < bottomRight.y; j++)
+			{
+				const float deltaY = SimMath::subf32(SimMath::addf32(SimMath::sseFromInt32(j), 0.5f), centerY);
+				const float dy2 = SimMath::mulf32(deltaY, deltaY);
+				for (int i = topLeft.x; i < bottomRight.x; i++)
+				{
+					const float deltaX = SimMath::subf32(SimMath::addf32(SimMath::sseFromInt32(i), 0.5f), centerX);
+					if (!(r2 < SimMath::addf32(SimMath::mulf32(deltaX, deltaX), dy2)))
+					{
+						if (i >= 0 && j >= 0 && i < m_extent.hi.x && j < m_extent.hi.y)
+						{
+							applyCell(i, j, false);
+						}
+					}
+				}
+			}
+		}
+		break;
+		}
+	}
+	if (groundFiltered)
+	{
+		note(pathstops::kGroundTypeFilter);
+	}
+	// the post region (RW 0x937469): the box of every active shape (RW 0xAD1D60), floor(lo * 0.1) - 1 .. ceil(hi * 0.1) + 1, clamped to the extent
+	float box[4];
+	geom.boundingBox2D(obj.getPosition(), angle, box);
+	PathfindRegion region;
+	region.lo.x = std::max(realToIntFloor(SimMath::pc24Mul(box[0], 0.1f)) - 1, m_extent.lo.x);
+	region.lo.y = std::max(realToIntFloor(SimMath::pc24Mul(box[1], 0.1f)) - 1, m_extent.lo.y);
+	region.hi.x = std::min(realToIntCeil(SimMath::pc24Mul(box[2], 0.1f)) + 1, m_extent.hi.x);
+	region.hi.y = std::min(realToIntCeil(SimMath::pc24Mul(box[3], 0.1f)) + 1, m_extent.hi.y);
+	if (!insert)
+	{
+		// removal: type 5 cells go back to CLEAR; lane WALLFOOT-1: ground-layer cells only (RW 0x937587), a ramp's blocked side stays
+		for (int j = region.lo.y; j <= region.hi.y; j++)
+		{
+			for (int i = region.lo.x; i <= region.hi.x; i++)
+			{
+				PathfindCell *c = getCell(LAYER_GROUND, i, j);
+				if (c->getLayer() == LAYER_GROUND && c->getType() == PathfindCell::CELL_BRIDGE_IMPASSABLE)
+				{
+					c->setType(PathfindCell::CELL_CLEAR);
+					if (!m_buildingMap) m_zoneManager.markCellDirty(i, j);
+				}
+			}
+		}
+	}
+	// pass A: pinched cells (fewer than 2 clear cross neighbours or fewer than 4 clear neighbours); lane WALLFOOT-1: ground-layer cells only (RW 0x9375F4),
+	// an off-ground cell keeps its pinched bit (the neighbours still count by type, whatever their layer)
+	for (int j = region.lo.y; j <= region.hi.y; j++)
+	{
+		for (int i = region.lo.x; i <= region.hi.x; i++)
+		{
+			PathfindCell *c = getCell(LAYER_GROUND, i, j);
+			if (c->getLayer() != LAYER_GROUND)
+			{
+				continue;
+			}
+			c->setPinched(false);
+			if (c->getType() == PathfindCell::CELL_CLEAR)
+			{
+				int totalCount = 0;
+				int orthogonalCount = 0;
+				for (int k = i - 1; k < i + 2; k++)
+				{
+					if (k < m_extent.lo.x || k > m_extent.hi.x) continue;
+					for (int l = j - 1; l < j + 2; l++)
+					{
+						if (l < m_extent.lo.y || l > m_extent.hi.y) continue;
+						if ((k == i) && (j == l)) continue;
+						if (getCell(LAYER_GROUND, k, l)->getType() == PathfindCell::CELL_CLEAR)
+						{
+							totalCount++;
+							if ((k == i) || (l == j))
+							{
+								orthogonalCount++;
+							}
+						}
+					}
+				}
+				if (orthogonalCount < 2 || totalCount < 4)
+				{
+					c->setPinched(true);
+				}
+			}
+		}
+	}
+	// pass B: pinched CLEAR cells become type 5; lane WALLFOOT-1: ground-layer cells only (RW 0x937717)
+	for (int j = region.lo.y; j <= region.hi.y; j++)
+	{
+		for (int i = region.lo.x; i <= region.hi.x; i++)
+		{
+			PathfindCell *c = getCell(LAYER_GROUND, i, j);
+			if (c->getLayer() == LAYER_GROUND && c->getPinched() && c->getType() == PathfindCell::CELL_CLEAR)
+			{
+				c->setType(PathfindCell::CELL_BRIDGE_IMPASSABLE);
+				c->setPinched(false);
+				if (!m_buildingMap) m_zoneManager.markCellDirty(i, j);
+			}
+		}
+	}
+	// pass C: CLEAR cells with an OBSTACLE cross neighbour are pinched; lane WALLFOOT-1: ground-layer cells only (RW 0x9377A3)
+	for (int j = region.lo.y; j <= region.hi.y; j++)
+	{
+		for (int i = region.lo.x; i <= region.hi.x; i++)
+		{
+			PathfindCell *c = getCell(LAYER_GROUND, i, j);
+			if (c->getLayer() == LAYER_GROUND && c->getType() == PathfindCell::CELL_CLEAR)
+			{
+				bool objectAdjacent = false;
+				for (int k = i - 1; k < i + 2 && !objectAdjacent; k++)
+				{
+					if (k < m_extent.lo.x || k > m_extent.hi.x) continue;
+					for (int l = j - 1; l < j + 2; l++)
+					{
+						if (l < m_extent.lo.y || l > m_extent.hi.y) continue;
+						if ((k == i) && (l == j)) continue;
+						if ((k != i) && (l != j)) continue;
+						if (getCell(LAYER_GROUND, k, l)->getType() == PathfindCell::CELL_OBSTACLE)
+						{
+							objectAdjacent = true;
+							break;
+						}
+					}
+				}
+				if (objectAdjacent)
+				{
+					c->setPinched(true);
+				}
+			}
+		}
+	}
+}

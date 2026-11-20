@@ -1,0 +1,101 @@
+#!/bin/bash
+# build_windows.sh [--tests-only] [--no-export]: cross-compile OpenBFME for Windows x64 on a Linux host and export the Godot project (lane WIN-1).
+#
+#   1. downloads the pinned llvm-mingw release (UCRT, x86_64 host) and verifies its SHA-256;
+#   2. builds openbfme_tests.exe, openbfme_peer.exe and the GDExtension godot/bin/openbfme.windows.template_debug.x86_64.dll with
+#      engine/cmake/toolchains/windows-x64-llvm-mingw.cmake (the simulation floating-point contract of engine/cmake/SimFp.cmake applies);
+#   3. downloads the official Godot 4.7.2 export templates, verifies them against Godot's SHA512-SUMS.txt, installs them into a private
+#      XDG data dir (never the user's own) and exports the "Windows x64" preset of godot/export_presets.cfg (RELEASE-1's presets) (debug template: the
+#      GDExtension is built as template_debug, like the Linux .so).
+#
+# Everything goes under $OPENBFME_WIN_DIR (default: <repo>/build/windows, git-ignored). Needs: curl, tar, xz, unzip, sha256sum, sha512sum, cmake >= 3.17, ninja, python3, and a
+# Linux Godot 4.7.2 binary as $GODOT (default: godot on PATH) for the export.
+#
+# Outputs: $OPENBFME_WIN_DIR/build/openbfme_tests.exe (run it with tools/release/wine_suite.sh), $OPENBFME_WIN_DIR/export/OpenBFME.exe
+# (+ OpenBFME.console.exe, OpenBFME.pck, openbfme.windows.template_debug.x86_64.dll); the DLL's PDB stays in godot/bin (not exported).
+#
+# Lane WINCRASH-1: every build writes the PDB of the DLL (engine/CMakeLists.txt: CodeView line tables, prefix maps); the home folder
+# prefixes lld records are blanked (tools/release/pdb_tools.py scrub) and the pair is checked (the PDB is the DLL's, no home folder path).
+# It is not exported (round 2: no in-game reader yet); tools/release/archive_symbols.sh keeps it per version for mapping crash offsets.
+# Lane RELFIX-1: the DLL's toolchain build paths are made relative (pdb_tools.py scrub-dll) and the DLL is audited like a package.
+set -euo pipefail
+
+LLVM_MINGW_TAG=20261006
+LLVM_MINGW_NAME=llvm-mingw-${LLVM_MINGW_TAG}-ucrt-ubuntu-22.04-x86_64
+LLVM_MINGW_SHA256=5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4
+GODOT_VERSION=4.7.2
+GODOT_TEMPLATE_DIR_NAME=4.7.2.stable
+
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+W=${OPENBFME_WIN_DIR:-$ROOT/build/windows}
+JOBS=${JOBS:-4}
+GODOT=${GODOT:-godot}
+# lane MACACT-1: the build date the library records (engine/cmake/BuildVersion.cmake) is the commit's, not the build day's, so two
+# builds of one commit (the build host's and GitHub Actions', autorelease.sh compares them byte for byte) are the same bytes
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(git -C "$ROOT" show -s --format=%ct HEAD)}
+TESTS_ONLY=0; EXPORT=1
+for a in "$@"; do
+  case $a in
+    --tests-only) TESTS_ONLY=1 ;;
+    --no-export) EXPORT=0 ;;
+    *) echo "unknown option $a" >&2; exit 2 ;;
+  esac
+done
+mkdir -p "$W/dl"
+
+# ---- 1. the toolchain ------------------------------------------------------------------------------------------------------------------
+if [ ! -x "$W/$LLVM_MINGW_NAME/bin/x86_64-w64-mingw32-clang++" ]; then
+  f="$W/dl/$LLVM_MINGW_NAME.tar.xz"
+  [ -f "$f" ] || curl -fsSL -o "$f" "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_TAG/$LLVM_MINGW_NAME.tar.xz"
+  echo "$LLVM_MINGW_SHA256  $f" | sha256sum -c --quiet || { echo "llvm-mingw archive checksum mismatch: $f" >&2; exit 1; }
+  tar -xf "$f" -C "$W"
+fi
+export LLVM_MINGW_ROOT="$W/$LLVM_MINGW_NAME"
+
+# ---- 2. the engine ---------------------------------------------------------------------------------------------------------------------
+git -C "$ROOT" submodule update --init engine/thirdparty/godot-cpp
+BUILD_GODOT=ON; TARGETS="openbfme_tests openbfme_peer openbfme"
+if [ $TESTS_ONLY = 1 ]; then BUILD_GODOT=OFF; TARGETS="openbfme_tests openbfme_peer"; fi
+# Reference MP3 fixtures are optional for building; only the five MP3 test cases require them when run.
+cmake -S "$ROOT/engine" -B "$W/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBFME_BUILD_GODOT=$BUILD_GODOT \
+  -DCMAKE_TOOLCHAIN_FILE="$ROOT/engine/cmake/toolchains/windows-x64-llvm-mingw.cmake" -DLLVM_MINGW_ROOT="$LLVM_MINGW_ROOT"
+cmake --build "$W/build" -j"$JOBS" --target $TARGETS
+echo "BUILT: $W/build/openbfme_tests.exe"
+[ $TESTS_ONLY = 1 ] && exit 0
+DLL="$ROOT/godot/bin/openbfme.windows.template_debug.x86_64.dll"
+[ -f "$DLL" ] || { echo "the GDExtension was not written to $DLL" >&2; exit 1; }
+PDB="${DLL%.dll}.pdb"
+[ -f "$PDB" ] || { echo "the GDExtension's PDB was not written to $PDB" >&2; exit 1; }
+python3 "$ROOT/tools/release/pdb_tools.py" scrub "$PDB"
+# lane RELFIX-1: the toolchain's static libc++abi brings its own build root's __FILE__ paths (pdb_tools.py); the DLL must then pass the
+# package audit's developer-path rule on its own, so a build path that leaks into it fails here, not at packaging
+python3 "$ROOT/tools/release/pdb_tools.py" scrub-dll "$DLL"
+python3 "$ROOT/tools/release/pdb_tools.py" check "$DLL" "$PDB" || exit 1
+python3 "$ROOT/tools/release/audit_package.py" "$DLL" || { echo "the GDExtension $DLL fails the package audit" >&2; exit 1; }
+echo "BUILT: $DLL"
+echo "BUILT: $PDB"
+[ $EXPORT = 1 ] || exit 0
+
+# ---- 3. the export ---------------------------------------------------------------------------------------------------------------------
+"$GODOT" --version | grep -q "^$GODOT_VERSION\.stable" || { echo "\$GODOT ($GODOT) is not Godot $GODOT_VERSION stable" >&2; exit 1; }
+export XDG_DATA_HOME="$W/xdg-data" XDG_CONFIG_HOME="$W/xdg-config" XDG_CACHE_HOME="$W/xdg-cache"
+T="$XDG_DATA_HOME/godot/export_templates/$GODOT_TEMPLATE_DIR_NAME"
+if [ ! -f "$T/windows_debug_x86_64.exe" ]; then
+  tpz="$W/dl/Godot_v$GODOT_VERSION-stable_export_templates.tpz"; sums="$W/dl/Godot_v$GODOT_VERSION-SHA512-SUMS.txt"
+  base="https://github.com/godotengine/godot/releases/download/$GODOT_VERSION-stable"
+  [ -f "$sums" ] || curl -fsSL -o "$sums" "$base/SHA512-SUMS.txt"
+  [ -f "$tpz" ] || curl -fsSL -o "$tpz" "$base/Godot_v$GODOT_VERSION-stable_export_templates.tpz"
+  want=$(awk -v n="Godot_v$GODOT_VERSION-stable_export_templates.tpz" '$2 == n { print $1 }' "$sums")
+  [ -n "$want" ] && echo "$want  $tpz" | sha512sum -c --quiet || { echo "export template checksum mismatch: $tpz" >&2; exit 1; }
+  mkdir -p "$T"
+  unzip -o -q -j "$tpz" "templates/windows_debug_x86_64.exe" "templates/windows_debug_x86_64_console.exe" \
+    "templates/windows_release_x86_64.exe" "templates/windows_release_x86_64_console.exe" "templates/version.txt" -d "$T"
+fi
+# the import cache first (a first import may abort on a known Godot quirk: run it twice)
+"$GODOT" --headless --path "$ROOT/godot" --import >/dev/null 2>&1 || "$GODOT" --headless --path "$ROOT/godot" --import
+mkdir -p "$W/export"
+"$GODOT" --headless --path "$ROOT/godot" --export-debug "Windows x64" "$W/export/OpenBFME.exe"
+for f in OpenBFME.exe OpenBFME.console.exe OpenBFME.pck openbfme.windows.template_debug.x86_64.dll; do
+  [ -f "$W/export/$f" ] || { echo "export is missing $f" >&2; exit 1; }
+done
+echo "EXPORTED: $W/export/OpenBFME.exe"

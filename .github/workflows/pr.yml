@@ -1,0 +1,414 @@
+# The public pull request checks (CONTRIBUTING.md, "What we check"). They run on GitHub's own runners with no secrets and a read-only
+# token: the trigger is pull_request, so a pull request from a fork gets neither the repository's secrets nor write access, and nothing here
+# asks for them (tools/release/public_workflows.py enforces that on every workflow of this folder, and that each one parses as YAML).
+# Pushes to main run them too, which also keeps the compiler caches warm for the pull requests (a pull request restores main's caches, it
+# never saves one; only pushes, which need write access, save). ci/** branches are maintainers' test branches; merge_group is the merge
+# queue's run of the same checks.
+#
+# One aggregate job, CI, needs every other job and fails unless all of them succeeded: it is the one check name a branch rule or the merge
+# queue requires (lane PUBLICCI-1), so adding or renaming a job never touches the repository's settings.
+name: Pull request checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  merge_group:
+  push:
+    branches:
+      - main
+      - "ci/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Workflow lint (actionlint, zizmor)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the pinned linters
+        # release archives checked against the SHA-256 their release pages publish
+        run: |
+          mkdir -p "$RUNNER_TEMP/lint"
+          cd "$RUNNER_TEMP/lint"
+          curl -fsSLo actionlint.tar.gz https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          curl -fsSLo zizmor.tar.gz https://github.com/zizmorcore/zizmor/releases/download/v1.31.1/zizmor-x86_64-unknown-linux-gnu.tar.gz
+          sha256sum -c --strict <<'EOF'
+          8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz
+          d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99  zizmor.tar.gz
+          EOF
+          tar -xzf actionlint.tar.gz actionlint
+          tar -xzf zizmor.tar.gz zizmor
+          echo "$RUNNER_TEMP/lint" >> "$GITHUB_PATH"
+      - name: actionlint
+        run: actionlint -color
+      - name: zizmor
+        # offline: the online audits need a token, and this job has none to spare
+        run: zizmor --offline --persona=regular .github/workflows
+
+  gate:
+    name: Commit gate, public tree audit, Python tests
+    runs-on: ubuntu-24.04
+    # A cold public runner can need over 20 minutes for the release-flow tests even with four workers.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pytest, pytest-xdist and PyYAML
+        run: >-
+          python3 -m pip install --disable-pip-version-check --no-input
+          "pytest==9.1.1" "pytest-xdist==3.8.0" "execnet==2.1.2" "PyYAML==6.0.3"
+      - name: Git identity for the tests' throwaway repositories
+        run: |
+          git config --global user.name "pr-checks"
+          git config --global user.email "pr-checks@example.invalid"
+          git config --global init.defaultBranch main
+      - name: Commit gate on the pull request's changes
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        # The checkout is GitHub's merge of the pull request into main (or the queue's commit on top of main): its first parent is main, so
+        # its changes are exactly the pull request's; they are staged against main and the gate checks them as a commit would. The one-time
+        # repository bootstrap imports an already-tested OpenBFME tree into a base that has no engine. Treat the PR head as the merge's
+        # accepted second parent for added-line/pin rules only; blob/path/container checks still inspect the complete staged tree. Once main
+        # has engine/CMakeLists.txt this self-disables and every later PR uses the ordinary single-parent rule.
+        run: |
+          pr_head=$(git rev-parse HEAD^2)
+          git reset -q --soft HEAD^1
+          merge_head=$(git rev-parse --git-path MERGE_HEAD)
+          if ! git cat-file -e HEAD:engine/CMakeLists.txt 2>/dev/null; then
+            printf '%s\n' "$pr_head" > "$merge_head"
+          fi
+          python3 tools/precommit.py
+          rm -f "$merge_head"
+          git reset -q --soft "$GITHUB_SHA"
+      - name: Public tree audit (the built-in rules)
+        run: python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}"
+      - name: Python tests that need no game files
+        # four workers (the runner's four CPUs): one process runs them in 12 to 15 minutes, mostly the release flows of
+        # test_autorelease.py and test_community_prs.py
+        run: python3 tools/release/pr_pytest.py -n 4 --durations=15
+
+  fixtures:
+    name: Reference MP3 fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the reference audio tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends lame mpg123
+      - name: Generate and verify the reference streams
+        run: python3 tools/audio/gen_mp3_fixtures.py --out workspace/audio_fixtures
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures/*.mp3.bin
+          if-no-files-found: error
+          retention-days: 1
+
+  linux:
+    name: Linux engine build and unit tests
+    runs-on: ubuntu-24.04
+    needs: fixtures
+    # a cold compiler cache took 24 minutes (PUBLICCI-1, 2026-10-19); a warm one about 3
+    timeout-minutes: 40
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_NOHASHDIR: "1"
+      OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build ccache
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-linux-${{ github.sha }}
+          restore-keys: ccache-linux-
+      - name: Configure
+        run: >-
+          cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBFME_BUILD_GODOT=OFF
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build
+        run: |
+          ccache -z
+          cmake --build engine/build
+          ccache -s
+      - name: Save the compiler cache (pushes only)
+        # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-linux-${{ github.sha }}
+      - name: Unit tests (the tests that need the game skip)
+        run: |
+          engine/build/openbfme_tests
+
+  windows:
+    name: Windows cross build (llvm-mingw, compile only)
+    # the release's own recipe (tools/release/build_windows.sh: the pinned llvm-mingw, the tests, the peer and the GDExtension, the DLL's
+    # PDB scrub and package audit) without the Godot export
+    runs-on: ubuntu-24.04
+    needs: fixtures
+    timeout-minutes: 40
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_NOHASHDIR: "1"
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      JOBS: "4"
+      OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build ccache
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.sha }}
+          restore-keys: ccache-windows-
+      - name: Build
+        run: |
+          ccache -z
+          tools/release/build_windows.sh --no-export
+          ccache -s
+      - name: Save the compiler cache (pushes only)
+        # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.sha }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-binaries
+          path: |
+            build/windows/build/*.exe
+            godot/bin/openbfme.windows.template_debug.x86_64.dll
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-tests:
+    name: Windows tests (the shipped compiler's binaries on real Windows)
+    runs-on: windows-2025
+    needs: [fixtures, windows]
+    timeout-minutes: 30
+    env:
+      OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-binaries
+          path: .
+      - name: Give the build's paths a home
+        # the tests hold the Linux build's absolute paths (test data, helper executables): on Windows those name this drive's root
+        shell: pwsh
+        env:
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          $target = "\home\runner\work\$env:REPO"
+          New-Item -ItemType Directory -Force $target | Out-Null
+          New-Item -ItemType Junction -Path "$target\$env:REPO" -Target "$PWD" | Out-Null
+      - name: Unit tests (the tests that need the game skip)
+        run: build/windows/build/openbfme_tests.exe
+      - name: Download Godot 4.7.2 (its SHA512-SUMS.txt hash)
+        run: |
+          mkdir -p "$RUNNER_TEMP/godot"
+          cd "$RUNNER_TEMP/godot"
+          curl -fsSLo godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_win64.exe.zip
+          echo "83decd58fdf67b9d657958a1ae6bf1929c20785315a81effe245874cdc57acb709bf868e00778a96984338c1b29dafdb453c6847747694621c6ecf5da2259993  godot.zip" | sha512sum -c --strict
+          unzip -q godot.zip
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check --no-input "pytest==9.1.1"
+      - name: Godot scripts that need no game files
+        run: |
+          GODOT="$(cygpath -w "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_win64_console.exe")" python -m pytest -q -rs tools/test_gdscript.py
+
+  msvc:
+    name: Windows MSVC build and unit tests (build.bat)
+    # the build contributors run on Windows (the release ships llvm-mingw, so no other job compiles with MSVC), from a fresh clone
+    runs-on: windows-2025
+    needs: fixtures
+    # a cold compiler cache took 37 and 64 minutes (2026-11-05), a warm one 3, and the unit tests take 2 more
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}\.ccache
+      CCACHE_MAXSIZE: 3G
+      CCACHE_NOHASHDIR: "1"
+      # cl.exe's timestamp differs between runners, and ccache's default check then misses every compile
+      CCACHE_COMPILERCHECK: content
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}\workspace\audio_fixtures
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Download ccache 4.14.2 (the SHA-256 its release page publishes)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ccache"
+          cd "$RUNNER_TEMP/ccache"
+          curl -fsSLo ccache.zip https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-windows-x86_64.zip
+          echo "6993ce645e53192cec592ee23186200b574ac4c59097ecde8d9cfd681b47ae84  ccache.zip" | sha256sum -c --strict
+          unzip -q -j ccache.zip
+          cygpath -w "$PWD" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-msvc-${{ github.sha }}
+          restore-keys: ccache-msvc-
+      - name: Build (build.bat)
+        shell: pwsh
+        run: |
+          ccache -z
+          ./build.bat
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ccache -s
+      - name: Save the compiler cache (pushes only)
+        # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-msvc-${{ github.sha }}
+      - name: Unit tests (the tests that need the game skip)
+        shell: bash
+        run: engine/build/openbfme_tests.exe
+
+  macos:
+    name: macOS arm64 build and unit tests
+    # the configuration of the Mac package (tools/release/package_macos.py cmake_configure_args) without the export
+    runs-on: macos-15
+    needs: fixtures
+    # a cold compiler cache took 38 minutes (2026-11-04), and the unit tests take 2 more
+    timeout-minutes: 60
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_NOHASHDIR: "1"
+      OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Install the build tools
+        run: brew install ninja ccache
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mp3-reference-fixtures
+          path: workspace/audio_fixtures
+      - name: Restore the compiler cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: ccache-macos-
+      - name: Configure
+        run: >-
+          cmake -S engine -B engine/build-macos -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBFME_BUILD_TESTS=ON -DOPENBFME_BUILD_GODOT=ON
+          -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Build the GDExtension and unit test executable
+        run: |
+          ccache -z
+          cmake --build engine/build-macos --target openbfme openbfme_tests
+          ccache -s
+      - name: Save the compiler cache (pushes only)
+        # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-macos-${{ github.sha }}
+      - name: Unit tests (the tests that need the game skip)
+        # includes the console filter tests: the real macOS /dev/null sink, privacy filtering and bounded shutdown
+        # without three files of network timing tests that fail in about a quarter of the runs on this runner; Linux and Windows still run them
+        run: |
+          engine/build-macos/openbfme_tests -sfe="*test_netlag2.cpp,*test_mpdrop3_farewell.cpp,*test_onlinemenu1.cpp"
+
+  ci:
+    name: CI
+    # the one required check: it runs even when a job it needs failed or was cancelled, and passes only when every one succeeded
+    if: always()
+    needs: [lint, gate, fixtures, linux, windows, windows-tests, msvc, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every check succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          needs = json.loads(os.environ["RESULTS"])
+          want = {"lint", "gate", "fixtures", "linux", "windows", "windows-tests", "msvc", "macos"}
+          bad = sorted(f"{k}: {v['result']}" for k, v in needs.items() if v["result"] != "success")
+          if set(needs) != want:
+              bad.append(f"the jobs are {sorted(needs)}, not {sorted(want)}")
+          for b in bad:
+              print(f"CI FAILED: {b}")
+          print("CI ok" if not bad else "CI FAILED")
+          sys.exit(1 if bad else 0)
+          EOF

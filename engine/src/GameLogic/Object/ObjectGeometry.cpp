@@ -1,0 +1,470 @@
+// OpenBFME. GPL-3.0.
+// See GameLogic/Object/ObjectGeometry.h.
+
+#include "GameLogic/Object/ObjectGeometry.h"
+
+#include "Common/Thing/ThingTemplate.h"
+#include "GameLogic/Module/BehaviorModule.h"
+#include "GameLogic/Module/NotifyCrushModules.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/SimMath.h"
+#include "Common/INI/HostRealText.h"
+
+#include <algorithm>
+#include <cctype>
+#include <memory>
+#include <cstdlib>
+#include <stdexcept>
+
+namespace
+{
+bool sameNoCase(const std::string &a, const char *b)
+{
+	size_t i = 0;
+	for (; i < a.size() && b[i]; ++i)
+	{
+		if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i]))
+		{
+			return false;
+		}
+	}
+	return i == a.size() && b[i] == 0;
+}
+
+int typeOf(const ThingTemplate &tt, const std::vector<std::string> &tokens, const char *row)
+{
+	if (tokens.empty())
+	{
+		throw std::logic_error(tt.getName() + ": " + row + " has no geometry type");
+	}
+	if (sameNoCase(tokens[0], "SPHERE")) return ObjectGeometry::SHAPE_SPHERE;
+	if (sameNoCase(tokens[0], "CYLINDER")) return ObjectGeometry::SHAPE_CYLINDER;
+	if (sameNoCase(tokens[0], "BOX")) return ObjectGeometry::SHAPE_BOX;
+	throw std::logic_error(tt.getName() + ": " + row + " '" + tokens[0] + "' is not SPHERE, CYLINDER or BOX");
+}
+
+float realOf(const ThingTemplate &tt, const std::vector<std::string> &tokens, const char *row)
+{
+	if (tokens.empty())
+	{
+		throw std::logic_error(tt.getName() + ": " + row + " has no value");
+	}
+	char *end = nullptr;
+	const float v = strtofPortable(tokens[0].c_str(), &end);
+	if (end == tokens[0].c_str())
+	{
+		throw std::logic_error(tt.getName() + ": " + row + " '" + tokens[0] + "' is not a number");
+	}
+	return v;
+}
+
+// GeometryOffset (RW 0xAD1770): a Coord3D "X:<x> Y:<y> Z:<z>". DONOR ZH INI::parseCoord3D: getNextSubToken("X") / ("Y") / ("Z") read the tokens with the
+// colon separators (getSepsColon: whitespace, '=' and ':'), so a label and its value may be one token ("Y:98") or two ("Y: 98", retail gondorbuildings.ini
+// GondorCastleElevator); the label must match (case-insensitive) or the row fails (lane PATH-2 fix: the first port wanted "<axis>:<value>" as one token).
+void coordOf(const ThingTemplate &tt, const std::vector<std::string> &tokens, float out[3])
+{
+	std::vector<std::string> sub;
+	for (const std::string &t : tokens)
+	{
+		size_t start = 0;
+		for (size_t i = 0; i <= t.size(); ++i)
+		{
+			if (i == t.size() || t[i] == ':')
+			{
+				if (i > start)
+				{
+					sub.push_back(t.substr(start, i - start));
+				}
+				start = i + 1;
+			}
+		}
+	}
+	const char labels[3] = { 'X', 'Y', 'Z' };
+	for (int k = 0; k < 3; ++k)
+	{
+		const size_t at = (size_t)k * 2;
+		if (sub.size() < at + 2 || sub[at].size() != 1 || std::toupper((unsigned char)sub[at][0]) != labels[k])
+		{
+			throw std::logic_error(tt.getName() + ": GeometryOffset has no " + std::string(1, labels[k]) + ": component");
+		}
+		char *end = nullptr;
+		out[k] = strtofPortable(sub[at + 1].c_str(), &end);
+		if (end == sub[at + 1].c_str())
+		{
+			throw std::logic_error(tt.getName() + ": GeometryOffset " + std::string(1, labels[k]) + " '" + sub[at + 1] + "' is not a number");
+		}
+	}
+}
+// INI::getNextAsciiString (Common/INI/INI.cpp; ZH INI.cpp) on a row's tokens: a token that starts with a quote loses it; alone, its closing quote goes too;
+// followed by more of the line, getNextTokenOrNull with the quote separators ("\"\n=") takes the rest up to the next quote, joined with one space (the raw
+// tokens no longer hold the line's own spacing: every retail quoted geometry name is one token)
+std::string asciiStringOf(const std::vector<std::string> &tokens)
+{
+	if (tokens.empty())
+	{
+		return std::string();
+	}
+	const std::string &t = tokens[0];
+	if (t.empty() || t[0] != '"')
+	{
+		return t;
+	}
+	std::string buff = t.size() > 1 ? t.substr(1) : std::string();
+	if (tokens.size() == 1)
+	{
+		if (!buff.empty() && buff.back() == '"')
+		{
+			buff.pop_back();
+		}
+		return buff;
+	}
+	std::string rest;
+	for (size_t i = 1; i < tokens.size(); ++i)
+	{
+		rest += (i > 1 ? " " : "") + tokens[i];
+	}
+	const size_t q = rest.find('"');
+	rest = rest.substr(0, q);
+	if (!rest.empty())
+	{
+		buff += " " + rest;
+	}
+	return buff;
+}
+} // namespace
+
+const std::vector<ObjectGeometry::Shape> &ObjectGeometry::cachedShapesOf(const ThingTemplate &tt)
+{
+	std::shared_ptr<const void> &cache = tt.friend_geometryCache();
+	if (!cache)
+	{
+		cache = std::make_shared<const std::vector<Shape>>(shapesOf(tt));
+	}
+	return *static_cast<const std::vector<Shape> *>(cache.get());
+}
+
+std::vector<ObjectGeometry::Shape> ObjectGeometry::shapesOf(const ThingTemplate &tt)
+{
+	std::vector<Shape> shapes;
+	for (const ThingTemplate::GeometryEvent &e : tt.geometryEvents())
+	{
+		if (e.row == "Geometry")
+		{
+			const int type = typeOf(tt, e.tokens, "Geometry");
+			if (shapes.empty())
+			{
+				shapes.push_back(Shape{});
+			}
+			shapes.resize(1);
+			shapes[0].type = type;
+		}
+		else if (e.row == "AdditionalGeometry")
+		{
+			Shape s;
+			s.type = typeOf(tt, e.tokens, "AdditionalGeometry");
+			shapes.push_back(s);
+		}
+		else if (shapes.empty())
+		{
+			continue; // retail's rows do nothing without a shape (the list is empty)
+		}
+		else if (e.row == "GeometryHeight")
+		{
+			shapes.back().height = realOf(tt, e.tokens, "GeometryHeight");
+		}
+		else if (e.row == "GeometryMajorRadius")
+		{
+			shapes.back().majorRadius = realOf(tt, e.tokens, "GeometryMajorRadius");
+		}
+		else if (e.row == "GeometryMinorRadius")
+		{
+			shapes.back().minorRadius = realOf(tt, e.tokens, "GeometryMinorRadius");
+		}
+		else if (e.row == "GeometryOffset")
+		{
+			float c[3];
+			coordOf(tt, e.tokens, c);
+			shapes.back().offsetX = c[0];
+			shapes.back().offsetY = c[1];
+			shapes.back().offsetZ = c[2];
+		}
+		else if (e.row == "GeometryName")
+		{
+			// lane HUD-5: RW 0xAD16B0 -> INI::parseAsciiString -> getNextAsciiString (none: the empty string: retail's AngmarHallofTwilight has
+			// `GeometryName =`). Lane BFME2CAMP1: getNextAsciiString drops a quoted token's quotes (Common/INI/INI.cpp, ZH INI::getNextAsciiString): the
+			// gates' `GeometryName = "Closed"` / "OpenLeft" / "OpenRight" (RivGate, the castle wall gates, ...) are the names GateOpenAndCloseBehavior
+			// toggles; with the quotes kept no gate ever opened in the pathfinder's map
+			shapes.back().name = asciiStringOf(e.tokens);
+		}
+		else if (e.row == "GeometryActive")
+		{
+			if (e.tokens.empty())
+			{
+				throw std::logic_error(tt.getName() + ": GeometryActive has no value");
+			}
+			shapes.back().active = sameNoCase(e.tokens[0], "Yes") || sameNoCase(e.tokens[0], "True") || sameNoCase(e.tokens[0], "1");
+		}
+	}
+	return shapes;
+}
+
+float ObjectGeometry::maxHeightAbovePosition(const std::vector<Shape> &shapes)
+{
+	float best = 0.0f; // RW 0xC1B594
+	for (const Shape &s : shapes)
+	{
+		if (!s.active)
+		{
+			continue;
+		}
+		const float extent = s.type == SHAPE_SPHERE ? s.majorRadius : s.height;
+		const float v = SimMath::addf32(extent, s.offsetZ);
+		if (v > best) // fcomp: the larger one stays
+		{
+			best = v;
+		}
+	}
+	return best;
+}
+
+void ObjectGeometry::localBox(const std::vector<Shape> &shapes, float lo[3], float hi[3])
+{
+	// RW 0xAD2040
+	for (int i = 0; i < 3; ++i)
+	{
+		lo[i] = 0.0f;
+		hi[i] = 0.0f;
+	}
+	for (const Shape &s : shapes)
+	{
+		if (!s.active)
+		{
+			continue;
+		}
+		const float yr = s.type == SHAPE_BOX ? s.minorRadius : s.majorRadius;
+		lo[0] = std::min(lo[0], SimMath::subf32(s.offsetX, s.majorRadius));
+		lo[1] = std::min(lo[1], SimMath::subf32(s.offsetY, yr));
+		hi[0] = std::max(hi[0], SimMath::addf32(s.majorRadius, s.offsetX));
+		hi[1] = std::max(hi[1], SimMath::addf32(s.offsetY, yr));
+		if (s.type == SHAPE_SPHERE)
+		{
+			lo[2] = std::min(lo[2], SimMath::subf32(s.offsetZ, s.majorRadius));
+			hi[2] = std::max(hi[2], SimMath::addf32(s.offsetZ, s.majorRadius));
+		}
+		else
+		{
+			lo[2] = std::min(lo[2], s.offsetZ);
+			hi[2] = std::max(hi[2], SimMath::addf32(s.height, s.offsetZ));
+		}
+	}
+}
+
+Coord3D ObjectGeometry::boxCentre(const std::vector<Shape> &shapes)
+{
+	// RW 0xAD28E6 .. 0xAD292B: fld lo; fadd hi; fmul 0.5 (RW 0xBD869C); fstp dword
+	float lo[3], hi[3];
+	localBox(shapes, lo, hi);
+	return Coord3D{ SimMath::pc24Mul(SimMath::pc24Add(lo[0], hi[0]), 0.5f), SimMath::pc24Mul(SimMath::pc24Add(lo[1], hi[1]), 0.5f),
+		SimMath::pc24Mul(SimMath::pc24Add(lo[2], hi[2]), 0.5f) };
+}
+
+std::vector<ObjectGeometry::ContactPoint> ObjectGeometry::contactPointsOf(const ThingTemplate &tt)
+{
+	std::vector<ContactPoint> points;
+	for (const ThingTemplate::GeometryEvent &e : tt.geometryEvents())
+	{
+		if (e.row != "GeometryContactPoint")
+		{
+			continue;
+		}
+		// RW 0xAD3D30: getNextSubToken("X") / ("Y") / ("Z") with the colon separators, then getNextTokenOrNull for the label
+		float c[3];
+		coordOf(tt, e.tokens, c);
+		ContactPoint p;
+		p.x = c[0];
+		p.y = c[1];
+		p.z = c[2];
+		std::vector<std::string> sub;
+		for (const std::string &t : e.tokens)
+		{
+			size_t start = 0;
+			for (size_t i = 0; i <= t.size(); ++i)
+			{
+				if (i == t.size() || t[i] == ':')
+				{
+					if (i > start)
+					{
+						sub.push_back(t.substr(start, i - start));
+					}
+					start = i + 1;
+				}
+			}
+		}
+		if (sub.size() > 6)
+		{
+			p.label = sub[6];
+		}
+		points.push_back(p);
+	}
+	return points;
+}
+
+bool ObjectGeometry::getBestContactPoint(const std::vector<Shape> &shapes, const std::vector<ContactPoint> &points, const Coord3D &callerPos, const std::string &label,
+                                         int preference, bool preferred, Coord3D &out)
+{
+	// lane AIMAIM-1: without `preferred` a point counts only when the geometry, at the origin unturned (the zeroed static RW 0xDF1E98), overlaps the static
+	// sphere RW 0xDF1EA8 (built at RW 0xBCBED0: GeometryInfo(SPHERE, small, height / major / minor 2.0), RW 0x450429) at the point, unturned: RW 0xAD3415 ..
+	// 0xAD3431 -> RW 0xAD2CE0
+	static const std::vector<Shape> kProbe = [] {
+		Shape probe;
+		probe.type = SHAPE_SPHERE;
+		probe.height = 2.0f;
+		probe.majorRadius = 2.0f;
+		probe.minorRadius = 2.0f;
+		return std::vector<Shape>{ probe };
+	}();
+	const float height = maxHeightAbovePosition(shapes);
+
+	if (preference == 1) // RW 0xAD3340 (the mode switch RW 0xAD3187 jumps here for mode 1)
+	{
+		// the GeometryInfo member at +0x44: the highest GeometryContactPoint row in the object's own space, kept by the row parser (RW 0xAD3DD5 .. 0xAD3DEB copies
+		// any point whose z is above +0x4C, the stored highest), in row order so the first row wins a tie. A template without rows keeps the constructor's value,
+		// which was not isolated in the reading (0 is the expected initial value; INFERENCE). The port's only input to +0x44 is the row list.
+		out.x = 0.0f;
+		out.y = 0.0f;
+		out.z = 0.0f;
+		for (const ContactPoint &p : points)
+		{
+			if (out.z < p.z) // RW 0xAD3DC9 / 0xAD3DCC: fcomp, only a strictly higher z replaces the stored point
+			{
+				out.x = p.x;
+				out.y = p.y;
+				out.z = p.z;
+			}
+		}
+		// RW 0xAD3357 .. 0xAD336D: getMaxHeightAbovePosition (RW 0xAD1920) and, when the height is below z, z = the height (fcomp / test ah, 5 / fstp dword)
+		if (height < out.z)
+		{
+			out.z = height;
+		}
+		return true; // RW 0xAD3373 `mov al, 1`
+	}
+
+	float best = 3.4028235e38f; // RW 0x7F7FFFFF
+	size_t winner = points.size();
+	for (size_t i = 0; i < points.size(); ++i)
+	{
+		const ContactPoint &p = points[i];
+		if (p.label != label)
+		{
+			continue;
+		}
+		float z = p.z;
+		if (height < z) // RW 0xAD33F2: fcomp, the height replaces z when it is below it
+		{
+			z = height;
+		}
+		if (!preferred && !NotifyCrushModules::geometriesOverlap(shapes, Coord3D{ 0.0f, 0.0f, 0.0f }, 0.0f, kProbe, Coord3D{ p.x, p.y, z }, 0.0f))
+		{
+			continue;
+		}
+		// RW 0xAD3437: x87 PC24, the differences, then (dy^2 + dx^2) + dz^2 kept in the register, compared with the stored best (fcom: strictly below)
+		const double dx = SimMath::pc24SubW((double)p.x, (double)callerPos.x);
+		const double dy = SimMath::pc24SubW((double)p.y, (double)callerPos.y);
+		const double dz = SimMath::pc24SubW((double)z, (double)callerPos.z);
+		const double d = SimMath::pc24AddW(SimMath::pc24AddW(SimMath::pc24MulW(dy, dy), SimMath::pc24MulW(dx, dx)), SimMath::pc24MulW(dz, dz));
+		if (d < (double)best)
+		{
+			best = SimMath::fstpDword(d);
+			winner = i;
+		}
+	}
+	if (winner == points.size())
+	{
+		return false;
+	}
+	out.x = points[winner].x;
+	out.y = points[winner].y;
+	out.z = points[winner].z;
+	if (height < out.z) // RW 0xAD34B6
+	{
+		out.z = height;
+		return true;
+	}
+	const float floorZ = SimMath::pc24Mul(height, 0.1f); // RW 0xAD34DD: fmul RW 0xBD83D4
+	if (floorZ > out.z)
+	{
+		out.z = floorZ;
+	}
+	return true;
+}
+
+bool ObjectGeometry::worldspaceBestContactPoint(const Object &obj, const Coord3D &callerPos, const std::string &label, int preference, bool preferred, Coord3D &out)
+{
+	using SimMath::addf32;
+	using SimMath::mulf32;
+	using SimMath::subf32;
+	const ThingTemplate *tt = static_cast<const ThingTemplate *>(obj.getTemplate())->getFinalOverride();
+	const float *m = obj.getBasis(); // row major: m[r * 3 + c]
+	const Coord3D &t = *obj.getPosition();
+	// RW 0xB26C00: the orthogonal inverse (the transposed rotation, the translation -(R^T t) in this order)
+	const float itx = subf32(0.0f, addf32(addf32(mulf32(m[6], t.z), mulf32(m[0], t.x)), mulf32(t.y, m[3])));
+	const float ity = subf32(0.0f, addf32(addf32(mulf32(m[4], t.y), mulf32(m[1], t.x)), mulf32(t.z, m[7])));
+	const float itz = subf32(0.0f, addf32(addf32(mulf32(m[5], t.y), mulf32(m[8], t.z)), mulf32(m[2], t.x)));
+	// RW 0x690C74 .. 0x690D03: the caller's position in the object's space
+	Coord3D local;
+	local.x = addf32(addf32(addf32(mulf32(m[6], callerPos.z), mulf32(m[3], callerPos.y)), mulf32(m[0], callerPos.x)), itx);
+	local.y = addf32(addf32(addf32(mulf32(m[7], callerPos.z), mulf32(m[4], callerPos.y)), mulf32(m[1], callerPos.x)), ity);
+	local.z = addf32(addf32(addf32(mulf32(m[8], callerPos.z), mulf32(m[5], callerPos.y)), mulf32(m[2], callerPos.x)), itz);
+	const std::vector<Shape> &shapes = obj.geometryShapes(); // the object's own GeometryInfo (lane MODCOMPAT-MOD1; the points are the template's)
+	Coord3D p;
+	if (!getBestContactPoint(shapes, contactPointsOf(*tt), local, label, preference, preferred, p))
+	{
+		return false;
+	}
+	// RW 0x690D4E: a body in BODY_RUBBLE (vslot 0x24 == 3) puts the point at the geometry's height
+	if (const BodyModuleInterface *body = obj.getBodyModule())
+	{
+		if (body->getDamageState() == BODY_RUBBLE)
+		{
+			p.z = maxHeightAbovePosition(shapes);
+		}
+	}
+	// RW 0x690D6E .. 0x690DEC: back to the world
+	out.x = addf32(addf32(addf32(mulf32(m[1], p.y), mulf32(m[2], p.z)), mulf32(m[0], p.x)), t.x);
+	out.y = addf32(addf32(addf32(mulf32(m[3], p.x), mulf32(m[4], p.y)), mulf32(m[5], p.z)), t.y);
+	out.z = addf32(addf32(addf32(mulf32(m[6], p.x), mulf32(m[7], p.y)), mulf32(m[8], p.z)), t.z);
+	return true;
+}
+
+void ObjectGeometry::fillPathfindGeometry(const ThingTemplate &tt, PathfindGeometry &out)
+{
+	fillPathfindGeometry(shapesOf(tt), out);
+}
+
+void ObjectGeometry::fillPathfindGeometry(const std::vector<Shape> &shapes, PathfindGeometry &out)
+{
+	if (shapes.empty())
+	{
+		return;
+	}
+	out.shapes.clear();
+	for (const Shape &g : shapes)
+	{
+		PathfindShape ps;
+		ps.type = g.type == SHAPE_BOX ? PATHFIND_GEOMETRY_BOX : (g.type == SHAPE_CYLINDER ? PATHFIND_GEOMETRY_CYLINDER : PATHFIND_GEOMETRY_SPHERE);
+		ps.height = g.height;
+		ps.majorRadius = g.majorRadius;
+		ps.minorRadius = g.minorRadius;
+		ps.offsetX = g.offsetX;
+		ps.offsetY = g.offsetY;
+		ps.offsetZ = g.offsetZ;
+		ps.active = g.active;
+		out.shapes.push_back(ps);
+	}
+	const PathfindShape &first = out.shapes.front();
+	out.type = first.type;
+	out.majorRadius = first.majorRadius;
+	out.minorRadius = first.minorRadius;
+	out.height = first.height;
+}

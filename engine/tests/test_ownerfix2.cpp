@@ -1,0 +1,1050 @@
+// OpenBFME unit tests. GPL-3.0.
+// lane OWNERFIX-2: the owner's playtest of 2026-10-17. The lobby handicap (RotWK GameSlot + 0x20: the combo RW 0x840B9D, the player's dict RW 0x627F8F,
+// Player + 0x29C RW 0x6B09DE, the HandicapPercent<n> modifier of Object::initObject RW 0x6940DB) and the resource claim feedback (RW 0x75B561 / 0x75C02D /
+// 0x75C1A9 and the claim decals of a selected resource building). Expected values come from the binary (byte checks), from the retail INI data (the
+// HandicapPercent lists' HEALTH_MULT) or from a control object of the same template without the cause.
+
+#include "HordeCompleteTestUtil.h"
+#include "doctest.h"
+
+#include "PeImage.h"
+#include "RetailTestMount.h"
+#include "StartTestUtil.h"
+
+#include "GameEngineDevice/Win32Device/Common/Win32BIGFileSystem.h"
+
+#include "Common/MpGameRules.h"
+#include "Common/Player.h"
+#include "Common/PlayerList.h"
+#include "Common/PlayerTemplate.h"
+#include "Common/Recorder.h"
+#include "Common/Thing/ThingFactory.h"
+#include "Common/Thing/ThingTemplate.h"
+#include "GameClient/GUI/Skirmish/IniSkirmishSetupSource.h"
+#include "GameClient/LiveGame.h"
+#include "GameClient/SelectionDecals.h"
+#include "GameClient/TerrainResourceFeedback.h"
+#include "GameLogic/Economy.h"
+#include "GameLogic/Module/TerrainResourceBehavior.h"
+#include "GameLogic/NewGame/NewGame.h"
+#include "GameLogic/Object/AttributeModifierPool.h"
+#include "GameLogic/Object/Object.h"
+#include "GameLogic/System/ShroudManager.h"
+#include "GameLogic/System/TerrainResourceManager.h"
+#include "GameNetwork/NetPacket.h"
+#include "Libraries/WWVegas/WW3D2/assetmgr.h"
+
+#include <cmath>
+#include <cstdio>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+using retailtest::PeImage;
+
+namespace
+{
+int factionIndex(const PlayerTemplateStore &store, const std::string &name)
+{
+	for (int i = 0; i < store.getPlayerTemplateCount(); ++i)
+	{
+		if (store.getNthPlayerTemplate(i)->getName() == name)
+		{
+			return i;
+		}
+	}
+	return -1;
+}
+
+// Evendim, slot 0 an idle human (start 0), slot 1 an easy computer (start 1)
+NewGameMessage evendim(const starttest::Shared &s, std::uint32_t seed)
+{
+	NewGameMessage m;
+	m.game.mapName = "maps/map mp evendim/map mp evendim.map";
+	m.game.seed = seed;
+	m.game.startingCash = -1;
+	m.game.rules = MpGameRules::defaults(RULES_MODE_SKIRMISH);
+	const char *factions[2] = { "FactionMen", "FactionMordor" };
+	for (int i = 0; i < 2; ++i)
+	{
+		SkirmishGameSlot &slot = m.game.slots[i];
+		slot.state = i == 0 ? SLOT_PLAYER : SLOT_EASY_AI;
+		slot.name = i == 0 ? u"Player0" : u"Player1";
+		slot.playerTemplate = factionIndex(s.world->playerTemplates(), factions[i]);
+		slot.startPos = i;
+		slot.color = i;
+		slot.teamNumber = i;
+	}
+	return m;
+}
+
+// Evendim, slot 0 an idle human, slot 1 an easy computer on its team (an ally), slot 2 an easy computer on team 1 (an enemy): the mask 3 test
+NewGameMessage evendim3(const starttest::Shared &s, std::uint32_t seed)
+{
+	NewGameMessage m;
+	m.game.mapName = "maps/map mp evendim/map mp evendim.map";
+	m.game.seed = seed;
+	m.game.startingCash = -1;
+	m.game.rules = MpGameRules::defaults(RULES_MODE_SKIRMISH);
+	const char *factions[3] = { "FactionMen", "FactionMen", "FactionMordor" };
+	const int starts[3] = { 0, 4, 1 };
+	const int teams[3] = { 0, 0, 1 };
+	for (int i = 0; i < 3; ++i)
+	{
+		SkirmishGameSlot &slot = m.game.slots[i];
+		slot.state = i == 0 ? SLOT_PLAYER : SLOT_EASY_AI;
+		slot.name = i == 0 ? u"Player0" : (i == 1 ? u"Player1" : u"Player2");
+		slot.playerTemplate = factionIndex(s.world->playerTemplates(), factions[i]);
+		slot.startPos = starts[i];
+		slot.color = i;
+		slot.teamNumber = teams[i];
+	}
+	return m;
+}
+
+struct Game
+{
+	std::unique_ptr<NewGameStart> start;
+	std::unique_ptr<ArchiveW3DFileSource> source;
+	std::unique_ptr<WW3DAssetManager> assets;
+	std::unique_ptr<LiveGame> game;
+};
+
+void load(starttest::Shared &s, const NewGameMessage &m, Game &g)
+{
+	static std::vector<MapCacheEntry> cache;
+	std::string error;
+	if (cache.empty())
+	{
+		REQUIRE_MESSAGE(IniSkirmishSetupSource::loadMapCache(*s.mount->fs, cache, &error), error);
+	}
+	g.start = std::make_unique<NewGameStart>(RandomAlgorithm::ZH_CarryChain);
+	REQUIRE_MESSAGE(NewGame::prepareNewGame(m, s.world->playerTemplates(), s.settings, cache, RandomAlgorithm::ZH_CarryChain, *g.start, &error), error);
+	g.source = std::make_unique<ArchiveW3DFileSource>(*s.mount->fs);
+	g.assets = std::make_unique<WW3DAssetManager>(*g.source);
+	g.game = std::make_unique<LiveGame>(*s.world, *s.mount->fs, *g.assets, s.options);
+	LiveGame::Options o;
+	o.start = g.start.get();
+	REQUIRE_MESSAGE(g.game->load(o, &error), error);
+}
+
+Player *playerAtStart(GameLogic &logic, int start)
+{
+	for (int i = 0; i < logic.players().getPlayerCount(); ++i)
+	{
+		Player *p = logic.players().getNthPlayer(i);
+		if (p && p->getPlayerTemplate() && p->getPlayerTemplate()->m_playableSide && p->getMultiplayerStartIndex() == start)
+		{
+			return p;
+		}
+	}
+	return nullptr;
+}
+
+std::vector<std::string> listsOf(const Object &o)
+{
+	const AttributeModifierPool *pool = dynamic_cast<const AttributeModifierPool *>(o.findModule("AttributeModifierPoolUpdate"));
+	return pool ? pool->listNames() : std::vector<std::string>{};
+}
+
+bool hasList(const Object &o, const std::string &name)
+{
+	for (const std::string &n : listsOf(o))
+	{
+		if (n == name)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+Object *make(GameLogic &logic, const char *templateName, Player &owner, float x, float y)
+{
+	const ThingTemplate *tt = logic.things().findTemplate(templateName);
+	REQUIRE_MESSAGE(tt != nullptr, templateName);
+	Object *o = logic.newObject(tt, owner.getDefaultTeam(), ObjectStatusMaskType{});
+	REQUIRE_MESSAGE(o != nullptr, templateName);
+	Coord3D p{ x, y, 0.0f };
+	o->setPosition(&p);
+	testutil::completeHorde(o); // a horde makes its members where it stands (onBuildComplete, RW 0x8718ED)
+	return o;
+}
+} // namespace
+
+TEST_CASE("ownerfix2 binary facts: the Handicap combo (RW 0x840B9D), the player's handicap (RW 0x6B09DE) and the initObject modifier (RW 0x6940DB)")
+{
+	const PeImage *pe = PeImage::fromEnvironment();
+	if (!pe)
+	{
+		retailtest::printSkip("ownerfix2 binary facts (RW_GAME_DAT unset)");
+		return;
+	}
+	// RW 0x840BB6 xor edi, edi (the first value 0); RW 0x840C22 sub edi, 5; RW 0x840C25 cmp edi, -0x5f; RW 0x840C28 jge: 0, -5 .. -95
+	CHECK((pe->u32At(0x840BB6) & 0xFFFFu) == 0xFF33u);
+	CHECK((pe->u32At(0x840C22) & 0xFFFFFFu) == 0x05EF83u);
+	CHECK((pe->u32At(0x840C25) & 0xFFFFFFu) == 0xA1FF83u);
+	CHECK((pe->u32At(0x840C28) & 0xFFu) == 0x7Du);
+	// RW 0x840BE3 push 0xC53FB8: u"%d%%"
+	CHECK(pe->u32At(0x840BE4) == 0xC53FB8u);
+	CHECK(pe->u32At(0xC53FB8) == 0x00640025u); // '%' 'd'
+	CHECK(pe->u32At(0xC53FBC) == 0x00250025u); // '%' '%'
+	std::vector<int> retail;
+	for (int v = 0; v >= -0x5F; v -= 5)
+	{
+		retail.push_back(v);
+	}
+	CHECK(retail.size() == 20);
+	// the port's closed set is exactly the combo's values
+	std::vector<int> port;
+	for (int v = -200; v <= 200; ++v)
+	{
+		if (SkirmishGameSlot::handicapValid(v))
+		{
+			port.push_back(v);
+		}
+	}
+	std::vector<int> retailSorted(retail.rbegin(), retail.rend());
+	CHECK(port == retailSorted);
+	// RW 0x6B09DE mov [esi + 0x29C], eax (Player::initFromDict stores playerHandicap); RW 0x6940DE mov eax, [eax + 0x29C]; RW 0x6940E4 neg eax;
+	// RW 0x6940EC cmp ecx, 0x64; RW 0x6940F1 push 5 (the % 5 test)
+	CHECK((pe->u32At(0x6B09DE) & 0xFFFFu) == 0x8689u);
+	CHECK(pe->u32At(0x6B09E0) == 0x29Cu);
+	CHECK((pe->u32At(0x6940DE) & 0xFFFFu) == 0x808Bu);
+	CHECK(pe->u32At(0x6940E0) == 0x29Cu);
+	CHECK((pe->u32At(0x6940E4) & 0xFFFFu) == 0xD8F7u);
+	CHECK((pe->u32At(0x6940EC) & 0xFFFFFFu) == 0x64F983u);
+	CHECK((pe->u32At(0x6940F1) & 0xFFFFu) == 0x056Au);
+	// RW 0x694102 push 0xC121A4: "HandicapPercent%d"
+	CHECK(pe->u32At(0x694103) == 0xC121A4u);
+	CHECK(pe->cstring(0xC121A4) == "HandicapPercent%d");
+	// RW 0x627F8F push [esi + 0x20] then the playerHandicap key holder (RW 0x627F92 mov ecx, 0xDA2F7C), CreateMPPlayers
+	CHECK((pe->u32At(0x627F8F) & 0xFFFFFFu) == 0x2076FFu);
+	CHECK(pe->u32At(0x627F93) == 0xDA2F7Cu);
+}
+
+TEST_CASE("ownerfix2: the slots' handicaps travel in the game setup (LAN options, new game message, replay); a value the combo never offers is refused")
+{
+	SkirmishGameInfo g;
+	g.slots[0].state = SLOT_PLAYER;
+	g.slots[0].name = u"A";
+	g.slots[0].handicap = -50;
+	g.slots[1].state = SLOT_EASY_AI;
+	g.slots[1].handicap = -95;
+	NetByteWriter w;
+	NetPacket::writeGameInfo(w, g);
+	{
+		NetByteReader r(w.data().data(), w.data().size());
+		SkirmishGameInfo back;
+		std::string error;
+		REQUIRE_MESSAGE(NetPacket::readGameInfo(r, back, &error), error);
+		CHECK(back.slots[0].handicap == -50);
+		CHECK(back.slots[1].handicap == -95);
+		CHECK(back.slots[2].handicap == 0);
+		CHECK(back.slots[0] == g.slots[0]);
+	}
+	// a handicap outside the combo's values is refused by name, for each kind of bad value
+	for (int bad : { -3, 5, -100, -96, 1000 })
+	{
+		SkirmishGameInfo b = g;
+		b.slots[1].handicap = bad;
+		NetByteWriter bw;
+		NetPacket::writeGameInfo(bw, b);
+		NetByteReader r(bw.data().data(), bw.data().size());
+		SkirmishGameInfo back;
+		std::string error;
+		CHECK_FALSE(NetPacket::readGameInfo(r, back, &error));
+		CHECK(error.find("handicap") != std::string::npos);
+	}
+	// truncated inside the handicaps: refused (never a partial read)
+	{
+		std::vector<std::uint8_t> bytes = w.data();
+		bytes.resize(bytes.size() - 2);
+		NetByteReader r(bytes.data(), bytes.size());
+		SkirmishGameInfo back;
+		std::string error;
+		CHECK_FALSE(NetPacket::readGameInfo(r, back, &error));
+	}
+	// a LAN announcement that ends after the profile (review: the LAN protocol version moved with the layout, so a protocol 3 announcement carries them):
+	// truncated, as a full GameInfo is
+	{
+		std::vector<std::uint8_t> bytes = w.data();
+		bytes.resize(bytes.size() - 4 - 4 * LEGACY_MAX_SLOTS); // lane CHEAT-1: the Cheat Mode i32 after the handicaps goes too
+		NetByteReader r(bytes.data(), bytes.size());
+		SkirmishGameInfo back;
+		std::string error;
+		CHECK_FALSE(NetPacket::readGameInfo(r, back, &error, true));
+		CHECK(error == "truncated GameInfo");
+		NetByteReader r2(bytes.data(), bytes.size());
+		CHECK_FALSE(NetPacket::readGameInfo(r2, back, &error));
+	}
+	// a format 6 replay / save (GameInfo without handicaps) still reads, every handicap 0; the same bytes read as format 7 are refused
+	{
+		std::vector<std::uint8_t> bytes = w.data();
+		bytes.resize(bytes.size() - 4 - 4 * LEGACY_MAX_SLOTS); // lane CHEAT-1: the Cheat Mode i32 after the handicaps goes too
+		NetByteReader r(bytes.data(), bytes.size());
+		SkirmishGameInfo back;
+		std::string error;
+		REQUIRE_MESSAGE(NetPacket::readGameInfo(r, back, &error, false, false), error);
+		CHECK(r.atEnd());
+		CHECK(back.slots[1].handicap == 0);
+	}
+	// the replay header carries them (format 7)
+	{
+		ReplayHeader h;
+		h.game.game = g;
+		h.game.mode = NewGameMode::Skirmish;
+		const std::string path = "ownerfix2_handicap.rep";
+		ReplayWriter rw;
+		std::string error;
+		REQUIRE_MESSAGE(rw.open(path, h, &error), error);
+		rw.close(0, 0);
+		ReplayFile f;
+		REQUIRE_MESSAGE(ReplayFile::load(path, f, &error), error);
+		CHECK(f.header.game.game.slots[0].handicap == -50);
+		CHECK(f.header.game.game.slots[1].handicap == -95);
+		std::remove(path.c_str());
+	}
+}
+
+TEST_CASE("ownerfix2 retail: a slot's handicap reaches its player (RW 0x6B09DE) and its new units and structures take HandicapPercent<n> with its HEALTH_MULT; the other player none")
+{
+	OPENBFME_REQUIRE_START(s);
+	NewGameMessage m = evendim(*s, 41);
+	m.game.slots[0].handicap = -50;
+	{
+	Game g;
+	load(*s, m, g);
+	GameLogic &logic = g.game->logic();
+	Player *human = playerAtStart(logic, 0);
+	Player *ai = playerAtStart(logic, 1);
+	REQUIRE(human);
+	REQUIRE(ai);
+	CHECK(human->getHandicap() == -50);
+	CHECK(ai->getHandicap() == 0);
+	// the same infantry template for both players: the handicapped one has HandicapPercent50 and half the maximum health (attributemodifier.ini:
+	// HandicapPercent50 Modifier = HEALTH_MULT 50%); the other one has no handicap list and the template's health
+	Object *a = make(logic, "GondorFighter", *human, 1000.0f, 1000.0f);
+	Object *b = make(logic, "GondorFighter", *ai, 1100.0f, 1000.0f);
+	logic.runLogicFrame();
+	CHECK(hasList(*a, "HandicapPercent50"));
+	for (const std::string &n : listsOf(*b))
+	{
+		CHECK_FALSE(n.rfind("HandicapPercent", 0) == 0);
+	}
+	REQUIRE(a->getBodyModule());
+	REQUIRE(b->getBodyModule());
+	CHECK(a->getBodyModule()->getMaxHealth() == b->getBodyModule()->getMaxHealth() * 0.5f); // HEALTH_MULT 50%: an exact halving
+	// a structure of the handicapped player too (STRUCTURE is in the KindOf test); its own castle was made at the start
+	Object *farm = make(logic, "GondorFarm", *human, 1300.0f, 1300.0f);
+	logic.runLogicFrame();
+	CHECK(hasList(*farm, "HandicapPercent50"));
+	}
+	// a game without a handicap (the first game is gone: one live game per world, S-3808): no player has one, no object has the list
+	NewGameMessage m0 = evendim(*s, 41);
+	Game g0;
+	load(*s, m0, g0);
+	Player *h0 = playerAtStart(g0.game->logic(), 0);
+	REQUIRE(h0);
+	CHECK(h0->getHandicap() == 0);
+	Object *c = make(g0.game->logic(), "GondorFighter", *h0, 1000.0f, 1000.0f);
+	g0.game->logic().runLogicFrame();
+	for (const std::string &n : listsOf(*c))
+	{
+		CHECK_FALSE(n.rfind("HandicapPercent", 0) == 0);
+	}
+}
+
+TEST_CASE("ownerfix2: the claimable fraction's colour bands and the vertex weights are RotWK's (Impl::update, RW 0x75C1A9)")
+{
+	// Impl::update: > 0.75 green, >= 0.5 yellow, >= 0.25 red, else black
+	CHECK(TerrainResourceClaimView::bandColor(1.0f) == 0xFF00FF00u);
+	CHECK(TerrainResourceClaimView::bandColor(0.7501f) == 0xFF00FF00u);
+	CHECK(TerrainResourceClaimView::bandColor(0.75f) == 0xFFFFFF00u);
+	CHECK(TerrainResourceClaimView::bandColor(0.5f) == 0xFFFFFF00u);
+	CHECK(TerrainResourceClaimView::bandColor(0.4999f) == 0xFFFF0000u);
+	CHECK(TerrainResourceClaimView::bandColor(0.25f) == 0xFFFF0000u);
+	CHECK(TerrainResourceClaimView::bandColor(0.2499f) == 0xFF000000u);
+	CHECK(TerrainResourceClaimView::bandColor(0.0f) == 0xFF000000u);
+}
+
+TEST_CASE("ownerfix2 retail: a farm's placement shows its claimable share (RW 0x75B561) and the selected farm its claim decals; overlapping farms share the ground")
+{
+	OPENBFME_REQUIRE_START(s);
+	NewGameMessage m = evendim(*s, 43);
+	Game g;
+	load(*s, m, g);
+	GameLogic &logic = g.game->logic();
+	Player *human = playerAtStart(logic, 0);
+	Player *ai = playerAtStart(logic, 1);
+	REQUIRE(human);
+	REQUIRE(ai);
+	REQUIRE(logic.shroud());
+	const int me = human->getPlayerIndex();
+	logic.shroud()->revealMapForPlayerPermanently(me); // every cell CLEAR for the local player: the shroud clauses are tested apart below
+	logic.runLogicFrame();
+	const TerrainResourceManager &grid = logic.economy().resources();
+	REQUIRE(grid.hasGrid());
+	const ThingTemplate *farmT = logic.things().findTemplate("GondorFarm");
+	REQUIRE(farmT);
+	const TerrainResourceBehaviorModuleData *data = TerrainResourceClaimView::resourceDataOf(*farmT);
+	REQUIRE(data);
+	const float radius = data->m_radius;
+	REQUIRE(radius == 300.0f); // farm.ini: Radius = GONDOR_FARM_MONEY_RANGE (300)
+	const int r = (int)std::ceil(radius / grid.cellSize());
+	// a block of free cells (2r + 3 square) that no claim reaches: its centre's disc is whole
+	auto freeBlock = [&](int skipX, int skipY, int &ox, int &oy) {
+		const int n = 2 * r + 3;
+		for (int y = 1; y + n < grid.height(); y += 2)
+		{
+			for (int x = 1; x + n < grid.width(); x += 2)
+			{
+				if (std::abs(x - skipX) < 3 * n && std::abs(y - skipY) < 3 * n)
+				{
+					continue;
+				}
+				bool ok = true;
+				for (int j = 0; j < n && ok; ++j)
+				{
+					for (int i = 0; i < n && ok; ++i)
+					{
+						const TerrainResourceManager::Cell *c = grid.cellAt(x + i, y + j);
+						ok = c && c->state == TerrainResourceManager::CELL_FREE;
+					}
+				}
+				if (ok)
+				{
+					ox = x + n / 2;
+					oy = y + n / 2;
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+	int cx = 0, cy = 0;
+	REQUIRE(freeBlock(-10000, -10000, cx, cy));
+	const float px = (float)cx * grid.cellSize() + grid.cellSize() * 0.5f, py = (float)cy * grid.cellSize() + grid.cellSize() * 0.5f;
+	// free ground: the whole disc is claimable
+	CHECK(TerrainResourceClaimView::claimableFraction(logic, px, py, radius, data->m_highPriority, me) == 1.0f);
+	TerrainResourceFeedback fb;
+	fb.updatePlacement(logic, me, farmT, Coord3D{ px, py, 0.0f }, u"%d%%");
+	CHECK(fb.placement().active);
+	CHECK(fb.placement().percent == 100);
+	CHECK(fb.placement().text == u"100%");
+	CHECK(fb.placement().color == 0xFF00FF00u);
+	CHECK(fb.placement().decalSize == radius * 2.0f);
+	CHECK(std::fmod(fb.placement().decalCenter.x, grid.cellSize()) == 0.0f);
+	CHECK(fb.placement().decalOpacity == 0x80);
+	// every vertex of free ground has the full weight 12: the alpha of the decal's diffuse, 0xFF (lane PLACEDECAL-1: setOpacity RW 0x73228B leaves a type
+	// 0x2000 decal's diffuse 0xFFFFFFFF)
+	for (std::uint8_t a : fb.placement().maskAlpha)
+	{
+		CHECK(a == 0xFF);
+	}
+	{
+		// lane PLACEDECAL-1: the decal the HUD draws: SHADOW_DECAL_TERRAIN_CLAIM, its diffuse white, on the terrain only (+ 0x64), the mask's alphas.
+		// Lane ECOCIRCLE-2: the placement's claim arcs come first (the newest of RotWK's addDecal list), then this decal (the Men start's own Visible
+		// claimants hold claims too, so the count is not just the placement decal's): re-pinned from decals.size() == 1 with decals[0] the placement decal
+		std::vector<SelectionDecal> decals;
+		const TerrainResourceDecalCounts counts = fb.appendDecals("TerrainResourceClaimDecal", "PlaceTerrainResourceClaimantDecal", decals);
+		CHECK(counts.arcs == fb.claimArcs().size());
+		REQUIRE(counts.place == 1);
+		REQUIRE(decals.size() == counts.arcs + counts.place + counts.claims);
+		for (size_t i = 0; i < counts.arcs; ++i)
+		{
+			CHECK(decals[i].style == 0x40u);
+			CHECK(decals[i].texture == TerrainResourceFeedback::kClaimArcTexture);
+		}
+		const SelectionDecal &d = decals[counts.arcs];
+		CHECK(d.style == 0x2000u);
+		CHECK(d.color == 0xFFFFFFFFu);
+		CHECK(d.terrainOnly);
+		CHECK(d.texture == "PlaceTerrainResourceClaimantDecal");
+		CHECK(d.size == radius * 2.0f);
+		CHECK(d.sizeY == 0.0f);
+		CHECK(d.position.x == fb.placement().decalCenter.x);
+		CHECK(d.position.y == fb.placement().decalCenter.y);
+		CHECK(d.maskVx0 == fb.placement().maskVx0);
+		CHECK(d.maskVy0 == fb.placement().maskVy0);
+		CHECK(d.maskW == fb.placement().maskW);
+		CHECK(d.maskH == fb.placement().maskH);
+		CHECK(d.maskAlpha == fb.placement().maskAlpha);
+		// the mask covers the decal's square: from the vertex at or below its corner to the one at or above the opposite corner
+		const float sp = TerrainResourceFeedback::kVertexSpacing;
+		CHECK(d.maskVx0 == (int)std::floor((d.position.x - radius) / sp));
+		CHECK(d.maskVy0 == (int)std::floor((d.position.y - radius) / sp));
+		CHECK(d.maskVx0 + d.maskW - 1 == (int)std::ceil((d.position.x + radius) / sp));
+		CHECK(d.maskVy0 + d.maskH - 1 == (int)std::ceil((d.position.y + radius) / sp));
+	}
+	// the local player's finished farm there: its disc is owned by a visible object of the player: nothing claimable at the same spot, half way it shares
+	Object *farm = make(logic, "GondorFarm", *human, px, py);
+	farm->friend_onBuildComplete();
+	logic.runLogicFrame();
+	CHECK(TerrainResourceClaimView::claimableFraction(logic, px, py, radius, data->m_highPriority, me) == 0.0f);
+	fb.updatePlacement(logic, me, farmT, Coord3D{ px, py, 0.0f }, u"%d%%");
+	CHECK(fb.placement().percent == 0);
+	CHECK(fb.placement().color == 0xFF000000u);
+	for (std::uint8_t a : fb.placement().maskAlpha)
+	{
+		(void)a; // vertices outside the farm's disc stay visible; the centre is checked below
+	}
+	{
+		// the centre vertex of the farm: its own cell is owned: alpha 0
+		const int vx = (int)(px / TerrainResourceFeedback::kVertexSpacing), vy = (int)(py / TerrainResourceFeedback::kVertexSpacing);
+		CHECK((TerrainResourceClaimView::vertexColor(logic, 0x80FFFFFFu, vx, vy, me) >> 24) == 0u);
+	}
+	const float half = TerrainResourceClaimView::claimableFraction(logic, px + radius, py, radius, data->m_highPriority, me);
+	CHECK(half > 0.25f); // tolerance: a disc half over the farm's own ground shares it; the exact share is the raster's (checked cell by cell below)
+	CHECK(half < 0.75f); // tolerance: as above
+	{
+		// lane FOGFX-1 (FB-0055): the placement mask asks each cell once (a per-cell memo) and gives every vertex the value RW 0x75C1A9 computes asking
+		// its 13 cells one by one; half over the farm's ground the mask holds partial weights
+		fb.updatePlacement(logic, me, farmT, Coord3D{ px + radius, py, 0.0f }, u"%d%%");
+		const ResourcePlacementFeedback &pl = fb.placement();
+		const std::uint32_t base = 0xFFFFFFFFu; // lane PLACEDECAL-1: the decal's diffuse
+		int mismatches = 0, partialVertices = 0, vertices = 0;
+		for (int j = 0; j < pl.maskH; ++j)
+		{
+			for (int i = 0; i < pl.maskW; ++i)
+			{
+				const std::uint8_t want = (std::uint8_t)(TerrainResourceClaimView::vertexColor(logic, base, pl.maskVx0 + i, pl.maskVy0 + j, me) >> 24);
+				const std::uint8_t got = pl.maskAlpha[(size_t)j * (size_t)pl.maskW + (size_t)i];
+				mismatches += got != want ? 1 : 0;
+				partialVertices += (want != 0 && want != 0xFF) ? 1 : 0;
+				++vertices;
+			}
+		}
+		CHECK(vertices == pl.maskW * pl.maskH);
+		CHECK(mismatches == 0);
+		CHECK(partialVertices > 0); // tolerance: presence of the edge's partial weights is the claim (their count is the raster's)
+		MESSAGE("fogfx1: the farm's placement mask " << pl.maskW << " x " << pl.maskH << ", " << partialVertices << " partial vertices, all equal to RW 0x75C1A9's");
+	}
+	// the vertex weights along the farm's edge are the table of RW 0x75C1A9 (an independent reading of the 13 cells)
+	{
+		auto ok = [&](int x, int y) { return TerrainResourceClaimView::claimable(logic, x, y, 0u, INVALID_ID, false, me); };
+		int checked = 0, partial = 0;
+		const int vy = (int)(py / TerrainResourceFeedback::kVertexSpacing);
+		for (int vx = (int)((px - 2 * radius) / 10.0f); vx < (int)((px + 2 * radius) / 10.0f); ++vx)
+		{
+			const std::uint32_t got = TerrainResourceClaimView::vertexColor(logic, 0xC0123456u, vx, vy, me);
+			int w = 0;
+			if (ok(vx / 2, vy / 2))
+			{
+				w = 12;
+				const int d[12][3] = { { 1, 0, 4 }, { 0, 1, 4 }, { -1, 0, 4 }, { 0, -1, 4 }, { 1, 1, 2 }, { -1, -1, 2 }, { -1, 1, 3 }, { 1, -1, 3 }, { 2, 0, 1 }, { -2, 0, 1 },
+					{ 0, 2, 1 }, { 0, -2, 1 } };
+				for (const auto &e : d)
+				{
+					w -= ok((vx + e[0]) / 2, (vy + e[1]) / 2) ? 0 : e[2];
+				}
+			}
+			const std::uint32_t want = w <= 0 ? 0u : (0x00123456u | ((std::uint32_t)(int)(192.0f * ((float)w / 12.0f)) << 24));
+			CHECK(got == want);
+			++checked;
+			partial += (w > 0 && w < 12) ? 1 : 0;
+		}
+		CHECK(checked > 0); // tolerance: the scan ran (its count is the map geometry's)
+		CHECK(partial > 0); // tolerance: the edge was crossed (some vertex had a partial weight)
+	}
+	// the farm earns less with an overlapping second farm (the simulation half): the first farm's share drops below 1
+	// the selected farm's claim decals: the local player's visible claimants (the farm; every building's dead spot is Visible = No), not the enemy's
+	Object *enemyFarm = nullptr;
+	{
+		int ex = 0, ey = 0;
+		REQUIRE(freeBlock(cx, cy, ex, ey));
+		enemyFarm = make(logic, "MordorSlaughterHouse", *ai, (float)ex * grid.cellSize() + 10.0f, (float)ey * grid.cellSize() + 10.0f);
+		enemyFarm->friend_onBuildComplete();
+		logic.runLogicFrame();
+	}
+	fb.updateSelection(logic, me, 1);
+	REQUIRE(fb.claimedDecals().size() >= 1); // tolerance: the castle pieces of a Men start may hold Visible claims too; every decal is checked below
+	bool sawFarm = false;
+	for (const ResourceClaimDecal &d : fb.claimedDecals())
+	{
+		const Object *o = logic.findObjectByID(d.id);
+		REQUIRE(o);
+		CHECK(o->getControllingPlayer() == human);
+		CHECK(d.id != enemyFarm->getID());
+		CHECK(d.color == 0xFF6464C8u);
+		CHECK(d.opacity == 0x80);
+		if (d.id == farm->getID())
+		{
+			sawFarm = true;
+			CHECK(d.size == radius * 2.0f);
+			CHECK(d.position.x == px);
+		}
+	}
+	CHECK(sawFarm);
+	{
+		// lane PLACEDECAL-1: the claims as the HUD draws them: SHADOW_ALPHA_DECAL, the diffuse 0x806464C8 (setColor, then setOpacity 0x80), terrain only
+		std::vector<SelectionDecal> decals;
+		fb.updatePlacement(logic, me, nullptr, Coord3D{ px, py, 0.0f }, u"%d%%");
+		fb.appendDecals("TerrainResourceClaimDecal", "PlaceTerrainResourceClaimantDecal", decals);
+		REQUIRE(decals.size() == fb.claimedDecals().size());
+		for (size_t i = 0; i < decals.size(); ++i)
+		{
+			CHECK(decals[i].object == fb.claimedDecals()[i].id);
+			CHECK(decals[i].style == 0x20u);
+			CHECK(decals[i].color == 0x806464C8u);
+			CHECK(decals[i].terrainOnly);
+			CHECK(decals[i].texture == "TerrainResourceClaimDecal");
+			CHECK(decals[i].size == fb.claimedDecals()[i].size);
+			CHECK(decals[i].maskW == 0);
+		}
+	}
+	fb.updateSelection(logic, me, 0);
+	CHECK(fb.claimedDecals().empty());
+	// a template without a TerrainResourceBehavior (a barracks), or none: no placement feedback
+	fb.updatePlacement(logic, me, logic.things().findTemplate("GondorBarracks"), Coord3D{ px, py, 0.0f }, u"%d%%");
+	CHECK_FALSE(fb.placement().active);
+	fb.updatePlacement(logic, me, nullptr, Coord3D{ px, py, 0.0f }, u"%d%%");
+	CHECK_FALSE(fb.placement().active);
+	// the shroud clauses (RW 0x75C02D): the enemy's farm owned ground is claimable for a player who sees it fogged (the start's revealMapForPlayer state),
+	// not once it is clear
+	const float efx = enemyFarm->getPosition()->x, efy = enemyFarm->getPosition()->y;
+	CHECK(TerrainResourceClaimView::claimableFraction(logic, efx, efy, radius, data->m_highPriority, me) == 0.0f);
+	logic.shroud()->undoRevealMapForPlayerPermanently(me);
+	logic.shroud()->revealMapForPlayer(me);
+	logic.runLogicFrame();
+	const ShroudManager &sh = *logic.shroud();
+	if (sh.getStatusAt(me, efx, efy) == CELLSHROUD_FOGGED)
+	{
+		CHECK(TerrainResourceClaimView::claimableFraction(logic, efx, efy, radius, data->m_highPriority, me) == 1.0f);
+	}
+	else
+	{
+		MESSAGE("the enemy farm is in the local player's sight (status " << (int)sh.getStatusAt(me, efx, efy) << "): the fog clause is not reached here");
+	}
+}
+
+TEST_CASE("ownerfix2 retail: a resource building's placement collects the own and allied Visible claimants and draws their claim arcs (RW 0x6A2CC8 mask 3, "
+	"RW 0x8E99EE / RW 0x8E9744)")
+{
+	// RW 0x6A2CC8 .. 0x6A2CFC: the placement branch clears the collector, enumerates the claimants with getPlayersWithRelationship(local, 3, false) and
+	// finishes it; RW 0x8E9C35 keeps the Visible records whose object exists; the arcs of RW 0x8E99EE / RW 0x8E9744 are the free ranges of every collected
+	// circle. Enemy claimants are not in mask 3, so they are not drawn (the owner's memory of enemy circles is not what the RotWK placement code does).
+	OPENBFME_REQUIRE_START(s);
+	NewGameMessage m = evendim3(*s, 47);
+	Game g;
+	load(*s, m, g);
+	GameLogic &logic = g.game->logic();
+	Player *human = playerAtStart(logic, 0);
+	Player *ally = playerAtStart(logic, 4);
+	Player *enemy = playerAtStart(logic, 1);
+	REQUIRE(human);
+	REQUIRE(ally);
+	REQUIRE(enemy);
+	REQUIRE(logic.shroud());
+	const int me = human->getPlayerIndex();
+	logic.shroud()->revealMapForPlayerPermanently(me);
+	logic.runLogicFrame();
+	const TerrainResourceManager &grid = logic.economy().resources();
+	REQUIRE(grid.hasGrid());
+	const ThingTemplate *farmT = logic.things().findTemplate("GondorFarm");
+	REQUIRE(farmT);
+	const TerrainResourceBehaviorModuleData *data = TerrainResourceClaimView::resourceDataOf(*farmT);
+	REQUIRE(data);
+	const float radius = data->m_radius;
+	const int r = (int)std::ceil(radius / grid.cellSize());
+	const int n = 2 * r + 3;
+	// a free block of cells whose cell centres are not SHROUDED for the local player (so the arcs are not dropped by the shroud rule), away from the
+	// blocks already used
+	std::vector<std::pair<int, int>> used;
+	auto freeBlock = [&](int &ox, int &oy) {
+		for (int y = 1; y + n < grid.height(); y += 2)
+		{
+			for (int x = 1; x + n < grid.width(); x += 2)
+			{
+				bool near = false;
+				for (const auto &u : used)
+				{
+					near = near || (std::abs(x - u.first) < 3 * n && std::abs(y - u.second) < 3 * n);
+				}
+				if (near)
+				{
+					continue;
+				}
+				bool ok = true;
+				for (int j = 0; j < n && ok; ++j)
+				{
+					for (int i = 0; i < n && ok; ++i)
+					{
+						const TerrainResourceManager::Cell *c = grid.cellAt(x + i, y + j);
+						if (!c || c->state != TerrainResourceManager::CELL_FREE)
+						{
+							ok = false;
+							break;
+						}
+						const float wx = ((float)(x + i) + 0.5f) * grid.cellSize() + grid.originX();
+						const float wy = ((float)(y + j) + 0.5f) * grid.cellSize() + grid.originY();
+						ok = logic.shroud()->getStatusAt(me, wx, wy) != CELLSHROUD_SHROUDED;
+					}
+				}
+				if (ok)
+				{
+					ox = x + n / 2;
+					oy = y + n / 2;
+					used.push_back({ ox, oy });
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+	auto centre = [&](int x, int y) { return Coord3D{ ((float)x + 0.5f) * grid.cellSize() + grid.originX(), ((float)y + 0.5f) * grid.cellSize() + grid.originY(), 0.0f }; };
+	int ox = 0, oy = 0, ax = 0, ay = 0, ex = 0, ey = 0;
+	REQUIRE(freeBlock(ox, oy));
+	REQUIRE(freeBlock(ax, ay));
+	REQUIRE(freeBlock(ex, ey));
+	Object *ownFarm = make(logic, "GondorFarm", *human, centre(ox, oy).x, centre(ox, oy).y);
+	Object *allyFarm = make(logic, "GondorFarm", *ally, centre(ax, ay).x, centre(ax, ay).y);
+	Object *enemyFarm = make(logic, "MordorSlaughterHouse", *enemy, centre(ex, ey).x, centre(ex, ey).y);
+	ownFarm->friend_onBuildComplete();
+	allyFarm->friend_onBuildComplete();
+	enemyFarm->friend_onBuildComplete();
+	logic.runLogicFrame();
+	// no placement: the collector is empty
+	TerrainResourceFeedback fb;
+	fb.updatePlacement(logic, me, nullptr, centre(ox, oy), u"%d%%");
+	CHECK(fb.placement().active == false);
+	CHECK(fb.claimCircles().empty());
+	CHECK(fb.claimArcs().empty());
+	const std::uint32_t hashBefore = logic.computeStateHash();
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%");
+	CHECK(logic.computeStateHash() == hashBefore); // client only: the feedback reads the logic and the shroud, it writes neither
+	REQUIRE(fb.placement().active);
+	auto circleOf = [&](ObjectID id) {
+		for (const ResourceClaimCircle &c : fb.claimCircles())
+		{
+			if (c.id == id)
+			{
+				return &c;
+			}
+		}
+		return static_cast<const ResourceClaimCircle *>(nullptr);
+	};
+	REQUIRE(circleOf(ownFarm->getID()));
+	REQUIRE(circleOf(allyFarm->getID()));
+	CHECK(circleOf(enemyFarm->getID()) == nullptr); // mask 3 = the local player and allies only (RW 0x6A8695)
+	CHECK(circleOf(ownFarm->getID())->position.x == ownFarm->getPosition()->x);
+	CHECK(circleOf(ownFarm->getID())->radius == radius);
+	CHECK(circleOf(ownFarm->getID())->color == (0xFF000000u | (human->getPlayerColor() & 0x00FFFFFFu)));
+	CHECK(circleOf(allyFarm->getID())->color == (0xFF000000u | (ally->getPlayerColor() & 0x00FFFFFFu)));
+	size_t ownArcs = 0, allyArcs = 0;
+	for (const ResourceClaimArc &a : fb.claimArcs())
+	{
+		CHECK(a.id != enemyFarm->getID());
+		CHECK(a.length > 0.0f); // tolerance: the segment's pieceLength is the arc raster's
+		CHECK(a.shroudLevel > 0); // tolerance: a visible segment has a non-zero shroud level
+		if (a.id == ownFarm->getID())
+		{
+			++ownArcs;
+			CHECK(a.color == (0xFF000000u | (human->getPlayerColor() & 0x00FFFFFFu)));
+			CHECK(std::abs(std::hypot(a.position.x - ownFarm->getPosition()->x, a.position.y - ownFarm->getPosition()->y) - (radius - a.length * 0.5f)) < 0.01f); // tolerance: the segment sits at radius - pieceLength / 2 (float)
+
+		}
+		if (a.id == allyFarm->getID())
+		{
+			++allyArcs;
+		}
+	}
+	CHECK(ownArcs > 0); // tolerance: at least one free segment of the farm's ring (the count is the raster's)
+	CHECK(allyArcs > 0); // tolerance: as above, for the ally's farm
+	// a claim that is not Visible (RW 0x8E9C35: record + 0x10 false) is not collected, even the local player's own
+	int hx = 0, hy = 0;
+	REQUIRE(freeBlock(hx, hy));
+	Object *hidden = make(logic, "GondorBarracks", *human, centre(hx, hy).x, centre(hx, hy).y);
+	REQUIRE(hidden);
+	logic.economy().resources().claim(*hidden, radius, false, false);
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%");
+	CHECK(circleOf(hidden->getID()) == nullptr);
+	REQUIRE(circleOf(ownFarm->getID()));
+	// a Visible claim of radius 0 (the module's default Radius): collected (RW 0x8E9C35 has no radius test) but it makes no segment; RW 0x8E9744's
+	// count is 0 there and its loop never runs, the port skips the circle before the 0 / 0 (review of #243)
+	Object *zero = make(logic, "GondorBarracks", *human, centre(hx, hy).x + 30.0f, centre(hx, hy).y); // beside the hidden one (no free block is left)
+	REQUIRE(zero);
+	logic.economy().resources().claim(*zero, 0.0f, true, false);
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%");
+	REQUIRE(circleOf(zero->getID()));
+	for (const ResourceClaimArc &a : fb.claimArcs())
+	{
+		CHECK(a.id != zero->getID());
+		CHECK(std::isfinite(a.position.x));
+		CHECK(std::isfinite(a.length));
+	}
+	REQUIRE(circleOf(ownFarm->getID()));
+	{
+		// the device's decals (lane ECOCIRCLE-2): the arcs first (they are the newest of RotWK's addDecal list), then the placement decal, then the claims
+		std::vector<SelectionDecal> decals;
+		const TerrainResourceDecalCounts counts = fb.appendDecals("TerrainResourceClaimDecal", "PlaceTerrainResourceClaimantDecal", decals);
+		CHECK(counts.arcs == fb.claimArcs().size());
+		CHECK(counts.place == 1);
+		CHECK(counts.claims == fb.claimedDecals().size());
+		REQUIRE(decals.size() == counts.arcs + counts.place + counts.claims);
+		for (size_t i = 0; i < counts.arcs; ++i)
+		{
+			CHECK(decals[i].style == 0x40u); // SHADOW_ADDITIVE_DECAL
+			CHECK(decals[i].texture == TerrainResourceFeedback::kClaimArcTexture);
+			CHECK(decals[i].terrainOnly);
+			CHECK(decals[i].size == fb.claimArcs()[i].length);
+			CHECK(decals[i].angle == -fb.claimArcs()[i].angle); // the shadow's normalizeAngle(-mid) RW 0x8E98C8
+			CHECK(decals[i].color == (((std::uint32_t)fb.claimArcs()[i].shroudLevel << 24) | (fb.claimArcs()[i].color & 0xFFFFFFu)));
+		}
+		CHECK(decals[counts.arcs].style == 0x2000u); // the placement claim decal after them
+	}
+	// a Visible claim of a barracks? none (no TerrainResourceBehavior): no placement feedback
+	fb.updatePlacement(logic, me, logic.things().findTemplate("GondorBarracks"), centre(ox, oy), u"%d%%");
+	CHECK(fb.claimCircles().empty());
+	CHECK(fb.claimArcs().empty());
+	// the shrouded claimant: the collector still holds it (RW 0x8E9C35 has no shroud test), but the port drops its segments where the local player's
+	// shroud covers the ground (the shroud pass covers retail's shadow; INFERENCE S-5030). A normal own / allied claim circle is lit by its owner's
+	// (and the owner's allies') shared vision, so the filter bites at an unlit edge: the farm's shroud record is removed to make its ring unlit, then
+	// every fogged cell goes back to never seen. The claim in the logic stays.
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%"); // the barracks check above ended the placement: start it again
+	const size_t arcsBeforeShroud = fb.claimArcs().size();
+	logic.shroud()->unregisterObject(*ownFarm);
+	logic.shroud()->undoRevealMapForPlayerPermanently(me);
+	logic.shroud()->shroudMapForPlayer(me);
+	const std::uint32_t hashBeforeShrouded = logic.computeStateHash();
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%");
+	CHECK(logic.computeStateHash() == hashBeforeShrouded);
+	REQUIRE(circleOf(ownFarm->getID())); // still collected (the collector has no shroud test)
+	size_t shroudedOwnArcs = 0;
+	for (const ResourceClaimArc &a : fb.claimArcs())
+	{
+		shroudedOwnArcs += a.id == ownFarm->getID() ? 1 : 0;
+	}
+	CHECK(shroudedOwnArcs == 0);                 // every segment of the unlit ring is under the shroud: none is drawn
+	CHECK(fb.claimArcs().size() < arcsBeforeShroud); // tolerance: the unlit ring's segments went (the rest of the map's claims may stay lit)
+	// and it goes when the placement ends
+	fb.updatePlacement(logic, me, farmT, centre(ox, oy), u"%d%%"); // the barracks check above ended the placement: start it again
+	CHECK(fb.placement().active);
+	fb.updatePlacement(logic, me, nullptr, centre(ox, oy), u"%d%%");
+	CHECK(fb.claimCircles().empty());
+	CHECK(fb.claimArcs().empty());
+	// review of #243: the segment count of RW 0x8E9744 alone; a non-positive circumference (the Radius-0 claimant above) gives no segment
+	CHECK(TerrainResourceFeedback::claimSegmentCount(0.0f, 0.0f) == 0);
+	CHECK(TerrainResourceFeedback::claimSegmentCount(100.0f, 0.0f) == 0);
+	CHECK(TerrainResourceFeedback::claimSegmentCount(2.0f * 3.14159265f * 300.0f, 2.0f * 3.14159265f * 300.0f) == 32); // tolerance: pi as a float
+}
+
+#include "Common/ModelState.h"
+#include "GameClient/ControlBarCommands.h"
+#include "GameEngineDevice/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.h"
+
+TEST_CASE("placedecal1 retail: every decal shadow a building's placement ghost shows is an alpha decal (the grid's 0x20 / 0x400) at Peak 0xFF, no offset")
+{
+	// lane PLACEDECAL-1: the placement ghost's decal shadow is drawn in the selection decals' grid (lane ECOCIRCLE-2: which draws the additive types
+	// 0x40 / 0x800 too now, as added shares): the retail data gives no ghost one. The ghost shows the state its draw module picks for BUILD_PLACEMENT_CURSOR (findBestInfo, RW 0x4B4379), which may be
+	// a state without the flag (the default); every DOZER_CONSTRUCT template's is surveyed (not a wall span's pieces, nor the other flags a ghost may
+	// carry). The diffuse is white at Peak (S-5032)
+	OPENBFME_REQUIRE_START(s);
+	ModelConditionFlags flags;
+	const int bit = ModelCondition::indexOf("BUILD_PLACEMENT_CURSOR");
+	REQUIRE(bit == 0x6C); // RW 0x69C708 -> RW 0x679512 (GameClient/PlacementGhost.h)
+	flags.set((size_t)bit, true);
+	// the ghosts: the templates of every command set's DOZER_CONSTRUCT buttons
+	std::set<std::string> ghosts;
+	REQUIRE(TheCommandStore);
+	for (const ThingTemplate *tt : s->world->things().templates())
+	{
+		const FieldValue *v = tt->findField("CommandSet");
+		const std::string *setName = v ? std::get_if<std::string>(v) : nullptr;
+		const CommandSet *set = setName ? TheCommandStore->findCommandSet(*setName) : nullptr;
+		for (int i = 0; set && i < CommandSet::MAX_BUTTONS; ++i)
+		{
+			const CommandButton *b = set->getCommandButton(i);
+			if (b && b->m_command == GUI_COMMAND_DOZER_CONSTRUCT && !b->m_objectName.empty())
+			{
+				ghosts.insert(b->m_objectName);
+			}
+		}
+	}
+	CHECK(ghosts.size() > 50); // tolerance: every faction's buildings (their count is the data's)
+	int shadows = 0, alpha = 0, peak = 0, lod = 0, offset = 0;
+	std::set<std::string> textures;
+	for (const std::string &name : ghosts)
+	{
+		const ThingTemplate *tt = s->world->things().findTemplate(name);
+		if (!tt)
+		{
+			continue;
+		}
+		for (const ThingTemplate::Nugget &n : tt->getFinalOverride()->drawModules().nuggets())
+		{
+			const W3DModelDrawModuleData *data = dynamic_cast<const W3DModelDrawModuleData *>(n.data.get());
+			const ModelConditionInfo *info = data ? data->findBestInfo(flags) : nullptr;
+			if (!info || !info->hasShadow || !(info->shadow.type & 0x10C60) || info->shadow.texture.empty())
+			{
+				continue;
+			}
+			++shadows;
+			alpha += (info->shadow.type & 0x10C60) == 0x20 || (info->shadow.type & 0x10C60) == 0x400 ? 1 : 0;
+			peak += info->shadowOpacityPeak == 0xFFu ? 1 : 0;          // RW 0x4C30A8's default: the diffuse white
+			lod += info->shadow.overrideLODVisibility ? 1 : 0;         // addShadow's gate passes whatever the LOD (RW 0x50BF7B)
+			offset += info->shadow.offsetX != 0.0f || info->shadow.offsetY != 0.0f ? 1 : 0; // DecalShadowCentre's axes are not exercised by the data
+			char line[256];
+			std::snprintf(line, sizeof line, "%s: %s %g x %g, type 0x%X", tt->getName().c_str(), info->shadow.texture.c_str(), info->shadow.sizeX,
+				info->shadow.sizeY, (unsigned)info->shadow.type);
+			textures.insert(line);
+		}
+	}
+	for (const std::string &x : textures)
+	{
+		MESSAGE("placedecal1: " << x);
+	}
+	CHECK(shadows > 0); // tolerance: the well and the statues (their count is the data's)
+	CHECK(alpha == shadows);
+	CHECK(peak == shadows);
+	CHECK(lod == shadows);
+	CHECK(offset == 0);
+}
+
+#include "GameClient/DrawableIconUI.h"
+#include "GameClient/FloatingText.h"
+
+#include "GameClient/CommandButtonHelp.h"
+
+TEST_CASE("floating text: numeric settings accept INI math and report missing or malformed values")
+{
+	const std::string ini = "InGameUI\n FloatingTextTimeOut = #MULTIPLY( 500 2 )\n FloatingTextMoveUpSpeed = #MULTIPLY( 15 2 )\n FloatingTextVanishRate = #ADD( 1 2 )\nEnd\n";
+	unsigned timeout = 0;
+	float speed = 0, vanish = 0;
+	std::string error;
+	REQUIRE(loadInGameUiUnsigned(nullptr, &ini, "FloatingTextTimeOut", timeout, &error));
+	REQUIRE(loadInGameUiReal(nullptr, &ini, "FloatingTextMoveUpSpeed", speed, &error));
+	REQUIRE(loadInGameUiReal(nullptr, &ini, "FloatingTextVanishRate", vanish, &error));
+	CHECK(timeout == 1000);
+	CHECK(speed == 30.0f);
+	CHECK(vanish == 3.0f);
+	const std::string missing = "InGameUI\nEnd\n";
+	CHECK_FALSE(loadInGameUiReal(nullptr, &missing, "FloatingTextVanishRate", vanish, &error));
+	CHECK(error.find("FloatingTextVanishRate") != std::string::npos);
+	const std::string malformed = "InGameUI\n FloatingTextVanishRate = bad\nEnd\n";
+	CHECK_FALSE(loadInGameUiReal(nullptr, &malformed, "FloatingTextVanishRate", vanish, &error));
+	CHECK_FALSE(error.empty());
+}
+
+TEST_CASE("floating text: unavailable settings disable creation and discard existing labels")
+{
+	FloatingTextList list;
+	for (unsigned f = 0; f < 100; ++f) list.add("+25", Coord3D{}, 0xE6FFFFFFu, f);
+	CHECK(list.records().empty());
+	CHECK(list.added() == 0);
+	FloatingTextSettings settings;
+	settings.vanishRate = 3.0f;
+	list.setSettings(settings);
+	list.add("+25", Coord3D{}, 0xE6FFFFFFu, 100);
+	REQUIRE(list.records().size() == 1);
+	list.disable();
+	for (unsigned f = 101; f < 200; ++f) list.add("+25", Coord3D{}, 0xE6FFFFFFu, f);
+	CHECK(list.records().empty());
+	CHECK(list.added() == 1);
+	list.setSettings(settings);
+	list.add("+25", Coord3D{}, 0xE6FFFFFFu, 200);
+	CHECK(list.records().size() == 1);
+}
+
+TEST_CASE("floating text: GUI:AddCash records hold for FloatingTextTimeOut, rise at FloatingTextMoveUpSpeed and fade at FloatingTextVanishRate")
+{
+	FloatingTextSettings s;
+	s.timeOutMs = 1000; // RotWK InGameUI.ini
+	s.moveUpSpeed = 30.0f;
+	s.vanishRate = 3.0f;
+	FloatingTextList list;
+	list.setSettings(s);
+	list.update(100); // the HUD steps the list every frame from the game's start; the first call sets the clock
+	list.add("+10", Coord3D{ 100, 200, 30 }, 0xE6112233u, 100);
+	REQUIRE(list.records().size() == 1);
+	CHECK(list.records().front().frameTimeOut == 130); // 1000 ms * 0.03 client frames
+	auto project = [](const Coord3D &p, float &x, float &y) { x = p.x; y = p.y; return true; };
+	auto visible = [](const Coord3D &) { return true; };
+	for (unsigned f = 101; f <= 130; ++f)
+	{
+		list.update(f);
+		list.update(f); // a second call in the same client frame does nothing
+	}
+	REQUIRE(list.records().size() == 1);
+	CHECK(list.records().front().frameCount == 30);
+	CHECK(list.records().front().color == 0xE6112233u); // no fade until the time out
+	std::vector<IconUIOp> ops;
+	list.ops(project, visible, ops);
+	REQUIRE(ops.size() == 1);
+	CHECK(ops[0].kind == IconUIOp::TEXT);
+	CHECK(ops[0].text == "+10");
+	CHECK(ops[0].x == 100.0f);
+	CHECK(ops[0].y == 170.0f); // 200 - 30 frames * 30 / 30
+	CHECK(ops[0].dropColor == 0xE6000000u);
+	// past the time out the alpha drops by (int)(3 / 30 * frames past it), until the record goes
+	unsigned f = 131;
+	for (; f < 400 && !list.records().empty(); ++f)
+	{
+		list.update(f);
+	}
+	CHECK(list.records().empty());
+	CHECK(f == 203); // alpha 230 loses (int)(0.1 * frames past 130) a frame: 0 after the update of frame 202
+	ops.clear();
+	list.add("+5", Coord3D{}, 0xE6FFFFFFu, f);
+	list.ops(project, [](const Coord3D &) { return false; }, ops);
+	CHECK(ops.empty()); // a cell that is not CLEAR for the viewer shows nothing
+}
+
+TEST_CASE("floating text: a render frame spanning several client frames steps every one of them (rise and fade follow the client clock)")
+{
+	FloatingTextSettings s;
+	s.timeOutMs = 1000;
+	s.moveUpSpeed = 30.0f;
+	s.vanishRate = 3.0f;
+	FloatingTextList each, jumps;
+	each.setSettings(s);
+	jumps.setSettings(s);
+	each.update(100);
+	jumps.update(100);
+	each.add("+10", Coord3D{}, 0xE6112233u, 100);
+	jumps.add("+10", Coord3D{}, 0xE6112233u, 100);
+	// a second text added mid-way (frame 151) steps only on the frames after it, also inside a jump
+	for (unsigned f = 101; f <= 260; ++f)
+	{
+		each.update(f);
+		if (f == 151)
+		{
+			each.add("+5", Coord3D{}, 0xE6445566u, 151);
+		}
+		if (f % 3 == 0)
+		{
+			jumps.update(f); // a render frame every third client frame
+		}
+		if (f == 151)
+		{
+			jumps.update(151);
+			jumps.add("+5", Coord3D{}, 0xE6445566u, 151);
+		}
+		if (f % 3 == 0 || f == 151)
+		{
+			REQUIRE(each.records().size() == jumps.records().size());
+			auto a = each.records().begin();
+			auto b = jumps.records().begin();
+			for (; a != each.records().end(); ++a, ++b)
+			{
+				CHECK(a->frameCount == b->frameCount);
+				CHECK(a->color == b->color);
+			}
+		}
+	}
+	CHECK(each.records().empty()); // both texts faded: the first after frame 202, the second after frame 253
+	CHECK(jumps.records().empty());
+}
+
+TEST_CASE("floating text: the runtime stop names the port's inferences (docs/STOPS.md S-283)")
+{
+	const std::vector<std::string> stops = FloatingTextList::acceptanceStops();
+	REQUIRE(stops.size() == 1);
+	CHECK(stops[0].rfind("[S-283] floating text:", 0) == 0);
+	for (const char *inference : { "FloatingTextTimeOut is milliseconds", "30 client frames a second", "caption font" })
+	{
+		CHECK_MESSAGE(stops[0].find(inference) != std::string::npos, inference);
+	}
+}

@@ -1,0 +1,17 @@
+{
+  "@@locale": "ru",
+  "@@name": "Русский",
+  "@@status": "partial",
+  "common.cancel": "Отмена",
+  "common.close": "Закрыть",
+  "game.wotr.map_missing.text": "Карта сражения для региона {region} отсутствует в этой установке, поэтому сражение было рассчитано автоматически.",
+  "game.wotr.map_missing.title": "Карта сражения отсутствует",
+  "game.wotr.rts_demoted.text": "В сражении в регионе {region} больше противоборствующих сторон, чем доступных стартовых позиций на карте, поэтому оно было рассчитано автоматически.",
+  "game.wotr.rts_demoted.title": "Сражение рассчитано автоматически",
+  "launcher.settings.language": "Язык",
+  "launcher.settings.language_note": "Язык собственных текстов OpenBFME. Тексты игры остаются на языке установленной игры.",
+  "launcher.settings.language_sample": "{language} (неполный перевод)",
+  "launcher.settings.language_automatic": "Автоматически ({language})",
+  "launcher.settings.language_restart": "Применяется после следующего запуска лаунчера.",
+  "launcher.settings.title": "Настройки"
+}
