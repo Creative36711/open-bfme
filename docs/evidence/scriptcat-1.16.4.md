@@ -90,7 +90,8 @@ continuation IDs remain executable regressions rather than historical prose.
 - Repository: `docs/REGULATION.md` 1.2, `docs/regulation-digest.md` 1.2,
   `docs/PHASES.md` 1.2, ADR-004 and `docs/missions/WOTR-1.2.md`.
 - Notion: Regulation 1.2 and phase roadmap synchronized; WOTR-1.2 mission is
-  Draft and its sole assistant-created B0 is Ready.
+  Draft with no live request cards. Its prematurely seeded B0 was moved to
+  trash; a new B0 is created only after accepted WOTR-1.1 on integrated `main`.
 - Requests schema: `Localization & Cultural QA Engineer` is now an allowed
   recipient; the existing role remains Waiting until the owner provisions and
   activates its Arena agent.
@@ -101,5 +102,5 @@ This evidence accepts the deterministic repository artifact, source scrub and
 bounded local transport gates. It does not claim browser installation, live
 dispatch, full game/package export, retail hydration, public release, production
 signing, agent provisioning or activation. Those remain explicit owner/mission
-operations. WOTR-1.2 implementation remains blocked on accepted WOTR-1.1 and
-then accepted WOTR-1.2-B0.
+operations. WOTR-1.2 implementation remains blocked on accepted WOTR-1.1;
+only then is its B0 created, rehearsed and accepted before Coordinator slicing.

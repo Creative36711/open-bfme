@@ -12,11 +12,13 @@ This mission starts only after `WOTR-1.1` is accepted on an integrated `main`
 SHA. It consumes the accepted explicit WOTR route and native
 strategy → tactical → strategy round-trip; it does not redesign those systems.
 
-Before any implementation or audit card is created, the assistant-created
-`WOTR-1.2-B0` oracle-rehearsal card must be `Accepted`. B0 is read-only with
-`build: none`, `retail: none`. It names every command/action, platform,
-prerequisite, expected observable, negative case and evidence path needed by
-this specification. Only the Coordinator creates the remaining cards.
+While `WOTR-1.1` is active, no WOTR-1.2 request card exists, including B0.
+After `WOTR-1.1` is accepted on integrated `main`, the assistant creates the
+`WOTR-1.2-B0` oracle-rehearsal card. Before any implementation or audit card is
+created, B0 must be `Accepted`. It is read-only with `build: none`,
+`retail: none` and names every command/action, platform, prerequisite, expected
+observable, negative case and evidence path needed by this specification. Only
+the Coordinator creates the remaining cards.
 
 ## 2. Intent
 
