@@ -106,7 +106,7 @@ Visual card сначала фиксирует style brief, named asset list, con
 
 WOTR Remaster адаптирует существующие `launcher/**` и one-archive release tools, но не распространяет pinned upstream launcher binary без изменений и не создаёт второй updater. Пакет содержит WOTR launcher и один native game build, внутри которого strategy и OpenBFME tactical переходят нативно. Product/update/signing identity, user data, settings, logs и saves изолированы от upstream OpenBFME. Поддерживаемый путь: один архив → unpack → WOTR launcher → retail detection/selection → **Play WOTR Remaster**, без checkout, build tools, environment variables или developer CLI; bundled version стартует offline.
 
-После принятой WOTR-1.1 отдельная миссия `WOTR-1.2` обязана доказать fresh-profile package route. До её рабочих карточек ассистент создаёт B0-репетицию и ставит её в `Ready`; остальные карточки режет Coordinator только после `Accepted` B0. Internal playtest не разрешает public release до all-ref retail-history, license/provenance, signing и platform gates.
+`WOTR-1.2` сохраняется как черновик будущей миссии, которая должна доказать fresh-profile package route, но сейчас не имеет рабочих карточек. Принятие `WOTR-1.1` только снимает зависимость и не создаёт B0 автоматически: подготовка `WOTR-1.2` начинается лишь по отдельному будущему решению. После такого решения первой карточкой ассистент создаёт B0-репетицию в `Ready`; остальные карточки режет Coordinator только после `Accepted` B0. Internal playtest не разрешает public release до all-ref retail-history, license/provenance, signing и platform gates.
 
 ## WOTR-D-017 · ScriptCat 1.16.4 full WOTR source scrub
 

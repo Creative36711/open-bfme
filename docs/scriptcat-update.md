@@ -33,8 +33,8 @@ Transport protocol остаётся 1.11. Полная WOTR-адаптация s
 
 - embedded regulation 1.2 включает ADR-004 player entry, адаптацию существующего
   launcher/one-archive pipeline и миссию portable playtest;
-- обязательная B0-репетиция до рабочих карточек каждой миссии закреплена в
-  prompts/regulation;
+- после отдельного решения начать подготовку миссии обязательная B0-репетиция
+  до её рабочих карточек закреплена в prompts/regulation;
 - former-project names, repositories и card prefixes удалены из runtime source
   comments, contracts, tests, browser/regression fixtures;
 - точный imported repository разрешён только в явно неоперационном
