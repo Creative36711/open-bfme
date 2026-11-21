@@ -1367,11 +1367,24 @@
     const logId = String(created?.fileId || "").trim();
     if (!logId) throw new Error("Шлюз не вернул ID журнала новой выдачи.");
     const beforeWrite = await notion("GET", `pages/${card.id}`);
-    const recheck = await taskPreflight(beforeWrite, mission);
+    // Перечтение проверяется ровно тем же гейтом, что и первый осмотр выше, —
+    // включая зону адресата. Без третьего аргумента `unownedPaths` (D-092)
+    // терял пропуск прозаической «Зоны записи» и отвергал карточку, которую
+    // первый осмотр пропустил: 21.11 WOTR-1.1 B0 встала на третьем таком
+    // отказе, хотя её не меняли. Зона берётся из той же подтверждённой строки
+    // «Ролей», что и при первом осмотре, — другой источник дал бы проверке
+    // другой смысл.
+    const recheck = await taskPreflight(beforeWrite, mission, confirmed[0].zone || "");
     if (recheck || taskState(beforeWrite) !== "Ready" || norm(taskRole(beforeWrite)) !== norm(role.name) ||
         beforeWrite.properties?.["Submitted At"]?.date?.start || beforeWrite.properties?.["PR"]?.url) {
-      return `карточка изменилась перед выдачей (${recheck || "состояние, адресат или следы ответа"}); ` +
-        `статус не меняю, созданный пустой журнал ${logId} оставлен для проверки`;
+      // Причина называется по-разному для двух случаев, и по этому слову
+      // остановка `redispatch` выбирает адресата разбора: отказ повторной
+      // проверки решает транспорт (он разошёлся с первым осмотром), а смену
+      // состояния, адресата или следов ответа — приёмка.
+      const recheckProblem = recheck
+        ? `повторная предполётная проверка: ${recheck}`
+        : "карточка изменилась перед выдачей (состояние, адресат или следы ответа)";
+      return `${recheckProblem}; статус не меняю, созданный пустой журнал ${logId} оставлен для проверки`;
     }
     GM_setValue("cfn-dispatch-miss", 0);
     // D-080: промпт собран и карточка уходит в Running — ответы, показанные

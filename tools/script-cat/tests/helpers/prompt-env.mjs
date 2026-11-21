@@ -22,7 +22,8 @@ export const healApi = new Function(`${healSource}\nreturn {
   HEAL_RULES_VERSION, HEAL_CLASS_INFO, HEAL_PAUSE_CLASS, healVerdict, classifyPause,
   healIncidentKey, healBackoff, decideHeal, healRedact, healRedactTree, healByteLength,
   buildHealTelemetry, decideVersionGate, heartbeatLine, parseHeartbeat,
-  MASTER_ONLY, HEAL_MASTER_ONLY, HEAL_HOLDING, healResolveWith, healHoldsCycle };`)();
+  MASTER_ONLY, HEAL_MASTER_ONLY, HEAL_HOLDING, healResolveWith, healHoldsCycle,
+  healDispatchDefect };`)();
 
 export const UUID = {
   dispatch: 'a709d6df-4698-4a98-b111-90d22de42894',

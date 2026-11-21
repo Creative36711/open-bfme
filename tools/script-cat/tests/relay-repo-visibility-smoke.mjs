@@ -73,7 +73,12 @@ assert.match(upload, /contents\/\$\{encodeURI\(path\)\}/, 'путь пишетс
   const inMission = mission.match(/ТЗ\s+(\d+\.\d+)/);
   const inPackageMission = packageMission.match(/Specification version:\s*\*\*(\d+\.\d+)\*\*/);
   assert.ok(inPlan, 'в шапке плана назван номер редакции');
-  assert.equal(inMission?.[1], '1.1', 'активное WOTR-1.1 ТЗ сохраняет принятую редакцию');
+  // Номер принятой редакции поднимается вместе с самой публикацией ТЗ: 21.11
+  // принята 1.2 (аддитивные `§10` таблицы владельцев путей и отметка в `§7`,
+  // текст оракула `§8`/`§9` не тронут). Смысл проверки — не «1.1 forever», а
+  // что шапка миссии называет ровно ту редакцию, которая принята, и не
+  // расходится с шапкой очереди.
+  assert.equal(inMission?.[1], '1.2', 'активное WOTR-1.1 ТЗ сохраняет принятую редакцию');
   assert.equal(inPackageMission?.[1], '1.0', 'зависимая WOTR-1.2 имеет собственную версию');
   assert.match(plan, /WOTR-1\.2 · Player entry and portable playtest package/, 'план ссылается на зависимую player-package миссию');
   const declared = plan.slice(0, 1200).match(/Редакция\s*\**\s*(\d+\.\d+)/i);

@@ -37,9 +37,9 @@ const cut = (from, to) => {
   return src.slice(a, b);
 };
 
-// ── 0. Версия: D-122 из 1.16.1 присутствует и в WOTR-выпуске 1.16.4 ───────
-assert.match(src, /^\/\/ @version\s+1\.16\.4\s*$/m, 'WOTR-сборка 1.16.4 объявлена');
-assert.match(src, /\|\| "1\.16\.4";/, 'SCRIPT_VERSION совпадает с @version');
+// ── 0. Версия: D-122 из 1.16.1 присутствует и в WOTR-выпуске 1.16.5 ───────
+assert.match(src, /^\/\/ @version\s+1\.16\.5\s*$/m, 'WOTR-сборка 1.16.5 объявлена');
+assert.match(src, /\|\| "1\.16\.5";/, 'SCRIPT_VERSION совпадает с @version');
 
 // ── 1. Факт приёма ввода запоминается в writePrompt ────────────────────────
 const writeSrc = cut('  function writePrompt(editor, text, attempt = 1) {', '  const composerText =');

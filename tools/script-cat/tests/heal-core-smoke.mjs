@@ -3,6 +3,8 @@
 // Проверяется то, ради чего правила писались отдельным ядром:
 //   • у КАЖДОГО вида остановки из кода есть класс и маршрут (машинная сверка с
 //     `pause(..., { kind })` — «нераспознанное» не должно быть обычным путём);
+//   • один вид паузы умеет различать адресатов по причине: отказ повторной
+//     предполётной проверки выдачи берёт транспорт, петля перевыдач — приёмка;
 //   • штатные остановки (вопрос, план, пилот, приёмка, предел доработок) не
 //     маршрутизируются как поломка — их класс `master`;
 //   • капча/авторизация/сбой сайта — стоп и Мастер, чинить нечего;
@@ -20,6 +22,7 @@ import { healApi } from './helpers/prompt-env.mjs';
 const {
   HEAL_PAUSE_CLASS, classifyPause, decideHeal, healIncidentKey, healBackoff,
   buildHealTelemetry, healRedact, decideVersionGate, heartbeatLine, parseHeartbeat,
+  healHoldsCycle, healDispatchDefect,
 } = healApi;
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -275,7 +278,57 @@ for (const kind of ['prompt-compile', 'orphan-dispatch', 'delivery-state-lost', 
   assert.doesNotMatch(line, /ntn_|ghp_|Bearer/, 'в пульсе нет секретов');
 }
 
+// ── 13. redispatch: отказ выдачи разбирает транспорт, петлю — приёмка ─────
+//
+// Один вид паузы и две причины (WOTR-D-018). 21.11 WOTR-1.1 B0: карточку трижды
+// отвергло перечтение перед созданием журнала — «повторная предполётная
+// проверка: пути Scope не входят в зону…», — хотя между двумя чтениями её не
+// трогали: первый осмотр зона адресата была передана, перечтение — нет. Такая
+// остановка уезжала в «Обратную связь» с советом поправить постановку, а совет
+// ничего не чинит: следующий план получил бы тот же отказ.
+{
+  const rejected = 'Координатор третий раз подряд направляет ход в «Integration Auditor», но ' +
+    'карточка «WOTR-1.1 B0 · сверка» не выдана: повторная предполётная проверка: пути Scope не ' +
+    'входят в зону ни одной активной роли: §9.1–§9.13; статус не меняю.';
+  const v = classifyPause('redispatch', rejected);
+  assert.equal(v.cls, 'transport', 'отказ повторной проверки — дефект транспорта');
+  assert.equal(v.by, 'text', 'класс взят из текста причины, а не из вида паузы');
+  assert.equal(v.reason, 'dispatch-recheck', 'дефект назван, а не растворён в «redispatch»');
+  assert.equal(v.with, 'transport', 'адресат — транспорт, а не приёмка');
+  assert.equal(v.route, 'maintainer', 'ход уходит разбору, а не решению человека');
+  assert.equal(decideHeal(v, {}, { healMaintainerMax: 2 }).action, 'maintainer', "передача Maintainer'у");
+  assert.equal(healHoldsCycle('redispatch', rejected), false, 'цикл не ждёт нажатия: разбирает транспорт');
+  assert.equal(healDispatchDefect(rejected), 'dispatch-recheck', 'тот же признак доступен producer’у паузы');
+
+  // Та же пауза по настоящей причине: карточку действительно переоформили
+  // (состояние, адресат или следы ответа). Транспорт это не чинит, решение
+  // остаётся приёмке — как и отказ ПЕРВОГО осмотра той же карточки.
+  const loop = 'Координатор третий раз подряд направляет ход в «Strategic Core», но ' +
+    'карточка «WOTR-1.1 K2 · ядро» не выдана: карточка изменилась перед выдачей ' +
+    '(состояние, адресат или следы ответа); статус не меняю.';
+  const w = classifyPause('redispatch', loop);
+  assert.equal(w.cls, 'master', 'петля перевыдач не считается поломкой');
+  assert.equal(w.with, 'warden', 'её решает приёмка');
+  assert.equal(decideHeal(w, {}, {}).action, 'warden', 'строка в «Обратную связь»');
+  const firstPass = 'карточка «WOTR-1.1 K4 · UI» не выдана: предварительная проверка: пути Scope ' +
+    'не входят в зону ни одной активной роли: docs/x.md';
+  assert.equal(classifyPause('redispatch', firstPass).with, 'warden',
+    'отказ первого осмотра — дефект постановки, на транспорт не перетягивается');
+  assert.equal(healDispatchDefect(loop), '', 'у смены карточки своего дефекта нет');
+
+  // Ключ инцидента: тот же отказ на той же карточке остаётся одним инцидентом,
+  // поэтому предел Maintainer'а нельзя обойти новым номером параграфа.
+  const key = healIncidentKey({ kind: 'redispatch', ref: 'card-1', reason: rejected,
+    defect: { kind: 'dispatch-recheck' } });
+  assert.equal(healIncidentKey({ kind: 'redispatch', ref: 'card-1',
+    reason: rejected.replace('§9.1–§9.13', '§9.4–§9.9'), defect: { kind: 'dispatch-recheck' } }), key,
+  'цифры в отказе не создают новый инцидент');
+  const exhausted = decideHeal(v, { escalations: 2 }, { healMaintainerMax: 2 });
+  assert.equal(exhausted.action, 'master', 'третий разбор того же отказа — стоп, а не вечный круг');
+}
+
 console.log(
   `OK: heal-core — ${kinds.size} видов паузы размечены, маршруты и предохранители проверены, ` +
-  'телеметрия без переписки и секретов, гейт версии различает 4 исхода',
+  'телеметрия без переписки и секретов, гейт версии различает 4 исхода, ' +
+  'отказ повторной проверки выдачи идёт транспорту',
 );

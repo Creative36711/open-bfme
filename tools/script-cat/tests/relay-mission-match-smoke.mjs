@@ -101,4 +101,16 @@ assert.match(api.scopeZoneIssue('a/b.mjs, c/d.mjs', 'tools/**'), /a\/b\.mjs/,
     'та же карточка при своей зоне проходит');
 }
 
-console.log('OK: UUID mission binding, global guard, migration preview and dependency preflight');
+// Симметрия проверок выдачи (WOTR-D-018): и первый осмотр, и перечтение перед
+// записью вызываются с зоной адресата. Разница в третьем аргументе и была багом:
+// гейт «пути без владельца» (D-092) терял пропуск прозаической зоны и отвергал
+// карточку, которую не меняли, — а отказ выглядел как «карточка изменилась».
+{
+  const calls = src.split(/\r?\n/).filter((line) => line.includes('await taskPreflight('));
+  assert.equal(calls.length, 2, 'у предполётного гейта выдачи два вызова: осмотр и перечтение');
+  for (const line of calls) {
+    assert.match(line, /zone/, `зона адресата передана в оба: ${line.trim().slice(0, 90)}`);
+  }
+}
+
+console.log('OK: UUID mission binding, global guard, migration preview, dependency preflight and recheck symmetry');
