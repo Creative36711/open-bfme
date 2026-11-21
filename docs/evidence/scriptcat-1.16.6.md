@@ -131,16 +131,17 @@ transport work outside this card.
 
 ## Pull request checks
 
-`Commit gate on the pull request's changes` passes on the release commit: `python3 tools/precommit.py`
-over the staged 26 files. It failed once on this evidence file itself: the quoted audit line began with a
+`Commit gate on the pull request's changes` passes on the whole pull request: `python3 tools/precommit.py`
+over the 35 files staged against `main` (`git reset -q --soft origin/main`, run at `e5bae8f`, then put back). It failed once on this evidence file itself: the quoted audit line began with a
 developer-home path, which rule 2 of the gate forbids in staged text, so the wording was replaced by a
 description of that path. Nothing about the audit finding changed. `Workflow lint (actionlint, zizmor)`, `Reference MP3 fixtures`, `Linux engine build and
 unit tests`, `macOS arm64 build and unit tests`, `Windows MSVC build and unit tests (build.bat)`,
 `Windows cross build (llvm-mingw, compile only)`, `Windows tests` and both sanitizer jobs are
 green.
 
-`Public tree audit (the built-in rules)` is red, and it is red on `main` in exactly the same way.
-The audit reports two findings, neither of them produced by this change:
+`Public tree audit (the built-in rules)` was red when this section was first written, and red on
+`main` in exactly the same way. The audit reported two findings, neither of them produced by this
+change:
 
 ```
 PR AUDIT: not a public top-level entry: campaigns
@@ -156,15 +157,46 @@ Verified on both trees from the same checkout, so the comparison is not a claim 
 | `python3 tools/release/pr_audit.py --tree "$(git rev-parse 'HEAD^{tree}')"` (this branch) | FAILED, the same two lines, no additional finding |
 
 The Python step behind the audit does not run in CI once the audit fails; run directly, the same
-state is visible in `tools/release/test_autorelease.py::test_audit_tree_of_the_real_public_tree`
-(fails on the real tree for these two findings; 272 neighbouring tests of that file pass), while
-`tools/release/test_public_push_guard.py` is green (16 passed).
+state was visible in `tools/release/test_autorelease.py::test_audit_tree_of_the_real_public_tree`
+(which failed on the real tree for these two findings while 272 neighbouring tests of that file
+passed), and `tools/release/test_public_push_guard.py` was green (16 passed). What the two rows
+above describe is the state of `70e0db0`; the fix, and the record of the same commands after it,
+follow below.
 
-Both findings sit in `engine/**` and `campaigns/**`, outside the transport zone, so they are not
-fixed here: a top-level `campaigns/` entry and a developer-home fixture path inside a test are
-the K2 card's own release-boundary decision (remove the entry from the public top level, or name
-the path in a form the audit accepts). This release does not merge on top of a red audit by
-editing another card's files.
+Both findings sat in `engine/**` and `campaigns/**`, outside the transport zone, and a transport
+release has no claim on them. The queue paid for that twice: `WOTR-1.1 · K3 (Tactical bridge)`
+branches from a `main` whose tree is dirty, so its own pull request would have shown these two
+lines and had its Python step reported `skipped` for somebody else's debt — and a red tick read
+as "mine" invites an agent to patch a foreign file for a green one. On 2026-11-21 the Master
+(Warden) ruled that this pull request removes the debt and prevents the class, so the fix and the
+mechanism are here, in that name and not in the transport card:
+
+- `tools/release/autorelease.py` — `campaigns` is listed in `PUBLIC_TOP`. The directory is the
+  data boundary `docs/ARCHITECTURE.md` §3 prescribes (`campaigns/schema`, `campaigns/fixtures`),
+  so the allowlist was what lagged behind the tree, not the other way round;
+- `engine/tests/WotrRemaster/test_pack.cpp` — the absolute reference the K2 test expects to be
+  rejected is now written as a mount point instead of a home directory. `Pack.cpp` looks only at
+  the leading `/` (and at `X:` for the Windows case, which never touched the rule), so the test
+  still tests exactly what it tested: compiled and run here, 2 of 2 named cases pass and the whole
+  `WotrRemaster` suite is 32 cases / 273 assertions passed;
+- `tools/release/pr_audit.py --base <rev>` attributes every finding — `PR AUDIT:` is this tree's
+  own, `PR AUDIT INHERITED:` was already in the base and names the commit that last touched the
+  path. The exit code never depends on `--base`, so a dirty public tree stays red and cannot be
+  published over;
+- `.github/workflows/pr.yml` runs the audit step with `--base 'HEAD^1'` (GitHub's checkout is its
+  merge, so the first parent is `main`), and `tools/script-cat/preflight.mjs` runs the same audit
+  with `--base origin/main` as a new pre-push check, which is Р10 of `docs/agents/pr-rules.md`;
+- `tools/release/test_community_prs.py` keeps the §3 layout and `PUBLIC_TOP` in step and pins the
+  attribution (own vs inherited vs clean), so neither half of the mechanism can rot silently.
+
+| Command, on `e5bae8f` | rc | Result |
+|---|---|---|
+| `python3 tools/release/pr_audit.py --tree "HEAD^{tree}"` | 0 | `PR AUDIT ok: … (4476 files; the built-in rules only)` — both findings gone |
+| `python3 tools/release/pr_audit.py --tree "HEAD^{tree}" --base origin/main` | 0 | the same, with nothing to attribute |
+| `python3 -m pytest tools/release/test_autorelease.py::test_audit_tree_of_the_real_public_tree -q` | 0 | 1 passed — the release's own sentinel over the real tree |
+| `python3 -m pytest tools/release/test_community_prs.py -q -k "public_tree_holds or documented_layout or base_attribution or public_workflow or pr_audit"` | 0 | 6 passed |
+| `g++ … engine/tests/WotrRemaster/*.cpp engine/src/GameLogic/WotrRemaster/*.cpp && /tmp/wotr_tests` | 0 | 32 cases, 273 assertions, 0 failed |
+| `node tools/script-cat/preflight.mjs` | 1 | `public-tree` ok (унаследовано), `conflicts` ok; the only blocker left is `shallow`, a property of this sandbox clone |
 
 ## Release boundary
 
@@ -172,6 +204,15 @@ This evidence accepts the deterministic repository artifact and the bounded loca
 only. It does not claim browser installation or live dispatch: installing `relay.user.js`
 in ScriptCat remains a manual owner action after comparing SHA-256 with this record
 (D-027).
+
+What this pull request carries beyond the transport card, and to whom that belongs: the two
+cleared findings are not transport work, they are here because the Master assigned them to this
+pull request on 2026-11-21. `tools/release/**`, `docs/RELEASE.md` and `.github/workflows/pr.yml`
+are the release lane and reviewed as such; `engine/tests/WotrRemaster/**` and `campaigns/**`
+belong to Strategic Core Engineer (K2, and K3 builds on both), and there the change is one test
+string plus a comment — the module suite runs green on it, so none of the card's design moved.
+`docs/agents/pr-rules.md` is Приёмка's text: the Р10 addition is one paragraph, additive, and
+weakens no rule (the audit's exit code is deliberately untouched).
 
 Two facts visible in Notion belong to the Master and to acceptance, not to this release:
 
