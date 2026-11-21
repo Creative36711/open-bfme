@@ -1,0 +1,24 @@
+{
+  "pack": {
+    "id": "wotr_1_1_tiny",
+    "version": 1,
+    "tactical_profile": "vanilla_rotwk_201",
+    "tactical_map": "helms_deep",
+    "contentHash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74"
+  },
+  "regions": [
+    {"id": "west", "name": "wotr.region.west", "connections": ["crossing"]},
+    {"id": "crossing", "name": "wotr.region.crossing", "connections": ["west", "east"]},
+    {"id": "east", "name": "wotr.region.east", "connections": ["crossing"]}
+  ],
+  "factions": [
+    {"id": "faction_gondor", "name": "wotr.faction.gondor"},
+    {"id": "faction_mordor", "name": "wotr.faction.mordor"}
+  ],
+  "armies": [
+    {"id": "army_gondor", "factionId": "faction_gondor", "regionId": "west",
+     "members": [{"id": "member_gondor_1", "kind": "wotr.unit.knight", "quantity": 12, "experience": 0, "persistentUpgrades": []}]},
+    {"id": "army_mordor", "factionId": "faction_mordor", "regionId": "east",
+     "members": [{"id": "member_mordor_1", "kind": "wotr.unit.orc", "quantity": 12, "experience": 0, "persistentUpgrades": []}]}
+  ]
+}

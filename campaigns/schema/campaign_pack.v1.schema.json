@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://openbfme.dev/campaigns/schema/campaign_pack.v1.schema.json",
+  "title": "WOTR Remaster Campaign Pack v1",
+  "description": "Synthetic campaign pack for the WotrRemaster deterministic core. No retail bytes.",
+  "type": "object",
+  "required": ["pack", "regions", "factions", "armies"],
+  "additionalProperties": false,
+  "properties": {
+    "pack": {
+      "type": "object",
+      "required": ["id", "version", "tactical_profile", "tactical_map"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+$",
+          "description": "stable pack-scoped id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "pack schema version"
+        },
+        "tactical_profile": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+$",
+          "description": "tactical rules profile; vanilla_rotwk_201 is the only supported profile in phase 1"
+        },
+        "tactical_map": {
+          "type": "string",
+          "description": "tactical map reference (bare id or pack:/retail:/custom:); absolute author-machine paths are invalid"
+        },
+        "contentHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha-256 hex of the canonical pack bytes with this field omitted"
+        }
+      }
+    },
+    "regions": {
+      "type": "array",
+      "description": "hex/region nodes of the strategic map topology",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "connections"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_]+$",
+            "description": "stable region id"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^wotr\\.",
+            "description": "localization catalog id; English is the per-message fallback"
+          },
+          "connections": {
+            "type": "array",
+            "description": "undirected links to other regions; targets must exist and links must be symmetric",
+            "items": { "type": "string" },
+            "uniqueItems": true
+          }
+        }
+      },
+      "uniqueItems": true
+    },
+    "factions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+          "name": { "type": "string", "pattern": "^wotr\\." }
+        }
+      },
+      "uniqueItems": true
+    },
+    "armies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "factionId", "regionId", "members"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+          "factionId": { "type": "string" },
+          "regionId": { "type": "string" },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "kind", "quantity", "experience"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
+                "kind": { "type": "string", "pattern": "^wotr\\." },
+                "quantity": { "type": "integer", "minimum": 0 },
+                "experience": { "type": "integer", "minimum": 0 },
+                "persistentUpgrades": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
