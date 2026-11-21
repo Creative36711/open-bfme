@@ -81,8 +81,29 @@ same: a second pilot continuation, no `pilot-tool-limit` pause.
 
 ## Pull request checks
 
-To be filled from GitHub after the checks finish; `gh pr checks` for this pull request is the
-record, and the merge is done only on a fully green set.
+Pull request #9, head `510944a898cf702fd8fffd982ed22359e4d305be`. Runs: `44945907695`
+(Pull request checks) and `44945907710` (Sanitizers), both `success`. `gh pr checks 9` —
+11 of 11 pass, aggregate `CI` included; merge is done only on that set.
+
+| Check | Result | Duration |
+|---|---|---|
+| Workflow lint (actionlint, zizmor) | pass | 15s |
+| Commit gate, public tree audit, Python tests | pass | 10m2s |
+| Reference MP3 fixtures | pass | 39s |
+| Linux engine build and unit tests | pass | 1m46s |
+| macOS arm64 build and unit tests | pass | 4m16s |
+| Windows MSVC build and unit tests (build.bat) | pass | 6m13s |
+| Windows cross build (llvm-mingw, compile only) | pass | 55s |
+| Windows tests (the shipped compiler's binaries on real Windows) | pass | 3m1s |
+| Linux address and undefined sanitizer | pass | 3m14s |
+| Linux thread sanitizer | pass | 4m33s |
+| CI (aggregate) | pass | 3s |
+
+Recorded for the record, not as a defect of this release: on the previous head `bf70d8e`
+(docs-only) the macOS job failed once in the "Unit tests" step and passed on a re-run of the
+same SHA with no code change — the same runner instability that the build-cache discussion in
+`docs/evidence/WOTR-1-1/K3-review.md` is about, and a reason the acceptance run stays on the
+standard runner rather than on a cached or beefier one.
 
 ## Release boundary
 
