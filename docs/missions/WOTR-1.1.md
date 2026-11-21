@@ -1,8 +1,13 @@
 # WOTR-1.1 · Контракты и детерминированный walking skeleton
 
-ТЗ 1.1 · статус: Активна · фаза 1 · владелец: Warden · 2026-11-20.
+ТЗ 1.2 · редакция 1.2 · статус: Активна · фаза 1 · владелец: Warden · 2026-11-21.
 
 Notion draft: [WOTR-1.1](https://app.notion.com/p/WOTR-1-1-41e6f0cf570581d89a15eca7e646f077).
+
+Изменения редакции 1.2 (аддитивные): `§10` получает таблицу владельцев путей и правило
+авторования `Scope`; `§7` отмечает, что карточки нарезаются только от этой редакции.
+Текст оракула `§8`/`§9` не изменён ни на строку. Разбор, породивший редакцию:
+[docs/handoff/2026-11-21-WOTR-1-1-B0-zone-gate.md](../handoff/2026-11-21-WOTR-1-1-B0-zone-gate.md).
 
 ## 1. Намерение
 
@@ -146,6 +151,11 @@ If OpenBFME cannot currently produce a field, the DTO still represents it with e
 
 Warden may split K2–K4 further only if the final oracle and interfaces remain unchanged. Coordinator must not issue overlapping write zones in parallel.
 
+`B0 · репетиция оракула` precedes every card of the table: read-only, `build: none`,
+`retail: none`, it verifies the executability of each `§8`/`§9` item and of the path
+owners in `§10`. K1–K5 and A1–A3 are sliced from the published edition named by the
+mission row «ТЗ SHA» and only after `B0` is `Accepted`.
+
 ## 8. Card-level oracles
 
 ### K1 · Source baseline
@@ -240,6 +250,41 @@ Acceptance record includes:
 - `tools/l10n/catalog/**`, generated catalog outputs and narrow locale runtime/tests for K5;
 - `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**` for the tiny pack;
 - additive test/evidence documents explicitly named by audit cards.
+
+### Path owners (machine-readable zones)
+
+Every token of a card `Scope` is compared with the «Зона записи» of its addressee before
+issuance, so an allowed path has to be owned by a role and a zone has to be readable by
+a machine. The rules below are normative for slicing.
+
+- «Зона записи» in «Роли» is a plain list of glob paths — one pattern per line, no
+  prose. Description, exclusions and read-only notes belong to «Гейт».
+- `Scope` names repository paths only. A `§` reference, a section number, a commit SHA
+  or any other token that is not a path stays out of `Scope` and goes to
+  `Намерение`/`Acceptance`; a card that writes nothing to the repository (`B0`) keeps
+  `Scope` free of path tokens and sends its artifact to Drive `Arena/wotr-remaster/artifacts`.
+- Each `Scope` path is matched by the zone of the role the card is issued to; a path
+  owned by a neighbour is issued to that neighbour as a separate card.
+- A pattern needs `*` or `/`: a bare file name (`OPENBFME_UPSTREAM`) is neither a zone
+  pattern nor a checked path, so the gate ignores it on both sides. That is expected,
+  not a loophole — read-only boundaries stay in `§10` prose and in «Гейт».
+
+| Path | Owning role row | Cards |
+|---|---|---|
+| `OPENBFME_UPSTREAM`, `tools/arena/sync_upstream.sh`, `docs/UPSTREAM_SYNC.md` | Upstream Integrator | K1 |
+| `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**` | Strategic Core Engineer | K2 |
+| `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**` | Tactical Bridge Engineer | K3 |
+| `godot/wotr_remaster/**` | Godot World Engineer | K4 |
+| `tools/l10n/**`, `godot/wotr_remaster/l10n/**` | Localization & Cultural QA Engineer | K5 |
+| `docs/evidence/WOTR-1-1/A1/**` | Determinism & Save Auditor | A1 |
+| `docs/evidence/WOTR-1-1/A2/**` | UX & Modding Auditor | A2 |
+| `docs/evidence/WOTR-1-1/A3/**` | Integration Auditor | A3, `B0` (read-only, no repo writes) |
+
+A nested zone (`…/Bridge/**` inside `WotrRemaster/**`, `…/l10n/**` inside
+`godot/wotr_remaster/**`) is not a licence for parallel work: the dependency graph of
+`§7` keeps K3 after K2 and K5 after K4. `B0` reports per item `ready-now`,
+`future-card-ready` or `blocked`, and names any path of this table that no active role
+row owns; such a row is corrected in «Роли» by decision of приёмка, not by an executor.
 
 ### Read-only or forbidden
 
