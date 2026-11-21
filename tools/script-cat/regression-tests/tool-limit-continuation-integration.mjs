@@ -1,7 +1,8 @@
 // Tool-call limit: полный транспорт продолжения на макете DOM/GM. Реальный
 // PromptCompiler; detectToolCallLimit и continueToolLimitTurn — из исходников.
 // Боевой цикл, Notion и Drive не используются: проверяется, что продолжение
-// сохраняет IDs и терминальные поля, дедуплицируется, уважает лимит и паузы.
+// сохраняет IDs и терминальные поля, дедуплицируется, идёт без счётчика-предела
+// (WOTR-D-021) и ставит паузу только на настоящем отказе.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PromptCompiler, UUID } from '../tests/helpers/prompt-env.mjs';
@@ -62,7 +63,7 @@ function buildEnv({ expect = null, pilots = [] } = {}) {
     GM_getValue: (k, d) => (store.has(k) ? store.get(k) : d),
     GM_setValue: (k, v) => store.set(k, v),
     K: { expect: 'expect', pending: 'pending', pilotWait: 'pw:', pilots: 'pilots' },
-    C: { toolLimitContinueMax: 2 },
+    C: {}, // предела по числу продолжений нет (WOTR-D-021)
     pause: (text, ctx) => pauses.push({ text, ...(ctx || {}) }),
     log: (text, err) => logs.push({ text, err }),
     dbg: () => {},
@@ -143,7 +144,7 @@ const baseExpect = (over = {}) => ({
   assert.equal(env.journal.filter((x) => x.outcome === 'tool_limit_continued').length, 1);
 }
 
-// ── новое сообщение с новым id + прогресс → второе продолжение; затем пауза ──
+// ── прогресс есть → продолжения идут и после прежнего предела (WOTR-D-021) ───
 {
   const env = buildEnv({ expect: baseExpect() });
   await env.api.handleToolCallLimit();
@@ -154,17 +155,30 @@ const baseExpect = (over = {}) => ({
   const second = await env.api.handleToolCallLimit();
   assert.equal(second, true);
   assert.equal(env.store.get('expect').toolLimitContinuations, 2);
-  // третий лимит — предел исчерпан → пауза
+  // третий и четвёртый лимиты: хода предел не останавливает, паузы нет
   env.ctrl.repliesFn = (wm) => (wm === 'cont-msg-2' ? [{ id: 'a2', text: 'Ещё работа.', raw: 'Ещё работа.' }] : []);
   env.ctrl.status = { messageId: 'limit-3', text: LIMIT_TEXT, index: 3 };
+  env.ctrl.delivery = { ok: true, msgId: 'cont-msg-3' };
   const third = await env.api.handleToolCallLimit();
-  assert.equal(third, true);
-  assert.ok(env.pauses.some((p) => p.kind === 'tool-limit'), 'после исчерпания лимита — пауза');
-  assert.ok(env.journal.some((x) => x.outcome === 'tool_limit_paused'), 'исход tool_limit_paused');
-  assert.equal(env.store.get('expect').toolLimitContinuations, 2, 'третье продолжение не отправлено');
+  assert.equal(third, true, 'третье продолжение отправлено');
+  assert.equal(env.store.get('expect').toolLimitContinuations, 3, 'счётчик вырос, а не остановил ход');
+  assert.equal(env.pauses.length, 0, 'паузы из-за числа продолжений нет');
+  assert.ok(!env.journal.some((x) => x.outcome === 'tool_limit_paused'), 'исхода tool_limit_paused нет');
+  assert.ok(env.logs.some((l) => /продолжение 3 тому же ходу/.test(l.text)), 'лог называет номер без предела');
+  env.ctrl.repliesFn = (wm) => (wm === 'cont-msg-3' ? [{ id: 'a3', text: 'Ещё работа.', raw: 'Ещё работа.' }] : []);
+  env.ctrl.status = { messageId: 'limit-4', text: LIMIT_TEXT, index: 4 };
+  env.ctrl.delivery = { ok: true, msgId: 'cont-msg-4' };
+  assert.equal(await env.api.handleToolCallLimit(), true, 'четвёртое продолжение отправлено');
+  assert.equal(env.store.get('expect').toolLimitContinuations, 4);
+  // и только отсутствие прогресса останавливает ход
+  env.ctrl.repliesFn = () => [];
+  env.ctrl.status = { messageId: 'limit-5', text: LIMIT_TEXT, index: 5 };
+  assert.equal(await env.api.handleToolCallLimit(), true);
+  assert.ok(env.journal.some((x) => x.outcome === 'tool_limit_no_progress'), 'остановка — по отсутствию прогресса');
+  assert.equal(env.store.get('expect').toolLimitContinuations, 4, 'пятое продолжение без прогресса не отправлено');
 }
 
-// ── нет прогресса после продолжения → пауза раньше лимита ────────────────────
+// ── нет прогресса после продолжения → пауза (единственная остановка хода) ───
 {
   const env = buildEnv({ expect: baseExpect() });
   await env.api.handleToolCallLimit();
@@ -284,6 +298,13 @@ const baseExpect = (over = {}) => ({
   assert.equal(j.kind, 'pilot');
   // командное ожидание не тронуто
   assert.equal(env.store.get('expect'), undefined);
+  // и у пилота предела по числу продолжений нет: прогресс → второе продолжение
+  env.ctrl.repliesFn = (wm) => (wm === 'cont-msg-1' ? [{ id: 'pa1', text: 'Пилот: шаг сделан.' }] : []);
+  env.ctrl.status = { messageId: 'limit-2', text: LIMIT_TEXT, index: 2 };
+  env.ctrl.delivery = { ok: true, msgId: 'cont-msg-2' };
+  assert.equal(await env.api.handleToolCallLimit(), true, 'пилот продолжен второй раз');
+  assert.equal(env.store.get('pw:pilot-1').toolLimitContinuations, 2);
+  assert.ok(!env.pauses.some((x) => x.kind === 'pilot-tool-limit'), 'паузы пилоту за число продолжений нет');
 }
 
-console.log('OK: tool-limit continuation integration — детектор, дедупликация, лимит/прогресс/паузы, IDs dispatch/plan/review/answer, masterEscalated, Auditor read-only, pilot изоляция, карточка не откатывается');
+console.log('OK: tool-limit continuation integration — детектор, дедупликация, продолжения без счётчика-предела, пауза только без прогресса, IDs dispatch/plan/review/answer, masterEscalated, Auditor read-only, pilot изоляция, карточка не откатывается');

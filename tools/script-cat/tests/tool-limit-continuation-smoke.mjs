@@ -121,4 +121,18 @@ for (const pid of ['continuation.dispatch', 'continuation.plan', 'continuation.r
   assert.equal(p.budget.overhead, 700);
 }
 
-console.log('OK: tool-limit continuation — профили в бюджетах, IDs/маркеры верны, роль и git-границы, compact Auditor read-only, классификация tool_call_limit');
+// ── 8. Числа продолжений не ограничены (WOTR-D-021) ─────────────────────────
+// Предупреждение о tool-call limit — не ошибка: цикл обязан продолжать ход,
+// сколько раз он ни упирается в границу хода. Останавливать имеют право только
+// настоящие отказы — отсутствие прогресса, несобранный или недоставленный
+// continuation и рабочая карточка Reviewer без шаблона продолжения.
+const tl = read('30-tool-limit.js');
+const cfg = read('01-config.js');
+assert.ok(!/toolLimitContinueMax/.test(tl), 'счётчика-предела в модуле нет');
+assert.ok(!/toolLimitContinueMax/.test(cfg), 'ключа предела в конфиге нет');
+assert.match(tl, /toolLimitContinuations/, 'счётчик продолжений ведётся — для журнала и лога');
+assert.match(tl, /tool_limit_no_progress/, 'остановка по отсутствию прогресса осталась');
+assert.match(tl, /продолжение не шаблонизировано/, 'рабочая карточка Reviewer по-прежнему зовёт Мастера');
+assert.match(tl, /Не удалось отправить продолжение/, 'неотправленное continuation по-прежнему пауза');
+
+console.log('OK: tool-limit continuation — профили в бюджетах, IDs/маркеры верны, роль и git-границы, compact Auditor read-only, классификация tool_call_limit, предела по числу продолжений нет');
