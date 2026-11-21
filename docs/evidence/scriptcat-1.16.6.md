@@ -108,26 +108,28 @@ free identifiers have to be passed in — that is the established convention of 
 ## Full gate
 
 `npm run verify:scriptcat` ran from the repository root after the final rebuild and
-returned rc 0:
+returned rc 0 on every commit of this pull request, the last one on the whole set of
+touched paths:
 
 | Stage | Result |
 |---|---|
 | `npm run scriptcat:check` | rc 0; bundle matches 45 source files; 18 rule IDs covered |
 | `npm run scriptcat:guard` | rc 0; full-tree WOTR boundary clean |
-| `npm run test:scriptcat` | rc 0; 175 passed, 0 failed |
+| `npm run test:scriptcat` | rc 0; 178 passed, 0 failed (175 before the three new `pr-preflight-smoke` probes) |
 | `npm run test:scriptcat:regression` | rc 0; 22 passed, 0 failed |
 | `npm run test:scriptcat:tool-limit` | rc 0; 2 passed, 0 failed |
 
-`node tools/script-cat/preflight.mjs --zone "tools/script-cat/**,docs/**"`:
-`bundle`, `bundle-syntax`, `decisions` and `version` (`1.16.5 → 1.16.6`) pass, and
-`behind` passes. Two checks stay red for the sandbox reasons already recorded in the
-1.16.5 evidence: the clone is shallow, and the conflict-marker scan reads every tracked
-path as text and stops on `EISDIR` for the `engine/thirdparty/godot-cpp` gitlink. The
-`zone` check additionally needs `core.quotepath=false` to be read correctly: with the
-default it reports `tools/script-cat/README-авторизация.md` as outside the zone because
-git quotes the non-ASCII path before the glob matcher sees it. Running the same gate with `core.quotepath=false`
-gives «26 файлов, все в зоне». Fixing `preflight.mjs` is
-transport work outside this card.
+`node tools/script-cat/preflight.mjs --zone "tools/script-cat/**,docs/**,tools/release/**,engine/tests/WotrRemaster/**,.github/workflows/pr.yml"`
+(the union of every path this pull request touches): `bundle`, `bundle-syntax`, `decisions`, `version` (`1.16.5 → 1.16.6`),
+`behind`, `conflicts`, `zone` («35 файлов, все в зоне») and the new `public-tree` pass. `shallow` stays red and is the only
+blocker: the Arena clone is truncated to two boundary commits, which is a property of this sandbox, not of the branch — recorded
+for 1.16.5 already, together with two other reasons the gate lied about a clean tree. Both of those are fixed in this pull
+request, because preflight is the place every role looks at before pushing: the marker scan skips a tracked directory (a gitlink
+such as `engine/thirdparty/godot-cpp` ended it with `EISDIR`, reported as a blocker), and every git call now runs with
+`core.quotepath=false`, so a non-ASCII path (`tools/script-cat/README-авторизация.md`) reaches the zone matcher unescaped
+instead of looking like a file outside the role's zone. A probe covers each: 11 in `tools/script-cat/tests/pr-preflight-smoke.mjs`
+(was 8), including the three for the audit check — skip without a release lane, own finding blocks, inherited finding names its
+commit and does not.
 
 ## Pull request checks
 
@@ -196,6 +198,8 @@ mechanism are here, in that name and not in the transport card:
 | `python3 -m pytest tools/release/test_autorelease.py::test_audit_tree_of_the_real_public_tree -q` | 0 | 1 passed — the release's own sentinel over the real tree |
 | `python3 -m pytest tools/release/test_community_prs.py -q -k "public_tree_holds or documented_layout or base_attribution or public_workflow or pr_audit"` | 0 | 6 passed |
 | `g++ … engine/tests/WotrRemaster/*.cpp engine/src/GameLogic/WotrRemaster/*.cpp && /tmp/wotr_tests` | 0 | 32 cases, 273 assertions, 0 failed |
+| `python3 tools/precommit.py` over the 35 files staged against `main` | 0 | `commit gate ok (35 changed files checked)` |
+| `python3 -m pytest -n 4 tools/release/test_autorelease.py tools/release/test_community_prs.py tools/release/test_public_push_guard.py -q` | 0 | 392 passed, 6 skipped in 754.83 s — the release files the CI's `pr_pytest.py` step runs, on 2 CPUs |
 | `node tools/script-cat/preflight.mjs` | 1 | `public-tree` ok (унаследовано), `conflicts` ok; the only blocker left is `shallow`, a property of this sandbox clone |
 
 ## Release boundary
