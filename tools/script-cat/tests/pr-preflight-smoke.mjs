@@ -48,8 +48,39 @@ const makeRepo = ({ srcVersion = "1.0.0", withOrigin = true } = {}) => {
   return dir;
 };
 
-const run = (dir, args = []) =>
-  spawnSync(process.execPath, [join(dir, "tools", "script-cat", "preflight.mjs"), ...args], { cwd: dir, encoding: "utf8" });
+const run = (dir, args = [], env = {}) =>
+  spawnSync(process.execPath, [join(dir, "tools", "script-cat", "preflight.mjs"), ...args], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+
+// Проверка публичного дерева зовёт python3; без него она честно говорит
+// «пропущена», но тест на находки тогда не о чём.
+const hasPython = spawnSync("python3", ["-c", "pass"], { encoding: "utf8" }).status === 0;
+
+// Заглушка audit'а: проверка обязана различать «находка этого дерева» и
+// «унаследовано», и не иметь права тушевать красное — поэтому режим задаётся
+// извне, а вывод разбирается как есть.
+const stubAudit = (dir) => {
+  mkdirSync(join(dir, "tools", "release"), { recursive: true });
+  writeFileSync(
+    join(dir, "tools", "release", "pr_audit.py"),
+    [
+        "import os, sys",
+        "m = os.environ.get('PREFLIGHT_AUDIT_MODE', 'clean')",
+        "if m == 'own':",
+        "    print('PR AUDIT: developer-machine path in docs/note.txt')",
+        "    print('PR AUDIT FAILED: t (2 files; 1 of this tree, 0 inherited from origin/main; x)')",
+        "elif m == 'inherited':",
+        "    print(\"PR AUDIT INHERITED: developer-machine path in docs/note.txt  — already in origin/main, not this pull request's (last touched by deadbe0 Someone (feat: bad path))\")",
+        "    print('PR AUDIT FAILED: t (2 files; 0 of this tree, 1 inherited from origin/main; x)')",
+        "else:",
+        "    print('PR AUDIT ok: t (2 files; the built-in rules only, not a publishing check)')",
+        "sys.exit(0 if m == 'clean' else 1)",
+    ].join("\n") + "\n",
+  );
+};
 
 const names = (res) => (res.status === 0 ? "ok" : "fail");
 
@@ -193,6 +224,59 @@ test("preflight: маркеры конфликта в файле — блоке�
     const res = run(dir);
     assert.equal(res.status, 1);
     assert.match(`${res.stdout}${res.stderr}`, /FAIL\s+нет маркеров конфликта/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("preflight: нет tools/release — проверка публичного дерева пропускается, а не блокирует", () => {
+  const dir = makeRepo();
+  try {
+    const res = run(dir);
+    const out = `${res.stdout}${res.stderr}`;
+    assert.match(out, /ok\s+публичное дерево проходит аудит.*нет tools\/release\/pr_audit\.py/, `пропуск без релизного лейна:\n${out}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "preflight: находка этого дерева блокирует push, унаследованная — нет, но названа",
+  { skip: hasPython ? false : "нужен python3" },
+  () => {
+    const dir = makeRepo();
+    try {
+      stubAudit(dir);
+      const own = run(dir, [], { PREFLIGHT_AUDIT_MODE: "own" });
+      assert.match(
+        `${own.stdout}${own.stderr}`,
+        /FAIL\s+публичное дерево проходит аудит.*находки этого дерева \(1\): developer-machine path in docs\/note\.txt/,
+        "своя находка называется и блокирует",
+      );
+      const inherited = run(dir, [], { PREFLIGHT_AUDIT_MODE: "inherited" });
+      const out = `${inherited.stdout}${inherited.stderr}`;
+      assert.match(out, /ok\s+публичное дерево проходит аудит.*унаследовано от origin\/main \(1\)/, `унаследованная — не блокер:\n${out}`);
+      assert.doesNotMatch(out, /FAIL\s+публичное дерево/, "красное дерево main не превращается в блокер чужого PR");
+      assert.match(out, /last touched by deadbe0 Someone/, "находка адресована тому, кто её внёс");
+      const clean = run(dir, [], { PREFLIGHT_AUDIT_MODE: "clean" });
+      assert.match(`${clean.stdout}${clean.stderr}`, /ok\s+публичное дерево проходит аудит.*аудит чист/, "чистое дерево");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test("preflight: кириллица в пути не ломает проверку зоны (core.quotepath)", () => {
+  const dir = makeRepo();
+  try {
+    gitIn(dir, ["checkout", "-q", "-b", "feat"]);
+    writeFileSync(join(dir, "docs", "миссия-1.1.md"), "x");
+    gitIn(dir, ["add", "-A"]);
+    gitIn(dir, ["commit", "-q", "-m", "docs"]);
+    const res = run(dir, ["--zone", "docs/**"]);
+    const out = `${res.stdout}${res.stderr}`;
+    assert.match(out, /ok\s+только своя зона/, `кириллический путь в зоне:\n${out}`);
+    assert.doesNotMatch(out, /\\3[0-9][0-9]/, "git не отдаёт путь octal-экраном");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

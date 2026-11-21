@@ -206,7 +206,10 @@
             !rt(row.properties["Ответ"]).trim() &&
             !(typeof questionBodyPending === "function" && questionBodyPending(row.id)) &&
             !(typeof questionQueuedForRow === "function" && questionQueuedForRow(row)) &&
-            !GM_getValue(answerHandoffKey(row.id), 0),
+            // Прежняя проверка `!GM_getValue(answerHandoffKey(...))` была
+            // пожизненной: один раз переданная строка больше не попадала к
+            // приёмке никогда, даже если очередь ответа опустела.
+            handoffNeedsRequeue(row.id),
         );
         let handed = 0;
         for (const row of adopted) {
@@ -230,7 +233,30 @@
               logThrottled(`adr-body:${row.id}`, "Предложение из репозитория ещё не содержит полный текст с SHA. Не передаю его приёмке до безопасного дополнения страницы.", true);
               continue;
             }
-            if (handWaitingRow(row, q, { roleName: "Relay (транспорт)", mission: wanted })) handed += 1;
+            const rehand = Number(GM_getValue(answerHandoffKey(row.id), 0)) > 0;
+            if (handWaitingRow(row, q, { roleName: "Relay (транспорт)", mission: wanted })) {
+              handed += 1;
+              if (rehand) {
+                const tries = bumpAnswerRehandoff(row.id);
+                const title = oneLine(rt(row.properties["Вопрос"]), 70);
+                if (tries > C.answerRehandoffMax) {
+                  // Предел повторных передач — это уже не «очередь подождёт», а
+                  // потерянная доставка: строка каждый раз остаётся без хода.
+                  // Разбирает транспорт по таблице классов (WOTR-D-019).
+                  pause(
+                    `Строка «${title}» передаётся приёмке ${tries} раз и каждый раз остаётся без хода: ` +
+                      "в очереди ответа её нет, живого хода ответа, неотправленного задания и квитанции возврата тоже.",
+                    { kind: "answer-orphan", ref: row.id },
+                  );
+                } else {
+                  log(
+                    `Строка «${title}» осталась без хода приёмки — передаю повторно, попытка ${tries} из ${C.answerRehandoffMax}.`,
+                    true,
+                    { ntfy: "quiet" },
+                  );
+                }
+              }
+            }
           } catch (e) {
             dbg("вопросы: полный материал не прочитан — приёмку не вызываю", e.message);
             logThrottled(`question-body:${row.id}`, `Не удалось полностью прочитать материал вопроса «${rt(row.properties["Вопрос"])}» в Notion: приёмке его пока не передаю. Проверьте страницу.`, true);
@@ -1051,11 +1077,76 @@
     // пришедший маркером), снова уходил бы «активному Reviewer», то есть
     // `need` жил бы только внутри одного хода.
     const named = blocks.match(/нужен ответ «([^»]+)»/i);
-    return { text, fullText: full, fallback, options, url, gate, need: gate && named ? named[1].trim() : "" };
+    // WOTR-D-019: адресат читается из строки независимо от `gate`. `gate` решает,
+    // держать ли ход, а не кому отвечать; раньше метка «нужен ответ «X»» без
+    // «ждёт ответа» терялась при первом же чтении из базы, и строка, которую
+    // Мастер подписал Transport Maintainer'у, уходила Reviewer'у.
+    return { text, fullText: full, fallback, options, url, gate, need: named ? named[1].trim() : "" };
   }
 
   /** Отметка «эту строку приёмке уже передавали» — чтобы не гонять её кругом. */
   const answerHandoffKey = (id) => `cfn-q-handoff:${id}`;
+
+  /** Сколько раз строку передавали заново: после предела это дефект доставки. */
+  const answerRehandoffKey = (id) => `cfn-q-rehandoff:${id}`;
+
+  /**
+   * Есть ли живой след передачи: очередь приёмки, ход ответа, неотправленное
+   * задание или квитанция возврата.
+   *
+   * Следов четыре, и ни один не обязан пережить перезагрузку вкладки: очередь
+   * чистит `dropAnswer`, ожидание снимает уборка фантомов, неотправленное
+   * задание живёт в `cfn-pending`, квитанция — отдельно. Поэтому «передано»
+   * проверяется по всем четырем, а не по одной отметке в GM.
+   */
+  function answerHandoffLive(id) {
+    const wanted = norm(String(id || ""));
+    if (!wanted) return false;
+    const same = (value) => norm(String(value || "")) === wanted;
+    const queued = typeof answerQueue === "function" ? answerQueue() : [];
+    if (queued.some((item) => same(item.id))) return true;
+    const live = GM_getValue(K.expect, null);
+    if (live && (live.kind === "answer" || live.kind === "answer-return") && same(live.ref)) return true;
+    const sending = GM_getValue(K.pending, null);
+    if (sending && (same(sending.questionId) || same(sending.ref))) return true;
+    const returns = typeof answerReturns === "function" ? answerReturns() : [];
+    if (returns.some((event) => same(event.questionId))) return true;
+    return false;
+  }
+
+  /**
+   * Отметка «передано» есть, а самой передачи нет — строка осиротела.
+   *
+   * `handWaitingRow` ставит отметку ДО того, как доставка подтвердилась, и
+   * раньше это значило «строка больше никогда не попадёт к приёмке»: очередь
+   * ответа опустела (её чистит `dropAnswer`, слот ожидания снимает уборка
+   * фантомов), а отметка осталась. Итог — «Ждёт» без ответа при работающем
+   * цикле: 11.21 строка остановки транспорта висела с 09:57, очередь крутила
+   * карточки, и ни панель, ни журнал о ней не помнили.
+   *
+   * Свежую передачу не трогаем: слот ожидания один на все роли, и ход ответа
+   * мог ещё не дождаться своей очереди.
+   */
+  function handoffNeedsRequeue(id) {
+    const at = Number(GM_getValue(answerHandoffKey(id), 0)) || 0;
+    if (!at) return true;
+    if (Date.now() - at < C.questionCheckMs) return false;
+    return !answerHandoffLive(id);
+  }
+
+  /** +1 к числу повторных передач строки; возвращает новое значение. */
+  function bumpAnswerRehandoff(id) {
+    const next = (Number(GM_getValue(answerRehandoffKey(id), 0)) || 0) + 1;
+    GM_setValue(answerRehandoffKey(id), next);
+    return next;
+  }
+
+  /** Строка закрыта — счётчик обнуляется, иначе следующий инцидент начался бы с предела. */
+  function resetAnswerRehandoff(id) {
+    if (!id) return 0;
+    GM_setValue(answerRehandoffKey(id), 0);
+    return 0;
+  }
 
   /**
    * Строка «Ждёт» без ответа — в очередь приёмки.

@@ -112,8 +112,10 @@ TEST_CASE("pack: empty tactical map is rejected") {
 
 TEST_CASE("pack: absolute reference is rejected") {
     JsonValue root = rawPack();
+    // Any absolute reference must be rejected; the value is deliberately a mount point, not a path
+    // from someone's checkout - a developer-home path in a tracked file fails the commit gate.
     root.objectValue.at("pack").objectValue.at("tactical_map").stringValue =
-        "/home/author/maps/helms_deep";
+        "/mnt/maps/helms_deep";
     auto res = loadPack(root.canonical());
     CHECK_FALSE(res.ok());
     CHECK(res.err == WotrErrc::AbsoluteReference);

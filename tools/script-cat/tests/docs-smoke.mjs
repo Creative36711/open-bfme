@@ -359,7 +359,12 @@ for (const [role, file] of Object.entries(roleDoc)) {
     'вопрос Координатора читается при любом next');
   assert.match(adr, /if \(blocked\) asked\.question\.gate = true;/, 'при остановке вопрос держит ход');
   const answers = readFileSync(join(root, 'tools/script-cat/src/27-review-answers.js'), 'utf8');
-  assert.match(answers, /need: q\.gate === true \? String\(q\.need \|\| ""\) : ""/, 'адресат переживает очередь');
+  // WOTR-D-019: адресат переживает очередь и без `gate`: `gate` держит ход, а
+  // имя адресата — не право останавливать, а подпись, кому отвечать. Строгое
+  // «need читается только вместе с gate» остаётся правилом маркера
+  // (`parseQuestion`), а строка из базы теряет адресата без этой строки.
+  assert.match(answers, /need: String\(q\.need \|\| ""\)/, 'адресат переживает очередь');
+  assert.match(answers, /answer-need-fallback:/, 'неготовый адресат обычного вопроса — приёмка, и это видно в журнале');
 }
 
 // 16. D-084: «нет маркера» — поломка транспорта, а не повод звать Мастера.

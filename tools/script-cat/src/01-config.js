@@ -24,6 +24,11 @@
     // questionFallback. Поле хранится ради совместимости со старыми профилями.
     questionDefaultMax: 200,
     questionCheckMs: 600000, // как часто проверять сроки вопросов (10 минут)
+    // WOTR-D-019: сколько раз осиротевшую строку обратной связи можно передать
+    // приёмке заново. Порог ожидания — тот же `questionCheckMs`: чаще adoption
+    // всё равно не ходит. После предела это уже не «очередь подождёт», а
+    // потерянная доставка, и пауза `answer-orphan` идёт Transport Maintainer'у.
+    answerRehandoffMax: 2,
     adrCheckMs: 600000, // как часто смотреть docs/decisions на proposed (10 минут)
     pageUrl: "",
     // Краткий регламент вшивается сборкой из docs/regulation-digest.md: агент получает

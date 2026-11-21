@@ -628,7 +628,9 @@ ref, so a tag or branch named like the abbreviation cannot stand in for it.
 2. **Sync.** The public `main` gets the sha's tree without `archive/` and the paths of its `tools/release/sync_exclude.txt`, with the
    README line about the legacy code and nothing else (the sync recipe, `autorelease.py sync-tree`). The public `main` has no `PRIVACY.md` since its PR #34; a file that exists only on the
    public side is not carried (the sync commit deletes it if it comes back), so a public-only file needs a pipeline change first. Before anything is pushed, that tree passes the privacy audit (`autorelease.py audit-tree`):
-   - only the public top-level entries (`PUBLIC_TOP`);
+   - only the public top-level entries (`PUBLIC_TOP`); a directory that the target layout of `docs/ARCHITECTURE.md` §3 names (today:
+     `engine`, `godot`, `campaigns`, `art`, `docs`, `launcher`, `tools`) is listed there in the same pull request that adds it — the audit
+     reads `PUBLIC_TOP` as the whole allowlist, so an unlisted top level reads as a leak in every later pull request, not only in its own;
    - no `workspace`, `archive` or `reference` folder anywhere;
    - no file that one of the tree's `.gitignore` rules ignores, even a tracked one;
    - every file passes the commit gate's rules (`tools/precommit.py` `check_file`: retail suffixes, retail-format bytes, developer
@@ -1600,6 +1602,18 @@ runners only, with `permissions: contents: read`, pinned action shas, no secrets
 | `msvc` | windows-2025 | `build.bat` from a fresh clone (GDExtension, tests and test helpers), then the unit tests that need no game files. The release ships llvm-mingw, so this is the only job that compiles with MSVC. The runner has Visual Studio 2026, not the 2022 `build.bat` names |
 | `macos` | macos-15 | the GDExtension and unit test executable (arm64, macOS 13), then the unit tests that need no game files |
 | `CI` | ubuntu-24.04 | needs all of the above, runs even when one failed, and passes only when every one succeeded |
+
+The `gate` job's `pr_audit.py` audits the tree the pull request **would make** (`--tree <merge commit>^{tree}`), not its diff: that is what makes a
+leak impossible to ship around by splitting it across pull requests. The price of auditing the whole tree is that one finding already in `main`
+is reported on every later pull request, and since the audit runs before `pr_pytest.py`, the Python step shows as `skipped` for a role whose own
+change is clean. `--base <rev>` (the pull request's base) attributes every finding instead: `PR AUDIT:` is the audited tree's own, `PR AUDIT
+INHERITED:` was already in the base and names the commit that last touched the path. The exit code never depends on `--base` — a dirty public
+tree stays red, so nobody publishes over it and the debt cannot be hidden — but the finding is now addressed to the commit that introduced it,
+and per `docs/agents/pr-rules.md` Р5 a foreign file goes back to its owner as a card rather than getting patched by whoever noticed it.
+The step itself passes `--base 'HEAD^1'`: GitHub checks out its merge of the pull request, so the first parent is `main` and the log on the pull
+request page separates "this tree's findings" from "already in main". `node tools/script-cat/preflight.mjs` runs the same audit with
+`--base origin/main` before a push (its Р10 list in `docs/agents/pr-rules.md`), so the person who introduces a finding is the first one told about
+it, with the full history to name the commit and the owner.
 
 `.github/workflows/sanitizers.yml` runs the same Linux unit tests built with Clang 18 at `-O1`, one job under the address and undefined
 behaviour sanitizers and one under the thread sanitizer. It is not part of `CI`, so a failure blocks nothing yet. Measured 2026-11-04: a

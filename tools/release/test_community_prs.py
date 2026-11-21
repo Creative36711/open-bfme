@@ -703,6 +703,51 @@ def test_the_public_tree_holds_the_contributor_files():
     assert {".github", "CONTRIBUTING.md"} <= autorelease.PUBLIC_TOP
     assert {".greptile", ".macroscope", "REVIEW.md"} <= autorelease.PUBLIC_TOP
     assert {"OPENBFME_UPSTREAM", "package.json"} <= autorelease.PUBLIC_TOP
+    # WOTR-1.1's data boundary (docs/ARCHITECTURE.md §3): the packs' schema and synthetic fixtures are public, so
+    # the top level is in the allowlist - without it the audit calls the directory a leak in every later pull request
+    assert "campaigns" in autorelease.PUBLIC_TOP
+    assert "campaigns" in names or not (REPO / "campaigns").exists()
+
+
+def test_the_documented_layout_names_every_public_top_level():
+    """docs/ARCHITECTURE.md §3 is where the repository's top level is decided; the release has to know every
+    directory the layout names. `audit_tree` takes PUBLIC_TOP as the whole allowlist, so a top level missing
+    there is reported as a leak - and, since `pr_audit.py` audits the tree the pull request would make, it is
+    reported on every later pull request too, not only on the one that added the directory."""
+    text = (REPO / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    block = text.split("## 3. Target repository layout", 1)[1].split("```text", 1)[1].split("```", 1)[0]
+    layout = {line.split("/")[0].strip() for line in block.splitlines() if line.strip() and not line.startswith(" ")}
+    assert {"engine", "godot", "campaigns", "tools", "docs"} <= layout, block
+    # only what the tree already holds: the layout also names directories the project has not created yet
+    names = set(git(REPO, "ls-tree", "--name-only", _public_tree_of_head()).split())
+    known = set(autorelease.PUBLIC_TOP) | set(autorelease.GHPR_TOP) | set(autorelease.PRIVATE_DIRS)
+    # not the audit's own check: that one reads the tree, this one reads the document, so a top level added per §3
+    # fails here with the reason ("in the layout, unknown to the release") instead of looking like a privacy leak
+    assert (layout & names) - known == set(), f"{sorted((layout & names) - known)}: in the §3 layout, unknown to the release (autorelease.py PUBLIC_TOP)"
+
+
+def test_pr_audit_base_attribution_names_whose_finding_it_is(tmp_path):
+    """`--base` never turns red into green: it only says whose finding it is, so a clean pull request is not pushed into
+    patching another role's file for a green tick (docs/agents/pr-rules.md Р5), and its own finding is not mistaken for
+    inherited debt."""
+    files = {k: v.decode() for k, v in MINIMAL.items()}  # _tree_of hashes text
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-q", "--initial-branch=main"], check=True)
+    whole = _tree_of(tmp_path, files)
+    no_docs = _tree_of(tmp_path, {k: v for k, v in files.items() if k != "docs/a.md"})
+    # a finding the base does not have belongs to the audited tree
+    r = run(sys.executable, HERE / "pr_audit.py", "--git-dir", tmp_path, "--tree", no_docs, "--base", whole)
+    assert r.returncode == 1 and "PR AUDIT: the tree has no docs" in r.stdout, r.stdout + r.stderr
+    assert "1 of this tree, 0 inherited" in r.stdout, r.stdout
+    assert "PR AUDIT INHERITED" not in r.stdout, r.stdout
+    # the same finding against a base that has it too: inherited, still red, and it says so
+    r = run(sys.executable, HERE / "pr_audit.py", "--git-dir", tmp_path, "--tree", no_docs, "--base", no_docs)
+    assert r.returncode == 1, "an inherited finding never makes the audit green"
+    assert "PR AUDIT INHERITED: the tree has no docs" in r.stdout and "not this pull request's" in r.stdout, r.stdout
+    assert "0 of this tree, 1 inherited" in r.stdout, r.stdout
+    # a clean tree: nothing to attribute, the summary keeps its plain form
+    r = run(sys.executable, HERE / "pr_audit.py", "--git-dir", tmp_path, "--tree", whole, "--base", whole)
+    assert r.returncode == 0 and "PR AUDIT ok" in r.stdout and "inherited" not in r.stdout, r.stdout + r.stderr
+
 
 
 def test_pr_audit_passes_the_real_public_tree_and_refuses_an_empty_one(tmp_path):

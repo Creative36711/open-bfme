@@ -96,7 +96,15 @@ jobs:
           rm -f "$merge_head"
           git reset -q --soft "$GITHUB_SHA"
       - name: Public tree audit (the built-in rules)
-        run: python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}"
+        # The audit reads the whole tree this pull request would make, so a finding already in main is reported here too. --base only says
+        # whose it is: the exit code does not depend on it, a dirty public tree stays red, and the line names the base's commit that last
+        # touched the path (fetch-depth is 2, so the name is as close as this checkout can get; preflight.mjs has the full history).
+        run: |
+          if git cat-file -e 'HEAD^1^{tree}' 2>/dev/null; then
+            python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}" --base 'HEAD^1'
+          else
+            python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}"
+          fi
       - name: Python tests that need no game files
         # four workers (the runner's four CPUs): one process runs them in 12 to 15 minutes, mostly the release flows of
         # test_autorelease.py and test_community_prs.py

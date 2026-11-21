@@ -102,9 +102,13 @@ GHPR_TOP = frozenset({".github", "CONTRIBUTING.md"})
 # (the online relay and lobby service source) is public by the owner's decision of 2026-10-11; its secrets come from the environment at deploy time.
 # BFME2MODE-0: AGENTS.md (the game-editions contributor rules) is public by the owner's decision of 2026-10-29
 # REVIEW.md, .greptile/ and .macroscope/ (the review bots' shared rules) are public by the owner's decision of 2026-11-03
+# campaigns/ (WOTR-1.1's data boundary: the versioned pack schema and the synthetic fixtures, never retail assets) is public by
+# docs/ARCHITECTURE.md §3; it was missing from this set until WOTR-1.1-K2 landed it, which read as a leak in every later pull request. A top
+# level of the public tree is named here in the same pull request that adds it - audit_tree takes this set as the whole allowlist, and
+# test_community_prs.py keeps the set and the §3 layout in step.
 PUBLIC_TOP = frozenset({".gitattributes", ".gitignore", ".gitmodules", ".greptile", ".macroscope", "AGENTS.md", "CLAUDE.md", "LICENSE",
-                        "NOTICE", "OPENBFME_UPSTREAM", "README.md", "REVIEW.md", "build.bat", "docs", "engine", "godot", "launcher",
-                        "package.json", "pytest.ini", "run_tests.bat", "services", "tools"} | GHPR_TOP)
+                        "NOTICE", "OPENBFME_UPSTREAM", "README.md", "REVIEW.md", "build.bat", "campaigns", "docs", "engine", "godot",
+                        "launcher", "package.json", "pytest.ini", "run_tests.bat", "services", "tools"} | GHPR_TOP)
 PRIVATE_DIRS = frozenset({"workspace", "archive", "reference", "references"})
 URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S*|\bwww\.\S+|\bmailto:\S+")
 # characters that could start emphasis, code or a link in Markdown: replaced by plain look-alikes, never escaped with a backslash (the launcher
