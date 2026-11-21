@@ -32,7 +32,7 @@ const answers = readFileSync(new URL('../src/27-review-answers.js', import.meta.
 const config = readFileSync(new URL('../src/01-config.js', import.meta.url), 'utf8');
 
 // ── 0. Выпуск назван ────────────────────────────────────────────────────────
-assert.match(src, /^\/\/ @version\s+1\.16\.6\s*$/m, 'WOTR-сборка 1.16.6 объявлена');
+assert.match(src, /^\/\/ @version\s+1\.16\.7\s*$/m, 'WOTR-сборка 1.16.7 объявлена');
 
 // ── 1. Отметка «передано» больше не пожизненная ─────────────────────────────
 {

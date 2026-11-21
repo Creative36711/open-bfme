@@ -42,7 +42,8 @@
     tickMs: 15000,
     mergeGraceMs: 90000, // сколько ждём мерж, прежде чем нажать кнопки за агента
     arenaResendMax: 1, // один минимальный повтор после ошибки Arena; второй отказ — пауза
-    toolLimitContinueMax: 2, // продолжений после tool-call limit; дальше — пауза и Мастер
+    // Лимита продолжений после tool-call limit нет (WOTR-D-021): счётчик
+    // `toolLimitContinuations` ведётся только для журнала и лога.
     arenaRetryMs: 180000, // ошибка старше трёх минут уже не про нашу отправку
     maxReloadAttempts: 3, // максимум автоматических перезагрузок страницы при ошибке Arena
     reloadCountPrefix: "cf-auto-error-reload-count:", // префикс ключа счётчика перезагрузок

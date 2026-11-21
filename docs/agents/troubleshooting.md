@@ -14,7 +14,7 @@ ScriptCat distinguishes registered editor input from fallback DOM text. Let the 
 
 ## Arena says “Something went wrong” or tool limit
 
-A rejected submission and a tool-call limit are different continuation reasons. Both preserve IDs, but the continuation prompt names the real cause. More than the configured limit becomes an explicit pause.
+A rejected submission and a tool-call limit are different continuation reasons. Both preserve IDs, but the continuation prompt names the real cause. The tool-call limit has no attempt counter: a turn that keeps producing substantive work is continued as many times as it runs (1.16.7, WOTR-D-021). A pause comes from a real refusal only — no new substantive message after a continuation, a continuation that cannot be compiled or sent, or a live Reviewer card with no continuation template.
 
 ## Running card has no live turn
 

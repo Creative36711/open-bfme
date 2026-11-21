@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Relay — передача хода между агентами
 // @namespace    https://arena.ai/
-// @version      1.16.6
+// @version      1.16.7
 // @description  Цикл Координатор → исполнитель → Координатор: агент сам коммитит, пушит и мержит PR; ScriptCat ждёт мерж и нажимает Continue.
 // @match        https://arena.ai/*
 // @match        https://www.arena.ai/*
@@ -86,12 +86,13 @@
     // D-073: отпечаток сборки вшивает build.mjs (SHA-256 источника). Номер версии
     // говорит «какой выпуск», отпечаток — «какая именно сборка»: без него проверка
     // «работает новая версия, а не прежняя под новым номером» невозможна.
-    buildFingerprint: "cb4152ee9fc0b8f8",
+    buildFingerprint: "7350c8761e6ed2ff",
     repo: "", // для ссылки на PR из номера
     tickMs: 15000,
     mergeGraceMs: 90000, // сколько ждём мерж, прежде чем нажать кнопки за агента
     arenaResendMax: 1, // один минимальный повтор после ошибки Arena; второй отказ — пауза
-    toolLimitContinueMax: 2, // продолжений после tool-call limit; дальше — пауза и Мастер
+    // Лимита продолжений после tool-call limit нет (WOTR-D-021): счётчик
+    // `toolLimitContinuations` ведётся только для журнала и лога.
     arenaRetryMs: 180000, // ошибка старше трёх минут уже не про нашу отправку
     maxReloadAttempts: 3, // максимум автоматических перезагрузок страницы при ошибке Arena
     reloadCountPrefix: "cf-auto-error-reload-count:", // префикс ключа счётчика перезагрузок
@@ -750,7 +751,7 @@
 
   const NTFY_BASE = "https://ntfy.sh";
   const SCRIPT_VERSION =
-    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.6";
+    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.7";
 
   /** «https://ntfy.sh/topic?x=1» и «topic» одинаково дают topic. */
   function normalizeNtfyTopic(raw) {
@@ -18353,6 +18354,11 @@
   // задание, не шлём compact-retry и не напоминаем о маркере, не создаём новые
   // Run/turn/question IDs и не трогаем карточку Notion/PR/терминальные поля.
   //
+  // Числа продолжений не ограничены (WOTR-D-021): предупреждение о tool-call limit —
+  // штатная граница хода, а не ошибка, и останавливать цикл из-за счётчика значит
+  // бросать начатую работу. Каждое продолжение требует нового статусного сообщения
+  // и нового содержательного ответа, поэтому темп задаёт агент, а не цикл.
+  //
   // Состояние живёт в ожидании (K.expect) отдельными полями и НЕ смешивается с
   // arenaResend (повтор недоставленного), tries (напоминания) и branchResend
   // (повтор из-за слитой ветки): toolLimitContinuations, lastToolLimitMessageId,
@@ -18438,16 +18444,11 @@
       return true;
     }
 
+    // Счётчика-предела нет (WOTR-D-021): предупреждение о лимите инструментов —
+    // не ошибка, а штатная граница хода, и ход с прогрессом продолжат столько
+    // раз, сколько он идёт. Единственные остановки здесь — отсутствие прогресса,
+    // несобранный или недоставленный continuation и рабочая карточка Reviewer.
     const done = Number(expect.toolLimitContinuations) || 0;
-    if (done >= C.toolLimitContinueMax) {
-      journalToolLimit(expect, status, "tool_limit_paused");
-      pause(
-        `Лимит инструментов достигнут снова после ${done} продолжений (предел ${C.toolLimitContinueMax}). ` +
-          "Ход не завершён; карточку, PR и IDs не меняю. Нужен Мастер: проверьте страницу агента.",
-        { kind: "tool-limit", ref: expect.ref, runId: expect.runId || "", turnId: expect.turnId || "" },
-      );
-      return true;
-    }
     // После продолжения нет новых содержательных сообщений — только повторный
     // лимит. Продолжать бессмысленно: пауза раньше лимита.
     if (done > 0) {
@@ -18513,8 +18514,9 @@
       outcome: "tool_limit_continued", errorClass: "tool_call_limit", messageId: status.messageId,
     });
     log(
-      `Лимит инструментов: отправлено продолжение ${done + 1}/${C.toolLimitContinueMax} тому же ходу ` +
-        `(${envelope.metrics.chars} символов). IDs прежние, карточка и терминальные поля не тронуты.`,
+      `Лимит инструментов: отправлено продолжение ${done + 1} тому же ходу ` +
+        `(${envelope.metrics.chars} символов, предела по числу продолжений нет). ` +
+        "IDs прежние, карточка и терминальные поля не тронуты.",
       true, { ntfy: "quiet", title: "Relay: tool-call limit" },
     );
     return true;
@@ -18532,7 +18534,8 @@
       pause(`Пилот ${pilot?.variant || ""}: ${why} Сырой транскрипт сохранён; нужен Мастер.`, { kind: "pilot-tool-limit", ref: wait.id });
       return true;
     };
-    if (done >= C.toolLimitContinueMax) return stop("tool_limit_paused", `лимит инструментов после ${done} продолжений (предел ${C.toolLimitContinueMax}).`);
+    // Предела по числу продолжений нет (WOTR-D-021); пилота останавливает только
+    // отсутствие прогресса или несобранный continuation.
     if (done > 0) {
       const since = messagesAfter(wait.continuationWatermark || wait.watermark || "");
       if (!since.filter((m) => String(m.text || "").trim() && !TOOL_LIMIT_RE.test(String(m.text || ""))).length) {
@@ -18559,7 +18562,7 @@
       lastToolLimitAt: Date.now(), continuationWatermark: delivery.msgId || contMark, prompt: envelope,
     });
     recordPromptAttempt(envelope, { kind: "pilot", ref: wait.id, role: "pilot", attempt: done + 1, outcome: "tool_limit_continued", errorClass: "tool_call_limit", messageId: status.messageId });
-    log(`Пилот ${pilot?.variant || ""}: продолжение ${done + 1}/${C.toolLimitContinueMax} после лимита инструментов (без командных маркеров).`, true, { ntfy: "quiet" });
+    log(`Пилот ${pilot?.variant || ""}: продолжение ${done + 1} после лимита инструментов (без командных маркеров, предела по числу продолжений нет).`, true, { ntfy: "quiet" });
     return true;
   }
 

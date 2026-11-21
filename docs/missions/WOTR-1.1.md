@@ -268,14 +268,23 @@ a machine. The rules below are normative for slicing.
 - A pattern needs `*` or `/`: a bare file name (`OPENBFME_UPSTREAM`) is neither a zone
   pattern nor a checked path, so the gate ignores it on both sides. That is expected,
   not a loophole — read-only boundaries stay in `§10` prose and in «Гейт».
+- A lane registers its own sources and tests in its own include file `engine/cmake/<lane>.cmake`;
+  every role may touch `engine/CMakeLists.txt` only to add that one `include(cmake/<lane>.cmake)`
+  line — the path is in its zone for that single line, and the gate reads no prose exemption. Editing another lane's include file — and any vendored list such as
+  `engine/cmake/Wotr1.cmake` or `engine/cmake/Bridge1.cmake`, imported in `e0cd899` and
+  merged three-way by `tools/arena/sync_upstream.sh` — belongs to the owner named in its row,
+  never to the newcomer (WOTR-D-022).
+- The card's report is committed under `docs/evidence/WOTR-1-1/<card>/**` by the role that
+  executes the card, and the registry field «Report SHA» names that repository path. A report
+  that lives only in a sandbox tree or only in Drive is not acceptance evidence (cost-gates §7).
 
 | Path | Owning role row | Cards |
 |---|---|---|
-| `OPENBFME_UPSTREAM`, `tools/arena/sync_upstream.sh`, `docs/UPSTREAM_SYNC.md` | Upstream Integrator | K1 |
-| `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**` | Strategic Core Engineer | K2 |
-| `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**` | Tactical Bridge Engineer | K3 |
-| `godot/wotr_remaster/**` | Godot World Engineer | K4 |
-| `tools/l10n/**`, `godot/wotr_remaster/l10n/**` | Localization & Cultural QA Engineer | K5 |
+| `OPENBFME_UPSTREAM`, `tools/arena/**`, `docs/UPSTREAM_SYNC.md`, `docs/evidence/WOTR-1-1/K1/**` | Upstream Integrator | K1 |
+| `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**`, `docs/evidence/WOTR-1-1/K2/**` | Strategic Core Engineer | K2 |
+| `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**`, `engine/CMakeLists.txt`, `engine/cmake/WotrRemaster1.cmake`, `docs/evidence/WOTR-1-1/K3/**` | Tactical Bridge Engineer | K3 |
+| `godot/wotr_remaster/**`, `docs/evidence/WOTR-1-1/K4/**` | Godot World Engineer | K4 |
+| `tools/l10n/**`, `godot/wotr_remaster/l10n/**`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
 | `docs/evidence/WOTR-1-1/A1/**` | Determinism & Save Auditor | A1 |
 | `docs/evidence/WOTR-1-1/A2/**` | UX & Modding Auditor | A2 |
 | `docs/evidence/WOTR-1-1/A3/**` | Integration Auditor | A3, `B0` (read-only, no repo writes) |
