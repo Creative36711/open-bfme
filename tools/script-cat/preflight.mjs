@@ -7,7 +7,7 @@
 // Возвращает 0, если можно пушить, и 1, если есть хотя бы один блокер.
 // Правила, которые здесь проверяются, описаны в docs/agents/pr-rules.md.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +26,13 @@ const add = (id, title, ok, detail) => checks.push({ id, title, ok, detail });
 
 const git = (args, { optional = false } = {}) => {
   try {
-    return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    // core.quotepath=false: иначе git выдаёт «\\321\\207...» вместо кириллицы в путях,
+    // и проверка зоны объявляет «вне зоны» файл, который в неё входит (проверка 6).
+    return execFileSync("git", ["-c", "core.quotepath=false", ...args], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
   } catch (error) {
     if (optional) return null;
     throw error;
@@ -216,7 +222,10 @@ try {
   for (const f of files) {
     if (f === "tools/script-cat/relay.user.js") continue;
     const full = join(root, f);
-    if (!existsSync(full)) continue;
+    // git ls-files называет и gitlink (engine/thirdparty/gitlink): в рабочей копии
+    // это каталог, readFileSync на нём бросает EISDIR, и проверка чистого дерева
+    // выглядела блокером для каждой роли. Каталог конфликта не содержит.
+    if (!existsSync(full) || statSync(full).isDirectory()) continue;
     // Маркер git стоит в начале строки; строка вида "<<<<<<< HEAD" внутри кода — не конфликт.
     if (/^<{7} /m.test(readFileSync(full, "utf8"))) hits.push(f);
     if (hits.length >= 5) break;
@@ -230,6 +239,61 @@ try {
   conflictDetail = `не удалось проверить маркеры: ${error.message}`;
 }
 add("conflicts", "нет маркеров конфликта", conflictOk, conflictDetail);
+
+// 9. Публичное дерево этого коммита проходит аудит privacy-правил.
+//
+//    Шаг CI «Public tree audit» считает находки по ВСЕМУ дереву мерж-коммита
+//    (tools/release/pr_audit.py), а не по диффу, и стоит перед Python-тестами.
+//    Одна чужая строка — например каталог верхнего уровня без записи в
+//    PUBLIC_TOP — красит каждый следующий PR к main и выглядит как дефект
+//    того, кто этот PR открыл. Поэтому аудит гоняется здесь, до push:
+//    находка находится тем, кто её внёс, а не тем, кто пришёл следом.
+//
+//    Если есть origin/main, находки атрибутируются (--base): «унаследовано»
+//    не блокирует этот PR, но называется коммит, который её внёс — править
+//    чужую зону ради зелёной галочки нельзя, надо передать находку владельцу.
+let publicOk = true;
+let publicDetail = "";
+const prAuditPath = join(root, "tools", "release", "pr_audit.py");
+if (!existsSync(prAuditPath)) {
+  publicDetail = "нет tools/release/pr_audit.py — проверка пропущена";
+} else {
+  const auditArgs = [prAuditPath, "--tree", "HEAD^{tree}"];
+  if (hasCommit("origin/main")) auditArgs.push("--base", "origin/main");
+  let out = "";
+  let rc = 0;
+  try {
+    out = execFileSync("python3", auditArgs, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      publicDetail = "python3 не найден — проверка пропущена";
+      out = null;
+    } else {
+      rc = typeof error?.status === "number" ? error.status : 1;
+      out = `${(error?.stdout || "") + (error?.stderr || "")}`;
+    }
+  }
+  if (out !== null) {
+    const lines = out.split("\n").filter(Boolean);
+    const own = lines.filter((l) => l.startsWith("PR AUDIT: "));
+    const inherited = lines.filter((l) => l.startsWith("PR AUDIT INHERITED: "));
+    const summary = lines.find((l) => /^PR AUDIT (ok|FAILED)/.test(l)) || lines[lines.length - 1] || "";
+    if (rc === 0) {
+      publicDetail = `аудит чист (${summary.replace(/^PR AUDIT ok: /, "")})`;
+    } else if (own.length) {
+      publicOk = false;
+      publicDetail = `находки этого дерева (${own.length}): ${own.map((l) => l.slice("PR AUDIT: ".length)).join(" | ")}`;
+    } else if (inherited.length) {
+      publicDetail = `унаследовано от origin/main (${inherited.length}) — не блокер этого PR, чинит тот, кто внёс: ${inherited
+        .map((l) => l.slice("PR AUDIT INHERITED: ".length))
+        .join(" | ")}`;
+    } else {
+      publicOk = false;
+      publicDetail = `аудит не запустился (rc ${rc}): ${summary || out.trim().split("\n")[0] || "вывода нет"}`;
+    }
+  }
+}
+add("public-tree", "публичное дерево проходит аудит (tools/release/pr_audit.py)", publicOk, publicDetail);
 
 if (zone) {
   const outside = zoneOutside(zone);
