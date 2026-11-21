@@ -131,8 +131,10 @@ transport work outside this card.
 
 ## Pull request checks
 
-`Commit gate on the pull request's changes` passes: `python3 tools/precommit.py` over the staged
-26 files. `Workflow lint (actionlint, zizmor)`, `Reference MP3 fixtures`, `Linux engine build and
+`Commit gate on the pull request's changes` passes on the release commit: `python3 tools/precommit.py`
+over the staged 26 files. It failed once on this evidence file itself: the quoted audit line began with a
+developer-home path, which rule 2 of the gate forbids in staged text, so the wording was replaced by a
+description of that path. Nothing about the audit finding changed. `Workflow lint (actionlint, zizmor)`, `Reference MP3 fixtures`, `Linux engine build and
 unit tests`, `macOS arm64 build and unit tests`, `Windows MSVC build and unit tests (build.bat)`,
 `Windows cross build (llvm-mingw, compile only)`, `Windows tests` and both sanitizer jobs are
 green.
@@ -159,7 +161,7 @@ state is visible in `tools/release/test_autorelease.py::test_audit_tree_of_the_r
 `tools/release/test_public_push_guard.py` is green (16 passed).
 
 Both findings sit in `engine/**` and `campaigns/**`, outside the transport zone, so they are not
-fixed here: a top-level `campaigns/` entry and a `/home/author/...` fixture path inside a test are
+fixed here: a top-level `campaigns/` entry and a developer-home fixture path inside a test are
 the K2 card's own release-boundary decision (remove the entry from the public top level, or name
 the path in a form the audit accepts). This release does not merge on top of a red audit by
 editing another card's files.
