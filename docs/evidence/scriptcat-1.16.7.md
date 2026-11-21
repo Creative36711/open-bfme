@@ -84,10 +84,12 @@ same: a second pilot continuation, no `pilot-tool-limit` pause.
 Pull request #9 carries this release on head `510944a898cf702fd8fffd982ed22359e4d305be`.
 Runs: `44945907695` (Pull request checks) and `44945907710` (Sanitizers), both `success`;
 `gh pr checks 9` — 11 of 11 pass, aggregate `CI` included. The two commits that follow are
-docs-only (this record, and the registry sync of WOTR-D-022); they re-ran the same set on
-head `0d4ee2f6839ca3f8ca73dca44dadfdf0dc9db310` — runs `44947088015` and `44947088028`,
-again 11 of 11 pass. The merge is executed only on a fully green set for the head being
-merged, and no check was skipped, retried into a pass, or counted as `not run`.
+docs-only (this record and the registry sync of WOTR-D-022), and the same set re-ran green on
+each of them — e.g. runs `44947088015` and `44947088028` on
+`0d4ee2f6839ca3f8ca73dca44dadfdf0dc9db310`, 11 of 11 pass again. Every push re-runs the set,
+and the merge is executed only once it is fully green for the head being merged; no check was
+skipped, retried into a pass, or counted as `not run`. Nothing but documentation moved after
+the code head, so the code that was verified is the code that is merged.
 
 | Check | Result | Duration |
 |---|---|---|
