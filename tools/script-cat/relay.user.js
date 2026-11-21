@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Relay — передача хода между агентами
 // @namespace    https://arena.ai/
-// @version      1.16.5
+// @version      1.16.6
 // @description  Цикл Координатор → исполнитель → Координатор: агент сам коммитит, пушит и мержит PR; ScriptCat ждёт мерж и нажимает Continue.
 // @match        https://arena.ai/*
 // @match        https://www.arena.ai/*
@@ -73,6 +73,11 @@
     // questionFallback. Поле хранится ради совместимости со старыми профилями.
     questionDefaultMax: 200,
     questionCheckMs: 600000, // как часто проверять сроки вопросов (10 минут)
+    // WOTR-D-019: сколько раз осиротевшую строку обратной связи можно передать
+    // приёмке заново. Порог ожидания — тот же `questionCheckMs`: чаще adoption
+    // всё равно не ходит. После предела это уже не «очередь подождёт», а
+    // потерянная доставка, и пауза `answer-orphan` идёт Transport Maintainer'у.
+    answerRehandoffMax: 2,
     adrCheckMs: 600000, // как часто смотреть docs/decisions на proposed (10 минут)
     pageUrl: "",
     // Краткий регламент вшивается сборкой из docs/regulation-digest.md: агент получает
@@ -81,7 +86,7 @@
     // D-073: отпечаток сборки вшивает build.mjs (SHA-256 источника). Номер версии
     // говорит «какой выпуск», отпечаток — «какая именно сборка»: без него проверка
     // «работает новая версия, а не прежняя под новым номером» невозможна.
-    buildFingerprint: "db9b24c1d786a014",
+    buildFingerprint: "cb4152ee9fc0b8f8",
     repo: "", // для ссылки на PR из номера
     tickMs: 15000,
     mergeGraceMs: 90000, // сколько ждём мерж, прежде чем нажать кнопки за агента
@@ -745,7 +750,7 @@
 
   const NTFY_BASE = "https://ntfy.sh";
   const SCRIPT_VERSION =
-    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.5";
+    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.6";
 
   /** «https://ntfy.sh/topic?x=1» и «topic» одинаково дают topic. */
   function normalizeNtfyTopic(raw) {
@@ -13081,7 +13086,10 @@
             !rt(row.properties["Ответ"]).trim() &&
             !(typeof questionBodyPending === "function" && questionBodyPending(row.id)) &&
             !(typeof questionQueuedForRow === "function" && questionQueuedForRow(row)) &&
-            !GM_getValue(answerHandoffKey(row.id), 0),
+            // Прежняя проверка `!GM_getValue(answerHandoffKey(...))` была
+            // пожизненной: один раз переданная строка больше не попадала к
+            // приёмке никогда, даже если очередь ответа опустела.
+            handoffNeedsRequeue(row.id),
         );
         let handed = 0;
         for (const row of adopted) {
@@ -13105,7 +13113,30 @@
               logThrottled(`adr-body:${row.id}`, "Предложение из репозитория ещё не содержит полный текст с SHA. Не передаю его приёмке до безопасного дополнения страницы.", true);
               continue;
             }
-            if (handWaitingRow(row, q, { roleName: "Relay (транспорт)", mission: wanted })) handed += 1;
+            const rehand = Number(GM_getValue(answerHandoffKey(row.id), 0)) > 0;
+            if (handWaitingRow(row, q, { roleName: "Relay (транспорт)", mission: wanted })) {
+              handed += 1;
+              if (rehand) {
+                const tries = bumpAnswerRehandoff(row.id);
+                const title = oneLine(rt(row.properties["Вопрос"]), 70);
+                if (tries > C.answerRehandoffMax) {
+                  // Предел повторных передач — это уже не «очередь подождёт», а
+                  // потерянная доставка: строка каждый раз остаётся без хода.
+                  // Разбирает транспорт по таблице классов (WOTR-D-019).
+                  pause(
+                    `Строка «${title}» передаётся приёмке ${tries} раз и каждый раз остаётся без хода: ` +
+                      "в очереди ответа её нет, живого хода ответа, неотправленного задания и квитанции возврата тоже.",
+                    { kind: "answer-orphan", ref: row.id },
+                  );
+                } else {
+                  log(
+                    `Строка «${title}» осталась без хода приёмки — передаю повторно, попытка ${tries} из ${C.answerRehandoffMax}.`,
+                    true,
+                    { ntfy: "quiet" },
+                  );
+                }
+              }
+            }
           } catch (e) {
             dbg("вопросы: полный материал не прочитан — приёмку не вызываю", e.message);
             logThrottled(`question-body:${row.id}`, `Не удалось полностью прочитать материал вопроса «${rt(row.properties["Вопрос"])}» в Notion: приёмке его пока не передаю. Проверьте страницу.`, true);
@@ -13926,11 +13957,76 @@
     // пришедший маркером), снова уходил бы «активному Reviewer», то есть
     // `need` жил бы только внутри одного хода.
     const named = blocks.match(/нужен ответ «([^»]+)»/i);
-    return { text, fullText: full, fallback, options, url, gate, need: gate && named ? named[1].trim() : "" };
+    // WOTR-D-019: адресат читается из строки независимо от `gate`. `gate` решает,
+    // держать ли ход, а не кому отвечать; раньше метка «нужен ответ «X»» без
+    // «ждёт ответа» терялась при первом же чтении из базы, и строка, которую
+    // Мастер подписал Transport Maintainer'у, уходила Reviewer'у.
+    return { text, fullText: full, fallback, options, url, gate, need: named ? named[1].trim() : "" };
   }
 
   /** Отметка «эту строку приёмке уже передавали» — чтобы не гонять её кругом. */
   const answerHandoffKey = (id) => `cfn-q-handoff:${id}`;
+
+  /** Сколько раз строку передавали заново: после предела это дефект доставки. */
+  const answerRehandoffKey = (id) => `cfn-q-rehandoff:${id}`;
+
+  /**
+   * Есть ли живой след передачи: очередь приёмки, ход ответа, неотправленное
+   * задание или квитанция возврата.
+   *
+   * Следов четыре, и ни один не обязан пережить перезагрузку вкладки: очередь
+   * чистит `dropAnswer`, ожидание снимает уборка фантомов, неотправленное
+   * задание живёт в `cfn-pending`, квитанция — отдельно. Поэтому «передано»
+   * проверяется по всем четырем, а не по одной отметке в GM.
+   */
+  function answerHandoffLive(id) {
+    const wanted = norm(String(id || ""));
+    if (!wanted) return false;
+    const same = (value) => norm(String(value || "")) === wanted;
+    const queued = typeof answerQueue === "function" ? answerQueue() : [];
+    if (queued.some((item) => same(item.id))) return true;
+    const live = GM_getValue(K.expect, null);
+    if (live && (live.kind === "answer" || live.kind === "answer-return") && same(live.ref)) return true;
+    const sending = GM_getValue(K.pending, null);
+    if (sending && (same(sending.questionId) || same(sending.ref))) return true;
+    const returns = typeof answerReturns === "function" ? answerReturns() : [];
+    if (returns.some((event) => same(event.questionId))) return true;
+    return false;
+  }
+
+  /**
+   * Отметка «передано» есть, а самой передачи нет — строка осиротела.
+   *
+   * `handWaitingRow` ставит отметку ДО того, как доставка подтвердилась, и
+   * раньше это значило «строка больше никогда не попадёт к приёмке»: очередь
+   * ответа опустела (её чистит `dropAnswer`, слот ожидания снимает уборка
+   * фантомов), а отметка осталась. Итог — «Ждёт» без ответа при работающем
+   * цикле: 11.21 строка остановки транспорта висела с 09:57, очередь крутила
+   * карточки, и ни панель, ни журнал о ней не помнили.
+   *
+   * Свежую передачу не трогаем: слот ожидания один на все роли, и ход ответа
+   * мог ещё не дождаться своей очереди.
+   */
+  function handoffNeedsRequeue(id) {
+    const at = Number(GM_getValue(answerHandoffKey(id), 0)) || 0;
+    if (!at) return true;
+    if (Date.now() - at < C.questionCheckMs) return false;
+    return !answerHandoffLive(id);
+  }
+
+  /** +1 к числу повторных передач строки; возвращает новое значение. */
+  function bumpAnswerRehandoff(id) {
+    const next = (Number(GM_getValue(answerRehandoffKey(id), 0)) || 0) + 1;
+    GM_setValue(answerRehandoffKey(id), next);
+    return next;
+  }
+
+  /** Строка закрыта — счётчик обнуляется, иначе следующий инцидент начался бы с предела. */
+  function resetAnswerRehandoff(id) {
+    if (!id) return 0;
+    GM_setValue(answerRehandoffKey(id), 0);
+    return 0;
+  }
 
   /**
    * Строка «Ждёт» без ответа — в очередь приёмки.
@@ -16645,10 +16741,13 @@
       // сочетание не читал вовсе. Поле лежит в `q`, а не в `ctx`: так его
       // заполняет маркер, и так же его видят `askQuestion`/`startAnswer`.
       gate: q.gate === true,
-      // Адресат имеет смысл только вместе с gate: `parseQuestion` по тому же
-      // правилу обнуляет `need` у обычного вопроса. Иначе «спросить между
-      // делом» с именем роли уводило бы ход к ней без всякой нужды.
-      need: q.gate === true ? String(q.need || "") : "",
+      // WOTR-D-019: адресат живёт в очереди и без `gate`. `gate` решает, держать ли
+      // ход, а не кому отвечать; раньше `need` обнулялся здесь, и строка,
+      // подписанная в «Обратной связи» Transport Maintainer'у, теряла адресата
+      // на пути в очередь и уходила Reviewer'у (или не уходила никуда).
+      // Маркерный вопрос роли это не касается: `parseQuestion` обнуляет `need`
+      // у вопроса без `gate` и дальше — спросить между делом не значит позвать.
+      need: String(q.need || ""),
       at: Date.now(),
     };
     const list = answerQueue().filter((row0) => row0.id !== item.id);
@@ -16785,6 +16884,34 @@
 
   const answerPending = () => answerQueue()[0] || null;
 
+  /**
+   * Сколько очередь приёмки ждёт свободного слота.
+   *
+   * Слот ожидания один на весь транспорт (`cfn-expect`), поэтому ход ответа не
+   * может начаться, пока живёт чужая выдача, — это норма, пока ожидание
+   * короткое. Долгое и молчаливое — тот самый случай «цикл идёт, а обратная
+   * связь висит»: журнал обязан называть причину и адресата, а не делать вид,
+   * что очереди нет.
+   */
+  function noteAnswerStarved(expect) {
+    if (!expect) return false;
+    const item = answerPending();
+    if (!item) return false;
+    const waited = Date.now() - Number(item.at || 0);
+    if (waited <= C.questionCheckMs) return false;
+    // Без явного окна `logThrottled` писал бы каждые 15 с: шаг цикла идёт часто,
+    // а ждать слота строка может часами.
+    logThrottled(
+      `answer-starved:${item.id}`,
+      `Очередь приёмки ждёт свободного слота ${Math.round(waited / 60000)} мин: слот занят ходом ` +
+        `«${oneLine(expect.roleName || "", 40) || "неизвестной роли"}» (вид ${expect.kind || "?"}). ` +
+        `Строка «${oneLine(item.text, 60)}» в очереди не потеряна — ответ уйдёт, как только слот освободится.`,
+      true,
+      300_000,
+    );
+    return true;
+  }
+
   /** Ответ на адресный вопрос; профиль выбирается по фактической роли-адресату. */
   function answerPrompt(mission, role, item, turnId) {
     const missionId = mission?.id || item?.missionId || "";
@@ -16870,18 +16997,34 @@
     const asked = String(item.need || "").trim();
     const directory = await roleRows().catch(() => []);
     const named = asked ? directory.find((r) => norm(r.name) === norm(asked)) : null;
-    if (asked && !(named && named.status === "Активна" && named.url)) {
+    const addresseeReady = Boolean(named && named.status === "Активна" && named.url);
+    if (asked && !addresseeReady) {
+      const why = named ? "не активна или пуст «Agent URL»" : "нет в «Ролях»";
+      if (item.gate === true) {
+        logThrottled(
+          `answer-need:${item.id}`,
+          `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова ` +
+            `(${why}). Вопрос держит ход и остаётся в очереди: ` +
+            "как только роль дозаполнят, ход уйдёт без повторной записи.",
+          true,
+          { ntfy: "quiet", title: "Relay: адресат обратной связи не готов" },
+        );
+        return false;
+      }
+      // WOTR-D-019: вопрос, который не держит ход, не имеет права занимать голову
+      // очереди. Прежний `return false` означал «строка висит, а цикл идёт»:
+      // голова одна на всю очередь (`answerPending()`), и пока адресат не готов,
+      // за ней не проходит ни одна другая строка. Отвечает приёмка; если решает
+      // не она — перенаправит своим ответом, и это видно в журнале.
       logThrottled(
-        `answer-need:${item.id}`,
-        `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова ` +
-          `(${named ? "не активна или пуст «Agent URL»" : "нет в «Ролях»"}). Вопрос остаётся в очереди: ` +
-          "как только роль дозаполнят, ход уйдёт без повторной записи.",
+        `answer-need-fallback:${item.id}`,
+        `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова (${why}). ` +
+          "Ход этот вопрос не держит, поэтому отвечает приёмка — строка не ждёт в голове очереди.",
         true,
         { ntfy: "quiet", title: "Relay: адресат обратной связи не готов" },
       );
-      return false;
     }
-    let role = named || (await reviewerRole());
+    let role = (addresseeReady ? named : null) || (await reviewerRole());
     // Вопрос Warden'а без `need` не должен отправляться Warden'у самому.
     // Явный `need` к себе — ошибка адресации; не подменяем его молча.
     if (role && norm(role.name) === norm(item.role || "")) {
@@ -17383,6 +17526,9 @@
     // Durable return exists before the answer expectation and source queue are cleared.
     GM_setValue(K.expect, null);
     dropAnswer(expect.ref);
+    // WOTR-D-019: строка закрыта ответом — счётчик повторных передач больше не нужен.
+    // Без сброса следующая потеря доставки стартовала бы уже с предела.
+    if (typeof resetAnswerRehandoff === "function") resetAnswerRehandoff(expect.ref);
     if (!answerRecorded) {
       log(
         `Вопрос закрыт раньше адресата («${state}») — сохранённый ответ не перезаписываю.`,
@@ -19676,6 +19822,10 @@
     "answer-return-changed": "transport",
     "answer-return-lost": "transport",
     "orphan-answer-return": "transport",
+    // WOTR-D-019: строка «Обратной связи» передана приёмке и каждый раз остаётся без
+    // хода — это потерянная доставка, а не решение Мастера. Цикл на ней не
+    // стоит: разбор идёт Transport Maintainer'у, работа продолжается.
+    "answer-orphan": "transport",
     // Невозможность доставить автору из-за неактивной/неполной строки — доступ
     // правит только Мастер (D-027/D-074), это не повод подменять адресата.
     "answer-return-role": "master",
@@ -21726,6 +21876,12 @@ function reviewPullRequest({ files, pr, zone } = {}) {
       // Ответ на вопрос — не «чужой ход»: ход приёмки ставится отдельной
       // записью и снимает ожидание сам. Поэтому проверка идёт до ветки
       // ожидания и работает на любой странице.
+      // WOTR-D-019: очередь ответа не обгоняет живую выдачу — слот ожидания один, и
+      // это осознано. Неосознанным было молчание: пока слот занят, строка
+      // приёмки могла ждать сутки, и в журнале про неё не было ни слова.
+      if ((fromToggle || autoOn()) && expect && typeof noteAnswerStarved === "function") {
+        noteAnswerStarved(expect);
+      }
       if ((fromToggle || autoOn()) && !GM_getValue(K.expect, null)) {
         const returning = typeof answerReturnPending === "function" ? answerReturnPending() : null;
         if (returning) {

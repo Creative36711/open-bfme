@@ -48,10 +48,13 @@
       // сочетание не читал вовсе. Поле лежит в `q`, а не в `ctx`: так его
       // заполняет маркер, и так же его видят `askQuestion`/`startAnswer`.
       gate: q.gate === true,
-      // Адресат имеет смысл только вместе с gate: `parseQuestion` по тому же
-      // правилу обнуляет `need` у обычного вопроса. Иначе «спросить между
-      // делом» с именем роли уводило бы ход к ней без всякой нужды.
-      need: q.gate === true ? String(q.need || "") : "",
+      // WOTR-D-019: адресат живёт в очереди и без `gate`. `gate` решает, держать ли
+      // ход, а не кому отвечать; раньше `need` обнулялся здесь, и строка,
+      // подписанная в «Обратной связи» Transport Maintainer'у, теряла адресата
+      // на пути в очередь и уходила Reviewer'у (или не уходила никуда).
+      // Маркерный вопрос роли это не касается: `parseQuestion` обнуляет `need`
+      // у вопроса без `gate` и дальше — спросить между делом не значит позвать.
+      need: String(q.need || ""),
       at: Date.now(),
     };
     const list = answerQueue().filter((row0) => row0.id !== item.id);
@@ -188,6 +191,34 @@
 
   const answerPending = () => answerQueue()[0] || null;
 
+  /**
+   * Сколько очередь приёмки ждёт свободного слота.
+   *
+   * Слот ожидания один на весь транспорт (`cfn-expect`), поэтому ход ответа не
+   * может начаться, пока живёт чужая выдача, — это норма, пока ожидание
+   * короткое. Долгое и молчаливое — тот самый случай «цикл идёт, а обратная
+   * связь висит»: журнал обязан называть причину и адресата, а не делать вид,
+   * что очереди нет.
+   */
+  function noteAnswerStarved(expect) {
+    if (!expect) return false;
+    const item = answerPending();
+    if (!item) return false;
+    const waited = Date.now() - Number(item.at || 0);
+    if (waited <= C.questionCheckMs) return false;
+    // Без явного окна `logThrottled` писал бы каждые 15 с: шаг цикла идёт часто,
+    // а ждать слота строка может часами.
+    logThrottled(
+      `answer-starved:${item.id}`,
+      `Очередь приёмки ждёт свободного слота ${Math.round(waited / 60000)} мин: слот занят ходом ` +
+        `«${oneLine(expect.roleName || "", 40) || "неизвестной роли"}» (вид ${expect.kind || "?"}). ` +
+        `Строка «${oneLine(item.text, 60)}» в очереди не потеряна — ответ уйдёт, как только слот освободится.`,
+      true,
+      300_000,
+    );
+    return true;
+  }
+
   /** Ответ на адресный вопрос; профиль выбирается по фактической роли-адресату. */
   function answerPrompt(mission, role, item, turnId) {
     const missionId = mission?.id || item?.missionId || "";
@@ -273,18 +304,34 @@
     const asked = String(item.need || "").trim();
     const directory = await roleRows().catch(() => []);
     const named = asked ? directory.find((r) => norm(r.name) === norm(asked)) : null;
-    if (asked && !(named && named.status === "Активна" && named.url)) {
+    const addresseeReady = Boolean(named && named.status === "Активна" && named.url);
+    if (asked && !addresseeReady) {
+      const why = named ? "не активна или пуст «Agent URL»" : "нет в «Ролях»";
+      if (item.gate === true) {
+        logThrottled(
+          `answer-need:${item.id}`,
+          `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова ` +
+            `(${why}). Вопрос держит ход и остаётся в очереди: ` +
+            "как только роль дозаполнят, ход уйдёт без повторной записи.",
+          true,
+          { ntfy: "quiet", title: "Relay: адресат обратной связи не готов" },
+        );
+        return false;
+      }
+      // WOTR-D-019: вопрос, который не держит ход, не имеет права занимать голову
+      // очереди. Прежний `return false` означал «строка висит, а цикл идёт»:
+      // голова одна на всю очередь (`answerPending()`), и пока адресат не готов,
+      // за ней не проходит ни одна другая строка. Отвечает приёмка; если решает
+      // не она — перенаправит своим ответом, и это видно в журнале.
       logThrottled(
-        `answer-need:${item.id}`,
-        `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова ` +
-          `(${named ? "не активна или пуст «Agent URL»" : "нет в «Ролях»"}). Вопрос остаётся в очереди: ` +
-          "как только роль дозаполнят, ход уйдёт без повторной записи.",
+        `answer-need-fallback:${item.id}`,
+        `Обратная связь «${oneLine(item.text, 90)}» адресована роли «${asked}», а она не готова (${why}). ` +
+          "Ход этот вопрос не держит, поэтому отвечает приёмка — строка не ждёт в голове очереди.",
         true,
         { ntfy: "quiet", title: "Relay: адресат обратной связи не готов" },
       );
-      return false;
     }
-    let role = named || (await reviewerRole());
+    let role = (addresseeReady ? named : null) || (await reviewerRole());
     // Вопрос Warden'а без `need` не должен отправляться Warden'у самому.
     // Явный `need` к себе — ошибка адресации; не подменяем его молча.
     if (role && norm(role.name) === norm(item.role || "")) {
@@ -786,6 +833,9 @@
     // Durable return exists before the answer expectation and source queue are cleared.
     GM_setValue(K.expect, null);
     dropAnswer(expect.ref);
+    // WOTR-D-019: строка закрыта ответом — счётчик повторных передач больше не нужен.
+    // Без сброса следующая потеря доставки стартовала бы уже с предела.
+    if (typeof resetAnswerRehandoff === "function") resetAnswerRehandoff(expect.ref);
     if (!answerRecorded) {
       log(
         `Вопрос закрыт раньше адресата («${state}») — сохранённый ответ не перезаписываю.`,

@@ -98,7 +98,11 @@ assert.match(askSrc, /приёмка уже ответила/, 'в журнал�
 const flushSrc = cut('  async function flushQuestionQueue() {', '  /**\n   * Ссылки на решения в тексте вопроса');
 assert.match(flushSrc, /complete = await questionFromRowComplete\(same\.row\);[\s\S]*?const handled = handWaitingRow\(same\.row, complete \|\| questionFromRow\(same\.row\), item\.ctx \|\| \{\}\);/, 'очередь тоже передаёт висящую строку');
 assert.match(src, /const adopted = mine\.filter\(/, 'загрузка страницы подбирает строки, созданные прошлыми версиями');
-assert.match(src, /!GM_getValue\(answerHandoffKey\(row\.id\), 0\)/, 'повторно вопрос не гоняется');
+// WOTR-D-019: раньше это было «повторно вопрос не гоняется» — пожизненная
+// отметка. Она и висяла строку: отметка ставилась до подтверждения доставки.
+// Теперь повтор разрешён, но только когда передачи нет ни в очереди, ни в
+// живом ходе: дуть два хода в одну строку по-прежнему нельзя.
+assert.match(src, /handoffNeedsRequeue\(row\.id\)/, 'повтор — только по живой проверке передачи, не по отметке');
 
 // ── 3. Предложение: ключ файла и вопрос приёмке ───────────────────────────
 const adrBlock = cut('  function adrKeysOf(text) {', '  async function refreshDecisions(');

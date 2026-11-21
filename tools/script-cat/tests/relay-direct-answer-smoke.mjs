@@ -49,11 +49,13 @@ const cut = (start, end) => {
   assert.equal(item.gate, true, '«этот вопрос держит ход» тоже переживает постановку');
   assert.equal(stored[0].need, 'Warden', 'в хранилище лежит тот же адресат');
 
-  // Обычный вопрос адресата не получает: иначе любое «спросить между делом»
-  // уводило бы ход к чужой роли.
+  // WOTR-D-019: адресат сохраняется и без `gate`. `gate` решает, держать ли ход,
+  // а не кому отвечать; обнуление `need` (1.14.11) лишало строку адресата ещё до
+  // `startAnswer`, и подписанный Transport Maintainer'у вопрос уезжал Reviewer'у
+  // либо зависал. Ход при этом не держится, и в строку отметка не пишется — ниже.
   stored = [];
   const plain = queueAnswer({ id: 'row-2' }, { text: 'Мелочь', fallback: 'как решил', gate: false, need: 'Warden' });
-  assert.equal(plain.need, '', 'без gate адресат не применяется');
+  assert.equal(plain.need, 'Warden', 'без gate адресат не теряется: очередь помнит, кому отвечать');
   assert.equal(plain.gate, false, 'обычный вопрос не держит ход');
 }
 
@@ -154,19 +156,34 @@ const cut = (start, end) => {
   assert.equal(await build()(mission, { id: 'row-1', text: 'Нужно решение', need: 'Warden' }), true, 'ход поставлен');
   assert.deepEqual(calls.startAnswer, ['Warden'], 'адресованный вопрос ушёл именно названной роли');
 
-  // Адресат назван, но не готов: вопрос не отдаём другому и не теряем.
+  // Держащий ход вопрос (gate) адресату и ждёт: неготовый адресат — не повод
+  // отдать остановку другой роли, иначе «мне нужен ответ Warden» превращается в
+  // «ответил кто попало», и решение по остановке принимает не тот.
   calls.log.length = 0;
   calls.startAnswer.length = 0;
-  const notReady = await build()(mission, { id: 'row-2', text: 'Нужно решение', need: 'Locale Auditor' });
-  assert.equal(notReady, false, 'неготовый адресат — не повод отдать вопрос другому');
+  const held = await build()(mission, { id: 'row-2', text: 'Нужно решение', need: 'Locale Auditor', gate: true });
+  assert.equal(held, false, 'держащий ход вопрос у неготового адресата остаётся в очереди');
   assert.deepEqual(calls.startAnswer, [], 'ход никуда не ушёл');
   assert.match(calls.log.join(' '), /не готова/, 'журнал говорит, что адресат не готов, а не молчит');
 
-  // Совсем неизвестное имя — та же история: строка живёт, Мастер увидит.
+  // Совсем неизвестное имя — та же история для gate: строка живёт, Мастер увидит.
   calls.log.length = 0;
-  const unknown = await build()(mission, { id: 'row-3', text: 'Нужно решение', need: 'FixtureExecutor' });
-  assert.equal(unknown, false, 'роль без строки в «Ролях» вопрос не получает');
+  const unknown = await build()(mission, { id: 'row-3', text: 'Нужно решение', need: 'FixtureExecutor', gate: true });
+  assert.equal(unknown, false, 'роль без строки в «Ролях» державший ход вопрос не получает');
   assert.match(calls.log.join(' '), /нет в «Ролях»/, 'сказано, чего именно не хватает');
+
+  // WOTR-D-019: тот же неготовый адресат у обычного вопроса больше не блокирует
+  // голову очереди. Голова одна (`answerPending()`), и `false` значило, что за
+  // этой строкой не двинется ни одна другая: 11.21 в WOTR-1.1 так висела
+  // «Обратная связь» при восьми Ready-карточках. Ответ даёт приёмка, подмена
+  // названа в журнале.
+  calls.log.length = 0;
+  calls.startAnswer.length = 0;
+  const fallback = await build()(mission, { id: 'row-3b', text: 'Нужно решение', need: 'Locale Auditor' });
+  assert.equal(fallback, true, 'обычный вопрос не встает на неготовом адресате');
+  assert.deepEqual(calls.startAnswer, ['Spec Auditor'], 'отвечает активная роль с функцией Reviewer');
+  assert.match(calls.log.join(' '), /answer-need-fallback|отвечает/,
+    'подмена адресата названа, а не сделана молча');
 
   // Вопрос без адресата — прежнее поведение: активный Reviewer.
   calls.startAnswer.length = 0;

@@ -475,6 +475,12 @@
       // Ответ на вопрос — не «чужой ход»: ход приёмки ставится отдельной
       // записью и снимает ожидание сам. Поэтому проверка идёт до ветки
       // ожидания и работает на любой странице.
+      // WOTR-D-019: очередь ответа не обгоняет живую выдачу — слот ожидания один, и
+      // это осознано. Неосознанным было молчание: пока слот занят, строка
+      // приёмки могла ждать сутки, и в журнале про неё не было ни слова.
+      if ((fromToggle || autoOn()) && expect && typeof noteAnswerStarved === "function") {
+        noteAnswerStarved(expect);
+      }
       if ((fromToggle || autoOn()) && !GM_getValue(K.expect, null)) {
         const returning = typeof answerReturnPending === "function" ? answerReturnPending() : null;
         if (returning) {

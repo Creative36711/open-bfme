@@ -70,6 +70,11 @@ const unanswered = question('missing', 'Предложение docs/decisions/CA
     'flushQuestionQueue', 'dbg', 'openQuestions', 'C', 'paintQuestions', 'questionRows', 'Q',
     'activeMission', 'rt', 'missionSame', 'expiredQuestions', 'closeExpired', 'GM_getValue',
     'answerHandoffKey', 'handWaitingRow', 'questionFromRow', 'log', 'qText', 'qFallback',
+    // WOTR-D-019: adoption сверяется с живой передачей, а не с пожизненной
+    // отметкой, поэтому у песочницы появились те же свободные имена, что у
+    // бандла. `handoffNeedsRequeue` здесь отвечает «передачи нет» — ровно то,
+    // что должно происходить со строкой, о которой хранилище ничего не знает.
+    'handoffNeedsRequeue', 'bumpAnswerRehandoff', 'pause', 'logThrottled',
     'GM_setValue', 'notifyNewQuestions', 'questionRevision', 'mergeQuestionChanges', 'questionClosedAfter', 'pruneQuestionSeen',
     // D-082: строка без «Статуса» подписывается транспортом, поэтому песочнице
     // нужны те же свободные имена, что в бандле: sel, patch и oneLine.
@@ -82,6 +87,7 @@ const unanswered = question('missing', 'Предложение docs/decisions/CA
     rt, (a, b) => a === b, (rows) => rows, close, (_key, fallback) => fallback,
     (id) => `handoff:${id}`, (row) => adopted.push(row.id), (row) => ({ text: rt(row.properties['Вопрос']) }),
     () => {}, (row) => rt(row.properties['Вопрос']), (row) => rt(row.properties['По умолчанию']),
+    () => true, (id) => 1, () => {}, () => {},
     (key, value) => output.set(key, value), () => {}, 0, (rows) => rows, () => false, () => {},
     sel, async (id) => { patched.push(id); }, (value) => String(value || ''),
   );
