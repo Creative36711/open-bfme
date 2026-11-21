@@ -52,14 +52,14 @@ const directory = [tools, turn];
 
 const queue = {
   summary: '0 Submitted, 0 Running, 0 Ready, 2 Rework, 1 Draft',
-  draft: [card('NAR-2.15 · черновик: кит-среда для пака', 'Tools')],
-  rework: [card('NAR-2.3 · Первый настоящий пак: narrative', 'Turn Runtime'), card('NAR-2.12 · Перенос', 'Turn Runtime')],
+  draft: [card('CASEA-2.15 · черновик: кит-среда для пака', 'Tools')],
+  rework: [card('CASEA-2.3 · Первый настоящий пак: narrative', 'Turn Runtime'), card('CASEA-2.12 · Перенос', 'Turn Runtime')],
 };
 
 const openRow = {
   properties: {
     'Вопрос': { title: [{ plain_text: 'Роль Tools в статусе «Ждёт» без Agent URL' }] },
-    'По умолчанию': { rich_text: [{ plain_text: 'Активировать Tools и выдать NAR-2.15' }] },
+    'По умолчанию': { rich_text: [{ plain_text: 'Активировать Tools и выдать CASEA-2.15' }] },
     'Срок': { date: { start: '2026-10-26T16:17:00.000Z' } },
   },
 };
@@ -68,13 +68,13 @@ const openRow = {
 const blind = blockedReason({ need: '', directory, queue, open: [openRow] });
 assert.match(blind, /Координатор остановил цикл, но роль не назвал/, 'честно сказано, что роль не названа');
 assert.doesNotMatch(blind, /которой нет в «Ролях»/, 'прежней ложной фразы нет');
-assert.match(blind, /черновик «NAR-2\.15 · черновик: кит-среда для пака» ждёт роль Tools/, 'назван черновик и его роль');
+assert.match(blind, /черновик «CASEA-2\.15 · черновик: кит-среда для пака» ждёт роль Tools/, 'назван черновик и его роль');
 assert.match(blind, /«Статус» = «Ждёт», «Agent URL» пуст/, 'назван настоящий статус роли');
 assert.match(blind, /Новый агент нужен только если роли правда нет/, 'создавать агента не предлагается по умолчанию');
 assert.match(blind, /Очередь: 0 Submitted, 0 Running, 0 Ready, 2 Rework, 1 Draft/, 'очередь цитируется как есть');
 assert.match(blind, /Rework — это не «нет роли»/, 'Rework назван причиной карточки, а не ролью');
 assert.match(blind, /Вопрос об этом уже задан: «Роль Tools в статусе «Ждёт» без Agent URL»/, 'открытый вопрос виден');
-assert.match(blind, /по умолчанию: Активировать Tools и выдать NAR-2\.15/, 'вариант по умолчанию назван');
+assert.match(blind, /по умолчанию: Активировать Tools и выдать CASEA-2\.15/, 'вариант по умолчанию назван');
 assert.match(blind, /26\.10, 19:17/, 'срок вопроса в московском времени');
 assert.doesNotMatch(blind, /Других поводов останавливать цикл у Координатора нет/, 'прежней категоричной фразы нет');
 assert.match(blind, /Право на остановку у Координатора одно/, 'граница права названа как правило');
@@ -87,8 +87,8 @@ assert.match(named, /создавать агента не нужно/, 'сказ
 assert.match(named, /заполните «Agent URL» и поставьте «Статус» = «Активна»/, 'названо точное действие');
 
 // ── 3. Роль названа, но её нет в базе ──────────────────────────────────────
-const absent = blockedReason({ need: 'Kernel', directory, queue });
-assert.match(absent, /Роли «Kernel» в базе «Роли» нет — создайте агента в Arena/, 'отсутствующая роль отличается от неактивной');
+const absent = blockedReason({ need: 'FixtureExecutor', directory, queue });
+assert.match(absent, /Роли «FixtureExecutor» в базе «Роли» нет — создайте агента в Arena/, 'отсутствующая роль отличается от неактивной');
 
 // ── 4. Роль активна и Agent URL заполнен — виноват не Мастер ───────────────
 const active = blockedReason({ need: 'Turn Runtime', directory, queue });
@@ -100,7 +100,7 @@ assert.doesNotMatch(active, /заполните «Agent URL»/, 'заполня�
 const empty = blockedReason({
   need: '',
   directory,
-  queue: { summary: '0 Submitted, 0 Running, 0 Ready, 0 Rework, 1 Draft', draft: [card('NAR-1.1 · Раз', 'Turn Runtime')], rework: [] },
+  queue: { summary: '0 Submitted, 0 Running, 0 Ready, 0 Rework, 1 Draft', draft: [card('CASEA-1.1 · Раз', 'Turn Runtime')], rework: [] },
 });
 assert.match(empty, /Rework пуст — по очереди причину не видно/, 'при отсутствии следов не выдумываем причину');
 assert.doesNotMatch(empty, /ждёт роль Tools/, 'чужие роли не приписываются');

@@ -4,7 +4,7 @@ Date: 2026-11-20
 
 Decisions: `WOTR-D-010`, `WOTR-D-011`, `WOTR-D-013`, `WOTR-D-014`
 
-Upstream: `Creative-textile/vault@fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6` (`1.16.1`)
+Upstream: imported tree `fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6` (`1.16.1`); exact source provenance: `tools/script-cat/UPSTREAM.md`
 
 Previous local release: `1.16.2`
 

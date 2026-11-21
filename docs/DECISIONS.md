@@ -1,12 +1,12 @@
 # WOTR Remaster · журнал решений
 
-Этот файл содержит только решения WOTR Remaster. Исторические решения импортированного ScriptCat, нужные его regression fixtures, изолированы в `tools/script-cat/upstream-fixtures/docs/DECISIONS.md` и не определяют продукт.
+Этот файл содержит только решения WOTR Remaster. Импортированные ScriptCat regression fixtures структурно обезличены и не определяют продукт; единственная точная запись происхождения исходного snapshot находится в `tools/script-cat/UPSTREAM.md`.
 
 ## WOTR-D-001 · Один репозиторий и ScriptCat как транспорт
 
 **Дата:** 2026-11-20 · **Статус:** принято.
 
-Код продукта, процессные документы, транспорт ScriptCat и upstream pin живут в `Creative36711/open-bfme`. Отдельный orchestration-репозиторий не создаётся. Практики Vault/Synapse применяются через зоны, карточки, независимый аудит, исполнимые оракулы и append-only evidence.
+Код продукта, процессные документы, транспорт ScriptCat и upstream pin живут в `Creative36711/open-bfme`. Отдельный orchestration-репозиторий не создаётся. Командный процесс реализуется через зоны, карточки, независимый аудит, исполнимые оракулы и append-only evidence.
 
 **Откат:** ScriptCat можно выключить, не меняя продукт; перенос управления в другой репозиторий требует нового решения.
 
@@ -52,7 +52,7 @@ Godot реализует 2.5D hex map, HUD и Campaign Pack editor. OpenBFME God
 
 **Дата:** 2026-11-20 · **Статус:** принято.
 
-Последний полный historical tree перед удалением Arena-транспорта в Vault — commit `fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6`, parent удаления `eecb68739dbb66a83a6cd9a3d0dbec9650a78ade`. Upstream ScriptCat version — 1.16.1. WOTR-specific prompt/profile/portability adaptation выпускается как 1.16.2, сохраняя MIT license и frozen upstream fixtures для regression evidence.
+Последний полный historical tree перед удалением Arena-транспорта — commit `fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6`, parent удаления `eecb68739dbb66a83a6cd9a3d0dbec9650a78ade`. Upstream ScriptCat version — 1.16.1. Точное repository provenance сохранено только в `tools/script-cat/UPSTREAM.md`. WOTR-specific prompt/profile/portability adaptation выпускается как 1.16.2, сохраняя MIT license; regression fixtures не являются product authority.
 
 ## WOTR-D-009 · Legacy WOTR boundary
 
@@ -78,7 +78,7 @@ Godot реализует 2.5D hex map, HUD и Campaign Pack editor. OpenBFME God
 
 World/locations/regions/ownership/content из `Creative36711/wotr@fd12e3a3a52ad485f95af3ff559610fd2778570b` переносятся versioned one-way importer со stable IDs, canonical output и provenance/loss report; React/Tauri/Win32/OCR runtime не переносится. Публикация полного dataset и `__wotr_maps.big` ждёт подтверждённой лицензии. Tactical capacity считается по противоборствующим sides, союзники делят start; overflow выбирает первый совместимый declared fallback map либо canonical autoresolve. Новые карты поставляются как лицензированные content-addressed Campaign Pack overlays с starts/profile/hash/provenance.
 
-## WOTR-D-013 · Synapse locale baseline
+## WOTR-D-013 · Eight-locale product baseline
 
 **Дата:** 2026-11-20 · **Статус:** принято · **ADR:** `docs/architecture/ADR-003-PRODUCT-LOCALES.md`.
 
@@ -99,3 +99,19 @@ Runtime UI строится из Godot `Control`/`Container`/`Theme`: layout, in
 Visual card сначала фиксирует style brief, named asset list, consuming scenes, provenance и budget `0–10 images` в пределах текущей Arena quota. Генерация и обработка источников принадлежат Scope Technical Artist, scene structure/integration — Godot World Engineer, независимый открытый render — UX & Modding Auditor. Неиспользованные варианты, generated text, full-screen hitbox images и official/retail artwork не коммитятся.
 
 **Откат:** generated skin и Theme resources можно удалить/заменить без изменения команд, canonical state или save; Godot structural UI остаётся функциональным.
+
+## WOTR-D-016 · Adapted launcher and early player package
+
+**Дата:** 2026-11-20 · **Статус:** принято · **ADR:** `docs/architecture/ADR-004-PLAYER-ENTRY-AND-DISTRIBUTION.md`.
+
+WOTR Remaster адаптирует существующие `launcher/**` и one-archive release tools, но не распространяет pinned upstream launcher binary без изменений и не создаёт второй updater. Пакет содержит WOTR launcher и один native game build, внутри которого strategy и OpenBFME tactical переходят нативно. Product/update/signing identity, user data, settings, logs и saves изолированы от upstream OpenBFME. Поддерживаемый путь: один архив → unpack → WOTR launcher → retail detection/selection → **Play WOTR Remaster**, без checkout, build tools, environment variables или developer CLI; bundled version стартует offline.
+
+После принятой WOTR-1.1 отдельная миссия `WOTR-1.2` обязана доказать fresh-profile package route. До её рабочих карточек ассистент создаёт B0-репетицию и ставит её в `Ready`; остальные карточки режет Coordinator только после `Accepted` B0. Internal playtest не разрешает public release до all-ref retail-history, license/provenance, signing и platform gates.
+
+## WOTR-D-017 · ScriptCat 1.16.4 full WOTR source scrub
+
+**Дата:** 2026-11-20 · **Статус:** принято.
+
+ScriptCat обновляется до 1.16.4 без изменения transport protocol 1.11. Runtime profile, prompts и embedded regulation получают WOTR regulation 1.2. Прежние project/card names, repositories и product-specific labels удаляются не только из operational prompts, но также из source comments, contracts, tests и sanitized structural regression fixtures. Точные upstream repository/tree данные остаются только в `tools/script-cat/UPSTREAM.md` как явно неоперационная provenance-запись.
+
+Portability guard больше не исключает tests/regression/browser/upstream-fixtures: он сканирует всё дерево ScriptCat и текущие operational docs, разрешая прежний repository identifier только в двух byte-for-byte закреплённых provenance-строках `UPSTREAM.md`. Regression semantics сохраняются под нейтральными `CASE-*`/fixture identifiers. Source/version/generated bundle меняются вместе; полный `npm run verify:scriptcat` и release evidence обязательны.

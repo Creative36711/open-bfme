@@ -1,6 +1,6 @@
 # Регламент WOTR Remaster · краткий вход
 
-Версия 1.1 · 2026-11-20. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
+Версия 1.2 · 2026-11-20. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
 
 ## 1. Архитектура
 
@@ -12,6 +12,7 @@
 - Vanilla RotWK 2.01 — первый tactical profile; Campaign Packs поддерживают retail references, licensed custom assets и mod overrides.
 - Мир `Creative36711/wotr` переносится только versioned one-way importer со stable IDs/provenance, без React/Tauri/Win32 runtime; publication ждёт license. Tactical capacity считается по сторонам: союзники делят start; overflow → declared fallback map либо deterministic autoresolve.
 - Новые tactical maps — лицензированные content-addressed `pack:` overlays с starts/profile/hash/provenance. Retail assets не копируются в продукт или публикуемую history; BIG передаётся байт-в-байт.
+- Player path: адаптировать существующий launcher/one-archive pipeline, не upstream binary и не второй updater. Один архив → WOTR launcher → retail selection → **Play WOTR Remaster**; strategy+tactical — один game process. WOTR data/saves изолированы, offline bundled start обязателен, support — только после fresh-profile oracle.
 
 ## 2. Роли
 
@@ -27,7 +28,9 @@
 
 ## 4. Фазы и ход
 
-План: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save. Не делай работу будущих фаз и пустые заготовки.
+План: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save; после accept зависимая `WOTR-1.2` даёт portable playtest. Не делай работу будущих фаз и пустые заготовки.
+
+До рабочих карточек каждой миссии ассистент создаёт единственную `Ready` B0 — read-only репетицию всего оракула (`build:none`, `retail:none`). Только после её `Accepted` Coordinator нарезает остальные карточки.
 
 Цикл: Warden публикует ТЗ → Coordinator готовит Draft/Ready и зависимости → ScriptCat выдаёт dispatch/run → агент сдаёт evidence и точный marker → Coordinator Accepted/Rework → независимый audit → Warden `accept/rework/master`. Зелёная карточка не заменяет финальный oracle собранной миссии. `master` — только доступ/аккаунт, лицензия/ToS, платное действие, секрет, agent activation или продуктовая граница.
 
@@ -42,7 +45,7 @@
 - Upstream: C++/GDExtension build + focused tests + WOTR regressions + retail smoke.
 - ScriptCat: `npm run verify:scriptcat` — build check, portability guard, smoke, regression, tool-limit.
 
-Формат финальной строки всегда стоит в самом конце задания; точный marker и IDs задаёт ScriptCat. Финал `WOTR-1.1` в Arena: strategic map → order → real tactical battle → native result → updated campaign → save/load → equal canonical hash.
+Формат финальной строки всегда стоит в самом конце задания; точный marker и IDs задаёт ScriptCat. Финал `WOTR-1.1`: map → real battle → result → save/hash. Финал `WOTR-1.2` на каждой заявленной платформе: fresh profile → unpack one archive → WOTR launcher/retail selection/Play → тот же round-trip/save, offline/update/tamper/coexistence negatives.
 
 ## 6. Save, assets, mods
 

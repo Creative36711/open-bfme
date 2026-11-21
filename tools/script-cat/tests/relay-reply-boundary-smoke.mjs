@@ -76,7 +76,7 @@ function make({ nodes, waiting = null }) {
 }
 
 const answer = (id = ANSWER_ID, text = `${marker()}`) => node(id, `Отчёт.\n\n${text}`);
-const prompt = (text = 'Задача NAR-1.10\n\nCF_TECH …') => node(PROMPT_ID, text, { user: true });
+const prompt = (text = 'Задача CASEA-1.10\n\nCF_TECH …') => node(PROMPT_ID, text, { user: true });
 
 // ── 1. Ответ ниже нашего запроса, но с меньшим id ──────────────────────────
 {
@@ -128,7 +128,7 @@ const prompt = (text = 'Задача NAR-1.10\n\nCF_TECH …') => node(PROMPT_ID
   const found = api.messagesAfter(PROMPT_ID, []);
   assert.equal(found.length, 1, 'ответ с цитатой задания не выпадает');
   assert.equal(api.looksLikeOwnTask(`CF_TECH в тексте задания\n\n${marker()}`), false, 'решает маркер, а не слово CF_TECH');
-  assert.equal(api.looksLikeOwnTask('Задача NAR-1.10\n\nCF_TECH …'), true, 'наше задание без маркера — не ответ');
+  assert.equal(api.looksLikeOwnTask('Задача CASEA-1.10\n\nCF_TECH …'), true, 'наше задание без маркера — не ответ');
 }
 
 // ── 6. Stop вне сообщений не держит шаг ───────────────────────────────────

@@ -40,7 +40,7 @@ const mission = { id: '11111111-1111-4111-8111-111111111111', properties: {
   'Итог': { rich_text: [{ plain_text: 'Проверки и остатки.' }] },
 } };
 const rows = [
-  ...Array.from({ length: 205 }, (_, i) => card(`OLD-${i}`, 'NAR-2 · предыдущая миссия', i)),
+  ...Array.from({ length: 205 }, (_, i) => card(`OLD-${i}`, 'CASEA-2 · предыдущая миссия', i)),
   ...Array.from({ length: 35 }, (_, i) => card(`STAB-1.${i + 1}`, 'STAB-1 · Stabilization', i + 205, i === 28 ? 'fail' : 'pass')),
 ];
 

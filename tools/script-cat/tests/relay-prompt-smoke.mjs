@@ -27,7 +27,7 @@ const rt = (p) => (p?.rich_text || p?.title || []).map((x) => x.plain_text || x.
 const { assignmentBody, taskLogEntry } = new Function('rt', 'taskTitle', 'nowIso',
   `${src.slice(aFrom, aTo)}\nreturn { assignmentBody, taskLogEntry };`)(
   rt, (t) => (t.properties['Запрос']?.title || []).map((x) => x.plain_text).join(''), () => '2026-11-04T00:00:00.000Z');
-const card = { id: 'd1', properties: { 'Запрос': { title: [{ plain_text: 'SYN-1.1' }] }, 'Намерение': rt ? { rich_text: [{ plain_text: 'цель' }] } : {} } };
+const card = { id: 'd1', properties: { 'Запрос': { title: [{ plain_text: 'CASEB-1.1' }] }, 'Намерение': rt ? { rich_text: [{ plain_text: 'цель' }] } : {} } };
 assert.match(assignmentBody(card, ''), /карточка и есть задание/);
 assert.match(assignmentBody(card, 'большое задание'), /большое задание/);
 const log = taskLogEntry(card, role('Executor'), '', 'r1');

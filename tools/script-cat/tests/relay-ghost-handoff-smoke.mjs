@@ -1,6 +1,6 @@
 // Проба 1.4.44: упавшая попытка не оставляет карточку в Running.
 //
-// 24.10 в 16:35 ход ушёл в «Kernel»: карточка NAR-1.12 стала Running
+// 24.10 в 16:35 ход ушёл в «FixtureExecutor»: карточка CASEA-1.12 стала Running
 // (`Started At`, `Run ID`, файл журнала), а страница Arena упала до отправки —
 // сообщение в чат не попало. В 17:09 очередь отправки снялась по TTL, но
 // карточку скрипт не тронул: откат статуса был привязан к странице адресата, а
@@ -60,8 +60,8 @@ function make({ expect = null, pending = null, rolled = true } = {}) {
 const dispatch = (extra = {}) => ({
   kind: 'dispatch',
   ref: 'card-1',
-  roleId: 'kernel',
-  roleName: 'Kernel',
+  roleId: 'fixtureExecutor',
+  roleName: 'FixtureExecutor',
   at: Date.now(),
   ...extra,
 });
@@ -98,7 +98,7 @@ const dispatch = (extra = {}) => ({
 {
   const { call, store } = make({
     expect: dispatch(),
-    pending: { roleId: 'kernel', text: 'задание', at: Date.now() },
+    pending: { roleId: 'fixtureExecutor', text: 'задание', at: Date.now() },
   });
   assert.equal(await call('рано'), null, 'пока очередь жива, откат не делается');
   assert.ok(store.get('cfn-expect'), 'ожидание на месте');
@@ -110,7 +110,7 @@ const dispatch = (extra = {}) => ({
 {
   const { call, store, released } = make({
     expect: dispatch(),
-    pending: { roleId: 'kernel', text: 'задание', at: Date.now() - 40 * 60 * 1000 },
+    pending: { roleId: 'fixtureExecutor', text: 'задание', at: Date.now() - 40 * 60 * 1000 },
   });
   const ghost = await call('очередь отправки просрочена', { ignoreQueue: true });
   assert.ok(ghost, 'след снят, хотя в хранилище ещё лежит просроченная очередь');

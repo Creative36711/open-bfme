@@ -113,7 +113,7 @@ const decisionsDoc = readFileSync(join(upstreamDocs, 'DECISIONS.md'), 'utf8');
 assert.match(decisionsDoc, /## D-105 \(1\.14\.32\)/);
 assert.match(decisionsDoc, /## D-106 \(1\.14\.33\)/, 'D-106 записан в решениях');
 const acceptanceDoc = readFileSync(join(upstreamDocs, 'agents/acceptance-report.md'), 'utf8');
-// Шапка отчёта — текущий выпуск Vault; прежние выпуски остаются архивом ниже.
+// Шапка отчёта — текущий выпуск FixtureWorkspace; прежние выпуски остаются архивом ниже.
 assert.match(acceptanceDoc.split(/\r?\n/)[0], /1\.16\.1.*D-124/);
 assert.match(acceptanceDoc, /Живая.*ручн/i);
 const updateDoc = readFileSync(join(upstreamDocs, 'scriptcat-update.md'), 'utf8');

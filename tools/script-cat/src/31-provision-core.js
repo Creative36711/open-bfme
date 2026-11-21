@@ -15,7 +15,7 @@
     "provision_old_archived", "provision_old_archive_unverified", "provision_job_done", "provision_paused",
     "provision_conflict", "provision_noop"];
   const PROVISION_BOOTSTRAP_FORBIDDEN = [
-    /CF_[A-Z_]+/i, /notion/i, /cortex/i, /REGULATION/, /WARDEN/i, /DECISIONS/,
+    /CF_[A-Z_]+/i, /notion/i, /aux-workspace/i, /REGULATION/, /WARDEN/i, /DECISIONS/,
     /ntn_[A-Za-z0-9]/, /secret_[A-Za-z0-9]/, /ghp_[A-Za-z0-9]/, /github_pat_[A-Za-z0-9]/,
     /Bearer\s+[A-Za-z0-9]/i, /sk-[A-Za-z0-9]{12}/, /app\.notion|notion\.so|notion\.site/i,
   ];

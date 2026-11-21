@@ -36,7 +36,7 @@ const idTime = (id) => {
   return Number.isFinite(ms) ? ms : 0;
 };
 const promptText = (run = RUN) =>
-  `Задача SYN-1 · K-30 (dispatch ${DISPATCH}, run ${run})\nCF_TECH\nmarker example`;
+  `Задача CASEB-1 · K-30 (dispatch ${DISPATCH}, run ${run})\nCF_TECH\nmarker example`;
 
 function make({ expect = null, pending = null, receipts = [], nodes = [], currentRole = ROLE } = {}) {
   const store = new Map([
@@ -66,7 +66,7 @@ function make({ expect = null, pending = null, receipts = [], nodes = [], curren
 
 const baseExpect = {
   kind: 'dispatch', ref: DISPATCH, runId: RUN, roleId: ROLE,
-  roleName: 'Executor Core', title: 'SYN-1 · K-30', at: 1762374494000,
+  roleName: 'Executor Core', title: 'CASEB-1 · K-30', at: 1762374494000,
   text: promptText(), seen: ['old-1'], sentAt: null, verified: false,
 };
 

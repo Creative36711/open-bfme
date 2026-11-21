@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Relay — передача хода между агентами
 // @namespace    https://arena.ai/
-// @version      1.16.3
+// @version      1.16.4
 // @description  Цикл Координатор → исполнитель → Координатор: агент сам коммитит, пушит и мержит PR; ScriptCat ждёт мерж и нажимает Continue.
 // @match        https://arena.ai/*
 // @match        https://www.arena.ai/*
@@ -77,11 +77,11 @@
     pageUrl: "",
     // Краткий регламент вшивается сборкой из docs/regulation-digest.md: агент получает
     // правила вместе с заданием, а страница по pageUrl остаётся справочником для деталей.
-    regulationDigest: "# Регламент WOTR Remaster · краткий вход\n\nВерсия 1.1 · 2026-11-20. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.\n\n## 1. Архитектура\n\n- Один репозиторий: `Creative36711/open-bfme`.\n- `WotrRemaster` — отдельное детерминированное стратегическое ядро: WEGO commands, canonical state/hash, versioned save. Godot nodes, wall clock, locale, filesystem/unordered iteration и неназванный RNG в simulation запрещены.\n- Godot делает 2.5D hex map, ввод, HUD и Campaign Pack editor.\n- OpenBFME Godot Nightly делает tactical battle и читает retail BFME2/RotWK пользователя напрямую.\n- Граница — versioned `BattleRequest` / полный `BattleResult`: победитель, survivors, experience/rank, heroes, persistent upgrades/sciences, reinforcements, destroyed strategic buildings и metadata. Mock не заменяет retail gate.\n- Vanilla RotWK 2.01 — первый tactical profile; Campaign Packs поддерживают retail references, licensed custom assets и mod overrides.\n- Мир `Creative36711/wotr` переносится только versioned one-way importer со stable IDs/provenance, без React/Tauri/Win32 runtime; publication ждёт license. Tactical capacity считается по сторонам: союзники делят start; overflow → declared fallback map либо deterministic autoresolve.\n- Новые tactical maps — лицензированные content-addressed `pack:` overlays с starts/profile/hash/provenance. Retail assets не копируются в продукт или публикуемую history; BIG передаётся байт-в-байт.\n\n## 2. Роли\n\nМастер — направление, доступы, лицензии и платные действия. Warden — ТЗ и финальная приёмка. Coordinator — очередь и карточки, без кода и финальной приёмки. Executors: Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist, AI & Simulation, Localization & Cultural QA, Upstream Integrator. Единственный Maintainer — Transport Maintainer, чинящий транспорт. Auditors: Integration, Determinism & Save, UX & Modding.\n\nИсточник полномочий — строка Notion «Роли». Без строки, активного статуса и Agent URL рабочей роли нет. Исполнитель не принимает себя; Auditor не чинит найденное в том же ходе; Warden не пишет продукт.\n\n## 3. Зоны и Git\n\nЗона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.\n\nРаботай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. `tools/script-cat/**` меняет только Transport Maintainer отдельным выпуском. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.\n\n## 4. Фазы и ход\n\nПлан: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save. Не делай работу будущих фаз и пустые заготовки.\n\nЦикл: Warden публикует ТЗ → Coordinator готовит Draft/Ready и зависимости → ScriptCat выдаёт dispatch/run → агент сдаёт evidence и точный marker → Coordinator Accepted/Rework → независимый audit → Warden `accept/rework/master`. Зелёная карточка не заменяет финальный oracle собранной миссии. `master` — только доступ/аккаунт, лицензия/ToS, платное действие, секрет, agent activation или продуктовая граница.\n\n## 5. Evidence\n\n`not run`, timeout, зелёный нерелевантный CI, слова агента или mock вместо retail-пути не равны pass. Нужны команда, rc, существенный вывод, artifact path/hash, tested SHA и Cost gate. Карточка заранее задаёт `build: none/focused/full` и `retail: none/reuse/hydrate`; сначала static/focused. Полная engine build и Drive hydration — только по `docs/agents/cost-gates.md` или явному критерию, но обязательный финальный gate не пропускается. Визуал — агент открыл screenshot/video и описал увиденное.\n\n- Core: unit + repeated-run equal hash + canonical save + negative validation.\n- Bridge: synthetic DTO + retail map real battle + native full result + strategic apply.\n- Godot/editor: headless smoke + deterministic interaction + opened visual artifact + frame/memory facts.\n- Save/schema: round-trip + corruption/unknown-version/migration failures.\n- Upstream: C++/GDExtension build + focused tests + WOTR regressions + retail smoke.\n- ScriptCat: `npm run verify:scriptcat` — build check, portability guard, smoke, regression, tool-limit.\n\nФормат финальной строки всегда стоит в самом конце задания; точный marker и IDs задаёт ScriptCat. Финал `WOTR-1.1` в Arena: strategic map → order → real tactical battle → native result → updated campaign → save/load → equal canonical hash.\n\n## 6. Save, assets, mods\n\nSave envelope содержит schema version, Campaign Pack identity/hash, tactical profile, canonical state, command/RNG metadata и checksum. Неизвестная версия, damaged checksum, missing pack или incompatible profile отказываются до изменения живого state. Миграция не перезаписывает исходный файл.\n\nCustom asset требует provenance/license/author/hash. Pack не содержит абсолютных путей машины автора. Missing/ambiguous references дают явную ошибку. Mod profile не меняет Vanilla молча.\n\n## 7. Вопросы, секреты, язык\n\nНеясность решай минимально и обратимо; в отчёт `Допущение:`. Вопрос — только `question` в result marker с options и полным default; без gate продолжай по default. `gate:true` — лишь когда следующий шаг физически невозможен. Контракт/oracle/граница продукта — `ADR:` с тремя вариантами и default `оставить как есть`.\n\nСекреты и session data не в Git/Notion/Drive/chat. Retail executable не запускать ради проверки данных. Процесс и общение — русский; code/API/schema/commit — English. Обязательные локали: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; English fallback, production — только после coverage/native review/rendering gate. Locale не меняет simulation/save/network hash.",
+    regulationDigest: "# Регламент WOTR Remaster · краткий вход\n\nВерсия 1.2 · 2026-11-20. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.\n\n## 1. Архитектура\n\n- Один репозиторий: `Creative36711/open-bfme`.\n- `WotrRemaster` — отдельное детерминированное стратегическое ядро: WEGO commands, canonical state/hash, versioned save. Godot nodes, wall clock, locale, filesystem/unordered iteration и неназванный RNG в simulation запрещены.\n- Godot делает 2.5D hex map, ввод, HUD и Campaign Pack editor.\n- OpenBFME Godot Nightly делает tactical battle и читает retail BFME2/RotWK пользователя напрямую.\n- Граница — versioned `BattleRequest` / полный `BattleResult`: победитель, survivors, experience/rank, heroes, persistent upgrades/sciences, reinforcements, destroyed strategic buildings и metadata. Mock не заменяет retail gate.\n- Vanilla RotWK 2.01 — первый tactical profile; Campaign Packs поддерживают retail references, licensed custom assets и mod overrides.\n- Мир `Creative36711/wotr` переносится только versioned one-way importer со stable IDs/provenance, без React/Tauri/Win32 runtime; publication ждёт license. Tactical capacity считается по сторонам: союзники делят start; overflow → declared fallback map либо deterministic autoresolve.\n- Новые tactical maps — лицензированные content-addressed `pack:` overlays с starts/profile/hash/provenance. Retail assets не копируются в продукт или публикуемую history; BIG передаётся байт-в-байт.\n- Player path: адаптировать существующий launcher/one-archive pipeline, не upstream binary и не второй updater. Один архив → WOTR launcher → retail selection → **Play WOTR Remaster**; strategy+tactical — один game process. WOTR data/saves изолированы, offline bundled start обязателен, support — только после fresh-profile oracle.\n\n## 2. Роли\n\nМастер — направление, доступы, лицензии и платные действия. Warden — ТЗ и финальная приёмка. Coordinator — очередь и карточки, без кода и финальной приёмки. Executors: Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist, AI & Simulation, Localization & Cultural QA, Upstream Integrator. Единственный Maintainer — Transport Maintainer, чинящий транспорт. Auditors: Integration, Determinism & Save, UX & Modding.\n\nИсточник полномочий — строка Notion «Роли». Без строки, активного статуса и Agent URL рабочей роли нет. Исполнитель не принимает себя; Auditor не чинит найденное в том же ходе; Warden не пишет продукт.\n\n## 3. Зоны и Git\n\nЗона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.\n\nРаботай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. `tools/script-cat/**` меняет только Transport Maintainer отдельным выпуском. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.\n\n## 4. Фазы и ход\n\nПлан: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save; после accept зависимая `WOTR-1.2` даёт portable playtest. Не делай работу будущих фаз и пустые заготовки.\n\nДо рабочих карточек каждой миссии ассистент создаёт единственную `Ready` B0 — read-only репетицию всего оракула (`build:none`, `retail:none`). Только после её `Accepted` Coordinator нарезает остальные карточки.\n\nЦикл: Warden публикует ТЗ → Coordinator готовит Draft/Ready и зависимости → ScriptCat выдаёт dispatch/run → агент сдаёт evidence и точный marker → Coordinator Accepted/Rework → независимый audit → Warden `accept/rework/master`. Зелёная карточка не заменяет финальный oracle собранной миссии. `master` — только доступ/аккаунт, лицензия/ToS, платное действие, секрет, agent activation или продуктовая граница.\n\n## 5. Evidence\n\n`not run`, timeout, зелёный нерелевантный CI, слова агента или mock вместо retail-пути не равны pass. Нужны команда, rc, существенный вывод, artifact path/hash, tested SHA и Cost gate. Карточка заранее задаёт `build: none/focused/full` и `retail: none/reuse/hydrate`; сначала static/focused. Полная engine build и Drive hydration — только по `docs/agents/cost-gates.md` или явному критерию, но обязательный финальный gate не пропускается. Визуал — агент открыл screenshot/video и описал увиденное.\n\n- Core: unit + repeated-run equal hash + canonical save + negative validation.\n- Bridge: synthetic DTO + retail map real battle + native full result + strategic apply.\n- Godot/editor: headless smoke + deterministic interaction + opened visual artifact + frame/memory facts.\n- Save/schema: round-trip + corruption/unknown-version/migration failures.\n- Upstream: C++/GDExtension build + focused tests + WOTR regressions + retail smoke.\n- ScriptCat: `npm run verify:scriptcat` — build check, portability guard, smoke, regression, tool-limit.\n\nФормат финальной строки всегда стоит в самом конце задания; точный marker и IDs задаёт ScriptCat. Финал `WOTR-1.1`: map → real battle → result → save/hash. Финал `WOTR-1.2` на каждой заявленной платформе: fresh profile → unpack one archive → WOTR launcher/retail selection/Play → тот же round-trip/save, offline/update/tamper/coexistence negatives.\n\n## 6. Save, assets, mods\n\nSave envelope содержит schema version, Campaign Pack identity/hash, tactical profile, canonical state, command/RNG metadata и checksum. Неизвестная версия, damaged checksum, missing pack или incompatible profile отказываются до изменения живого state. Миграция не перезаписывает исходный файл.\n\nCustom asset требует provenance/license/author/hash. Pack не содержит абсолютных путей машины автора. Missing/ambiguous references дают явную ошибку. Mod profile не меняет Vanilla молча.\n\n## 7. Вопросы, секреты, язык\n\nНеясность решай минимально и обратимо; в отчёт `Допущение:`. Вопрос — только `question` в result marker с options и полным default; без gate продолжай по default. `gate:true` — лишь когда следующий шаг физически невозможен. Контракт/oracle/граница продукта — `ADR:` с тремя вариантами и default `оставить как есть`.\n\nСекреты и session data не в Git/Notion/Drive/chat. Retail executable не запускать ради проверки данных. Процесс и общение — русский; code/API/schema/commit — English. Обязательные локали: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; English fallback, production — только после coverage/native review/rendering gate. Locale не меняет simulation/save/network hash.",
     // D-073: отпечаток сборки вшивает build.mjs (SHA-256 источника). Номер версии
     // говорит «какой выпуск», отпечаток — «какая именно сборка»: без него проверка
     // «работает новая версия, а не прежняя под новым номером» невозможна.
-    buildFingerprint: "ff895ce45f56ca67",
+    buildFingerprint: "985ec22de8d51512",
     repo: "", // для ссылки на PR из номера
     tickMs: 15000,
     mergeGraceMs: 90000, // сколько ждём мерж, прежде чем нажать кнопки за агента
@@ -398,7 +398,7 @@
     collapsed: "cfn-panel-collapsed",
     stateV: "cfn-state-v",
     rolesCache: "cfn-roles-cache",
-    // Эфемерные пилоты SYN-P1: отдельный namespace, НЕ K.pending/K.expect.
+    // Эфемерные пилоты CASEB-P1: отдельный namespace, НЕ K.pending/K.expect.
     pilots: "cfn-pilots-v1",
     pilotWait: "cfn-pilot-wait:",
     pilotTranscript: "cfn-pilot-transcript:",
@@ -745,7 +745,7 @@
 
   const NTFY_BASE = "https://ntfy.sh";
   const SCRIPT_VERSION =
-    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.3";
+    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.4";
 
   /** «https://ntfy.sh/topic?x=1» и «topic» одинаково дают topic. */
   function normalizeNtfyTopic(raw) {
@@ -1397,7 +1397,7 @@
    *
    * Поля эти ставит транспорт, поэтому снимает их тоже он, а не Координатор
    * через коннектор: 25.10 коннектор отвечал `validation_error` на очистку, и
-   * карточка запиралась (NAR-2.3).
+   * карточка запиралась (CASEA-2.3).
    */
   const answeredMarks = (card) => {
     const props = (card && card.properties) || {};
@@ -1466,7 +1466,7 @@
    * Ход в Ready направляет только Координатор — транспорт сам из Ready ничего
    * не берёт. Поэтому если он назвал эту карточку, значит работа нужна заново,
    * и следы прошлого ответа снимаются: без этого выдача отказывала и цикл
-   * вставал (NAR-4.9, 27.10).
+   * вставал (CASEA-4.9, 27.10).
    *
    * Осторожность сохранена там, где она нужна: если у роли в Ready есть и
    * свежая карточка, и отвеченная, берётся свежая (см. `pickReadyForRole`), —
@@ -3685,7 +3685,7 @@
         const why = String((data && data.error) || "шлюз вернул отказ");
         // append идемпотентен по маркеру: «duplicate» — это «запись уже в
         // журнале», а не отказ. Без этого шаг, сорвавшийся ПОСЛЕ записи
-        // журнала (так было на NAR-1.10: ответ записан, запись в Notion
+        // журнала (так было на CASEA-1.10: ответ записан, запись в Notion
         // прервалась), не мог завершиться никогда: повтор упирался в
         // собственный маркер и падал на нём же.
         if (action === "append" && /duplicate/i.test(why)) return { ok: true, duplicate: true };
@@ -3933,7 +3933,7 @@
   /**
    * Конец миссии — событие, а не тишина.
    *
-   * 24.10 в 15:49 Координатор закрыл NAR-1, а ScriptCat сказал только «Нет
+   * 24.10 в 15:49 Координатор закрыл CASEA-1, а ScriptCat сказал только «Нет
    * активной миссии — ждём»: ни зелёной строки, ни пуша, ни выключенного
    * автоцикла. Мастер узнал о конце миссии из чата. Теперь событие
    * объявляется один раз на миссию: зелёная строка, громкий пуш, автоцикл
@@ -3959,7 +3959,7 @@
     }
     const at = closed.properties?.["Завершена"]?.date?.start || "";
     // «Ждали ход» — любое незавершённое ожидание, а не только план или
-    // напоминание. 28.10 NAR-4 закрыли своим ходом, в памяти осталось
+    // напоминание. 28.10 CASEA-4 закрыли своим ходом, в памяти осталось
     // ожидание вида «marker» — конец миссии прошёл молча.
     const waited = Boolean(expect && expect.kind);
     // «Завершена» — дата без времени, `Date.parse` даёт полночь. Прежние
@@ -3980,7 +3980,7 @@
     }
 
     // Отсчёт закрытия, а не только id: миссию возвращают и закрывают снова,
-    // и второе закрытие — такое же событие, как первое. 28.10 NAR-4 закрыли
+    // и второе закрытие — такое же событие, как первое. 28.10 CASEA-4 закрыли
     // повторно после возврата, флаг по одному id остался с 27.10 — Мастер
     // не получил ни пуша, ни выключенного автоцикла. Поэтому в ключ входит
     // дата возврата: у каждой пары «возврат → закрытие» свой отсчёт.
@@ -4076,7 +4076,7 @@
   /**
    * Смена миссии обнуляет прошлый ход.
    *
-   * 24.10 миссия NAR-1 закрылась, а следующая начинается новой карточкой в
+   * 24.10 миссия CASEA-1 закрылась, а следующая начинается новой карточкой в
    * «Миссиях». Ожидание ответа и очередь отправки от прошлой миссии к новой не
    * относятся — но именно они решают, куда пойдёт «Шаг»: транспорт повёл бы
    * Мастера на страницу исполнителя, который уже ничего не делает, и новая
@@ -4311,7 +4311,7 @@
     const at = Number(expect.at) || Number(expect.sentAt) || 0;
     const since = Number(epoch && epoch.at) || returnEpoch(mission).at;
     const marked = Number(epoch && epoch.markedAt) || 0;
-    // 06.11, SYN-1. Возврат в 17:07:32, план с замечаниями в 17:07:57.
+    // 06.11, CASEB-1. Возврат в 17:07:32, план с замечаниями в 17:07:57.
     // Координатор к 17:18 создал K-38…K-41 и дописал раздел «Возврат» в
     // «Итог» — «последняя правка» карточки уехала на 17:18, и отсчёт вместе с
     // ней. Ожидание 17:07:57 стало «начатым до возврата»: шаг в 17:19:30 снял
@@ -4340,8 +4340,8 @@
   /**
    * Слова названия миссии — без знаков и связок.
    *
-   * 25.10 (фаза 2) Координатор создал NAR-2.14 и NAR-2.15 с «Миссией»
-   * «NAR-2 · Шов движок и пак», а миссия называется «NAR-2 · Шов «движок /
+   * 25.10 (фаза 2) Координатор создал CASEA-2.14 и CASEA-2.15 с «Миссией»
+   * «CASEA-2 · Шов движок и пак», а миссия называется «CASEA-2 · Шов «движок /
    * пак»». Сравнение строк в лоб (`includes`) не совпало, обе карточки
    * выпали из очереди, и транспорт дважды просил план с «0 Ready, 0 Draft»,
    * хотя карточки лежали в базе, — а потом встал на паузу «в Ready нет
@@ -4628,7 +4628,7 @@
    * 20 секунд попытался отправить задание: поле ввода уже было, текст встал
    * (9186 символов), кнопка Send была в разметке — но `disabled`, потому что
    * транскрипт в этот момент монтировался (сообщений 0 → 18). Скрипт решил,
-   * что редактор «не принял текст», вернул карточку NAR-2.12 в Ready и встал
+   * что редактор «не принял текст», вернул карточку CASEA-2.12 в Ready и встал
    * на паузу. Работы по карточке не было — виновата спешка.
    *
    * Правило: пока документ не догружен, скрипт не делает ничего — ни вставки,
@@ -4939,7 +4939,7 @@
    *
    * 07.11.2026, 16:56. Координатор ответил по делу, но последняя строка была
    * JSON-ом без имени маркера:
-   *   {"next":"Contract Architect","question":{"id":"SYN3-ADR-V2-FRAMES-0",…}}
+   *   {"next":"Contract Architect","question":{"id":"CASEB-3-ADR-V2-FRAMES-0",…}}
    * Разбор искал только литерал `CF_COORDINATOR_RESULT`, не находил его — и
    * цикл трижды просил «не хватило последней строки», хотя строка была. Агент
    * повторял ровно тот же хвост, и через два напоминания шаг встал на паузу
@@ -5155,7 +5155,7 @@
    * `shortLabel` режет до 60 знаков, и по обрезанному тексту нельзя отличить
    * индикатор от транскрипта: проверка «длинный текст — это транскрипт»
    * (`length > 80`) на обрезанной строке не срабатывает НИКОГДА. 09.11 так
-   * завис цикл: наша же реплика «Карточка «SYN-3 · B5 · Анализатор литералов
+   * завис цикл: наша же реплика «Карточка «CASEB-3 · B5 · Анализатор литералов
    * fail-closed» · dispatch …» попала в `[aria-live]`, слово «Анализ» совпало с
    * шаблоном «thinking|анализ», и транспорт 12 часов считал агента работающим —
    * без ошибки и без паузы («задание из очереди подождёт, а агент ещё
@@ -5344,7 +5344,7 @@
    * напоминания не выглядели механической копией, и чтобы в чате не было слова
    * ScriptCat.
    *
-   * why = "thin" — маркер есть, а отчёта нет (NAR-1.8, 23.10.2026: агент понял
+   * why = "thin" — маркер есть, а отчёта нет (CASEA-1.8, 23.10.2026: агент понял
    * «ответь одной последней строкой» буквально, а в журнал попал только маркер).
    * why = "ids" — маркер есть, но без dispatch_id/run_id этой выдачи (D-040,
    * 05.11.2026: Executor прислал маркер с «task» вместо ID). Работа сделана —
@@ -5409,7 +5409,7 @@
   /**
    * Заявка «почти по формату»: id выдачи есть, номер PR есть, признак мержа
    * есть, а литерала маркера нет. Пример, на котором это понадобилось:
-   * «NAR-1.7 RESULT — dispatch 4016f0cf-…; run 8abe7712-…; PR #31 MERGED.»
+   * «CASEA-1.7 RESULT — dispatch 4016f0cf-…; run 8abe7712-…; PR #31 MERGED.»
    */
   function looseResult(raw, role, expect) {
     if (role.fn === "Auditor") return null;
@@ -5432,7 +5432,7 @@
   /**
    * Текст ответа для журнала: все сообщения агента за ход, а не только последнее.
    *
-   * Инцидент NAR-1.8 (23.10.2026). Kernel отчитался без маркера, получил
+   * Инцидент CASEA-1.8 (23.10.2026). FixtureExecutor отчитался без маркера, получил
    * напоминание и прислал одну строку маркера. В журнал попал только маркер:
    * Координатор прочитал его, не увидел работы и поставил Rework при слитом PR.
    * Теперь журнал собирается из всего хода, а одинаковые части не дублируются.
@@ -5483,7 +5483,7 @@
   /**
    * Минимальное сообщение вместо отклонённого задания.
    *
-   * 25.10 задание Architect (NAR-2.16) не принималось трижды: «Something went
+   * 25.10 задание Architect (CASEA-2.16) не принималось трижды: «Something went
    * wrong. Please try again.» — и на полном тексте (7 586 символов), и на
    * сокращённом техблоке (7 610 после переотправки). Дело не в длине и не в
    * разметке: Arena отклоняет сам текст задания. Поэтому повтор — это не
@@ -6687,7 +6687,7 @@
         if (!visible(button)) continue;
         // Skip внутри группы вариантов — это вопрос агента, а не плашка.
         // Один клик закрыл бы сразу весь опросник, и остальные вопросы исчезли
-        // бы, не попав ни в журнал, ни в журнал попытки (24.10, NAR-1.12).
+        // бы, не попав ни в журнал, ни в журнал попытки (24.10, CASEA-1.12).
         if (button.closest?.('[role="radiogroup"]')) continue;
         return button;
       }
@@ -6813,7 +6813,7 @@
   /**
    * Опрос вместо ответа.
    *
-   * 24.10 Kernel на середине NAR-1.12 остановился и выставил карточку с
+   * 24.10 FixtureExecutor на середине CASEA-1.12 остановился и выставил карточку с
    * вопросом «May I expand the write zone for this task?»: кнопки с вариантами,
    * свободное поле и `Skip`. Для цикла это конец хода без маркера — работа не
    * сдана, карточка висит в Running, ждать нечего.
@@ -7035,7 +7035,7 @@
     const who = (role && role.name) || (expect && expect.roleName) || "агент";
     // Ключ — ход агента: повторный тик не отвечает на тот же вопрос дважды.
     // Метки 1.4.45 сюда не читаются: они ставились без проверки, что Submit
-    // сработал, и на живом опросе Kernel заблокировали бы повтор.
+    // сработал, и на живом опросе FixtureExecutor заблокировали бы повтор.
     const key = `cfn-poll2:${(expect && (expect.runId || expect.turnId || expect.ref)) || location.pathname}`;
     const handled = new Set(GM_getValue(key, []));
     const pending = found.filter((q) => !handled.has(`${q.id}:${q.question}`));
@@ -7412,7 +7412,7 @@
    * `dispatch <id>` и `run <id>`.
    *
    * Ключ обязан быть своим у каждой ВЫДАЧИ, а не у карточки. 28.10 карточку
-   * NAR-5.3 выдали второй раз («проверка ответа не прошла, выдаю заново»);
+   * CASEA-5.3 выдали второй раз («проверка ответа не прошла, выдаю заново»);
    * строка задания у обеих выдач начинается одинаково, а прежний ключ —
    * первые 90 знаков этой строки — обрезался раньше номера выдачи. Прошлое
    * сообщение с тем же ключом лежало в чате, проверка «моё сообщение уже в
@@ -8396,8 +8396,8 @@
   /**
    * Ожидание без отметки отправки — след прошлой попытки, а не ход.
    *
-   * 24.10 в 16:35 карточка NAR-1.12 ушла в Running, а страница Arena упала до
-   * отправки: сообщение в чат Kernel не попало. Через 34 минуты очередь
+   * 24.10 в 16:35 карточка CASEA-1.12 ушла в Running, а страница Arena упала до
+   * отправки: сообщение в чат FixtureExecutor не попало. Через 34 минуты очередь
    * снялась, но карточку скрипт не тронул — он стоял не на странице адресата,
    * а откат статуса был привязан к ней. В Running карточка ждала ещё 11 минут
    * до `releaseStalled`, и всё это время Координатор видел «1 Running» и
@@ -8940,7 +8940,7 @@
     // Задание, которое не ушло в прошлый раз. Карточку тогда вернули в Ready,
     // чтобы она не ждала 45 минут впустую, но текст остался в очереди:
     // «Продолжить» отправляет его этой же карточке и с тем же Run ID — новый
-    // ход Координатора для этого не нужен (24.10, NAR-1.15).
+    // ход Координатора для этого не нужен (24.10, CASEA-1.15).
     if (pending.undelivered) {
       const waiting = GM_getValue(K.expect, null);
       if (waiting && waiting.ref && waiting.runId) {
@@ -9459,7 +9459,7 @@
    * Кнопка ↺: снять ход, а не только память транспорта.
    *
    * 28.10 Мастер нажал ↺, когда задание не ушло. Очередь и ожидание в
-   * хранилище снялись — а карточка NAR-5.3 осталась в Notion в Running.
+   * хранилище снялись — а карточка CASEA-5.3 осталась в Notion в Running.
    * Координатор увидел «1 Running», решил, что работа идёт, и выдал следующую
    * карточку; прежняя так и висела. Сброс, после которого карточка выглядит
    * выданной, — это не сброс, а потерянная работа.
@@ -9591,7 +9591,7 @@
    * нельзя. Агент это видит как `pr_merged` и отказывается: «нажмите Continue
    * рядом со статусом PR». Пока Continue не нажата, любое задание в этот чат
    * уходит в мёртвую ветку — работа не начинается, маркера нет, цикл встаёт
-   * (27.10, NAR-4.9, ветка `arena/73b6f5a4-relay` после PR #97).
+   * (27.10, CASEA-4.9, ветка `arena/73b6f5a4-relay` после PR #97).
    *
    * Клик по Continue — это не реплика агенту и не команда в репозиторий: Arena
    * просто выдаёт новую ветку от последней базовой версии. Поэтому проверка
@@ -9764,7 +9764,7 @@
     }
     // Память о мерже — на выдачу, а не на карточку.
     //
-    // 27.10 NAR-4.9 ответили дважды: PR #95 в 16:41 и PR #97 в 21:15. Ключ был
+    // 27.10 CASEA-4.9 ответили дважды: PR #95 в 16:41 и PR #97 в 21:15. Ключ был
     // один на карточку, поэтому после второго мержа `ensureMerged` сразу
     // отвечал «already»: ни бейджа, ни Continue скрипт не искал, Continue не
     // нажималась, и сессия Архитектора осталась на ветке
@@ -9917,7 +9917,7 @@
    * (24.10 в 14:48 именно так в чат ушло «Please open a pull request…»). Но
    * Continue — это не реплика, а выдача новой ветки, и Arena дорисовывает её
    * уже после того, как узнала о мерже. До 1.4.42 здесь был немедленный
-   * выход, поэтому Continue оставалась ненажатой: NAR-1.11, PR #35 — Мастер
+   * выход, поэтому Continue оставалась ненажатой: CASEA-1.11, PR #35 — Мастер
    * жал её руками. Ждём бейдж или Continue до mergeGraceMs.
    */
   async function claimMerge(task, result, key, note = "") {
@@ -10358,7 +10358,7 @@
   /**
    * Вернуть карточку, которую проверка ошибочно отправила в Rework.
    *
-   * 24.10 NAR-1.13 лежала в Rework при слитом PR #37: работа в main, а
+   * 24.10 CASEA-1.13 лежала в Rework при слитом PR #37: работа в main, а
    * Координатор уже готовил повторную выдачу. Кнопка «Подключения» → «Вернуть карточку»
    * спрашивает GitHub ещё раз и, если мерж подтверждён, ставит ровно то, что
    * поставила бы удачная проверка: Submitted, Submitted At, PR и отметку в
@@ -10679,7 +10679,7 @@
     ].join("\n") });
 
     // Имя миссии, её id, ссылка на ТЗ и номер круга — данные Мастера, а не
-    // инструкции. 08.11 в 00:24 боевой SYN-3 встал ровно здесь: один URL ТЗ
+    // инструкции. 08.11 в 00:24 боевой CASEB-3 встал ровно здесь: один URL ТЗ
     // (?pvs=4, 256 знаков) плюс длинное имя миссии дали 292 из 3200, и промпт не
     // собрался, хотя правила Координатора были целы. Бюджет overhead по D-034
     // защищает от раздувания инструкций, а не от длины данных; тот же приём уже
@@ -10827,8 +10827,8 @@
     // читал запрет про каталог и не понимал, к чему он относится. Фаза не
     // называется в блоке намеренно: активная фаза меняется (сейчас Ф1), а
     // правило остаётся. Источник фаз — docs/PHASES.md через краткий регламент.
-    def("phases.bans", { version: 2, ruleIds: ["R-PHASES"], render: () =>
-      "Фазы: активную не опережай; retail read-only; advanced AI/multiplayer — Ф8+; платное — с лимитом Мастера; без сервисов «на будущее»; оракул не ослаблять. Cost gate: build none/focused/full; retail none/reuse/hydrate. Без tier нельзя full build/hydrate." });
+    def("phases.bans", { version: 3, ruleIds: ["R-PHASES"], render: () =>
+      "Фазы: не опережай; retail read-only; AI/multiplayer — Ф8+; оракул не ослаблять. Package: адаптируй существующий launcher, не upstream binary/второй updater; strategy+tactical — один game process. Cost: build none/focused/full; retail none/reuse/hydrate; без tier нельзя full/hydrate." });
 
     // WOTR-D-013: состав локалей теперь принят и обеспечен реальными каталогами
     // tools/l10n/catalog. Теги zh-Hans и pt-BR не сокращаются: это часть
@@ -11064,7 +11064,7 @@
     def("pilot.stop", { audience: ["pilot"], render: () =>
       "Финал — отчёт текстом: что сделано, как запущено, артефакты, журнал затруднений и допущения. Командные маркеры не используй." });
     def("pilot.repo", { audience: ["pilot"], render: (c) =>
-      `Репо: ${c.pilot?.repo || "Creative36711/open-bfme"}@${c.pilot?.startSha || "main"}, read-only; запись только в локальный sandbox.` });
+      `Репо: ${c.pilot?.repo || "Creative36711/open-bfme"}@${c.pilot?.startSha || "main"}, read-only; запись лишь в sandbox.` });
 
     def("delivery.recovery", { render: () =>
       "Это продолжение того же хода после сбоя доставки, не новая задача и не новая выдача. Сохрани все ID. Разбери снимок очереди и продолжи по правилам своей роли." });
@@ -11992,7 +11992,7 @@
    * переписали.
    *
    * `Output Drive File ID` — единственная ссылка на журнал попытки, и её может
-   * переписать любой, у кого есть доступ к карточке. На NAR-2.13 (25.10,
+   * переписать любой, у кого есть доступ к карточке. На CASEA-2.13 (25.10,
    * 15:59Z) Runtime Auditor создал `Arena/reports`, положил туда отчёт и вписал
    * его id в это поле вместо журнала. Шлюз отказал по делу — «Запись разрешена
    * только в текстовые файлы Arena/logs», — а скрипт назвал это «шлюз Drive не
@@ -12259,7 +12259,7 @@
     if (!hit) {
       // Отказ среды, а не молчание агента: ветка прошлого хода слита, и новый
       // прогон в ней невозможен. Напоминания и пауза «нет маркера» здесь
-      // бессмысленны — сначала Continue и одна повторная выдача (27.10, NAR-4.9).
+      // бессмысленны — сначала Continue и одна повторная выдача (27.10, CASEA-4.9).
       const lastReply = messagesAfter(expect.watermark || "").at(-1);
       if (
         lastReply &&
@@ -12411,7 +12411,7 @@
     // заведомо неполный/невалидный результат другому адресату.
     // Журнал собирается из всего хода: ответ мог прийти частями — отчёт первым
     // сообщением, маркер отдельным после напоминания. Маркер без отчёта в журнал
-    // не пишем вовсе: именно такая запись и обманула Координатора на NAR-1.8.
+    // не пишем вовсе: именно такая запись и обманула Координатора на CASEA-1.8.
     const answer = runAnswer(expect, hit);
     if (answer.body < C.minAnswerChars) {
       log(`В ответе ${role.name} только маркер, отчёта нет — в журнал не пишу.`, true);
@@ -12437,7 +12437,7 @@
     const marker = `<!-- CF_DISPATCH ${result.dispatch_id}:${result.run_id} -->`;
     const partsNote = answer.parts > 1 ? `_Ответ собран из ${answer.parts} сообщений хода._\n\n` : "";
     // Ссылку на журнал мог переписать агент: пишем в журнал выдачи, а не в то,
-    // что окажется в поле (NAR-2.13, D-071).
+    // что окажется в поле (CASEA-2.13, D-071).
     const { wrote, logId } = await appendToJournal(
       result.dispatch_id,
       result.run_id,
@@ -12668,7 +12668,7 @@
    * считает, что работа идёт, и выдаёт вместо неё следующую карточку — а эта
    * висит до 45 минут и потом всё равно возвращается.
    *
-   * 28.10 так и вышло: ↺ снял ожидание, NAR-5.3 осталась Running, и новый ход
+   * 28.10 так и вышло: ↺ снял ожидание, CASEA-5.3 осталась Running, и новый ход
    * ушёл Architect'у. Теперь такие карточки возвращаются в Ready сразу — до
    * того, как Координатор увидит очередь.
    *
@@ -13073,7 +13073,7 @@
         // Строка «Ждёт» без ответа — вопрос, который ещё не передавали
         // приёмке. Проверка идёт при каждой загрузке страницы, поэтому вопрос,
         // созданный прошлой версией (или агентом без очереди), тоже доходит:
-        // 28.10 строка про NAR-5 висела с 15:41 и до приёмки не дошла.
+        // 28.10 строка про CASEA-5 висела с 15:41 и до приёмки не дошла.
         const adopted = mine.filter(
           (row) =>
             !closed.has(row.id) &&
@@ -13230,8 +13230,8 @@
   /**
    * Полный текст варианта по умолчанию. Предела в 200 знаков больше нет.
    *
-   * 08.11, 20:01 боевой SYN-3 встал на нём: агент дал полный и безобидный
-   * вариант — «Одним PR Warden'а: ТЗ SYN-3 1.5 (ярлык, строка V-2 1/60/120,
+   * 08.11, 20:01 боевой CASEB-3 встал на нём: агент дал полный и безобидный
+   * вариант — «Одним PR Warden'а: ТЗ CASEB-3 1.5 (ярлык, строка V-2 1/60/120,
    * сноска о неисполнимости 0), очередь 1.7, D-070 и страница миссии…» — а
    * транспорт отказался его записывать: «Вопрос или вариант по умолчанию
    * слишком длинный: ничего не усекал и приёмке не передал».
@@ -13316,7 +13316,7 @@
    * `"question":null` — обычный способ сказать «вопроса нет»: поле пишут явно,
    * чтобы маркер был полным. Пока проверка была на `!== undefined`, такой
    * маркер давал громкую ошибку «вопрос без варианта по умолчанию» при том,
-   * что вопроса не было (25.10, NAR-2.15: `"question":null`, ошибка Мастеру).
+   * что вопроса не было (25.10, CASEA-2.15: `"question":null`, ошибка Мастеру).
    *
    *   none  — вопроса нет: поля нет, `null`, пустая строка, объект без текста;
    *   asked — вопрос с текстом и вариантом по умолчанию;
@@ -13959,7 +13959,7 @@
    * 25.10 Мастер заметил: уведомления приходят о том, на что он уже ответил.
    * Причин было две — повторная запись того же вопроса (старый ход Координатора
    * применён второй раз) и другой текст про уже решённое решение («как решить
-   * открытый ADR NAR-2.14.md?» при готовом ответе «принять F3–F5»). Поэтому
+   * открытый ADR CASEA-2.14.md?» при готовом ответе «принять F3–F5»). Поэтому
    * сравниваются и нормализованный текст, и ссылки на ADR.
    */
   async function sameQuestionRow(text, { automatic = false, material = "" } = {}) {
@@ -14023,7 +14023,7 @@
           const where = same.why === "adr" ? `По решению «${String(same.ref).toUpperCase()}»` : "Такой вопрос уже задан:";
           // Строка «Ждёт» с пустым «Ответом» — это вопрос, который не дошёл до
           // приёмки. Раньше он считался «Мастер уже ответил» и второй раз не
-          // записывался: 28.10 строка про NAR-5 висела с 15:41 до вечера, а скрипт
+          // записывался: 28.10 строка про CASEA-5 висела с 15:41 до вечера, а скрипт
           // писал, что отвечать нечего. Теперь такая строка передаётся приёмке.
           if (status === Q.wait && !answer) {
             // Страница могла быть подготовлена человеком или другим профилем.
@@ -14319,14 +14319,14 @@
   const ADR_PROPOSED = "proposed";
 
   /**
-   * Имена решений в тексте: номер карточки (`NAR-5.13`) и имя файла
+   * Имена решений в тексте: номер карточки (`CASEA-5.13`) и имя файла
    * (`0016-capability-registry-boundary`).
    *
    * Файл обязателен с 1.4.82. Прежде ключом был только номер вида `NAR-x.y`, и
    * предложение с описательным именем (`0016-…md`) не могло связаться со своим
    * ответом: оно навсегда оставалось в счётчике «ждёт Мастера», хотя решение
-   * уже было принято. Обратное тоже ломалось: любое упоминание «NAR-5» в
-   * ответе прятало все файлы миссии NAR-5, в том числе нерешённые.
+   * уже было принято. Обратное тоже ломалось: любое упоминание «CASEA-5» в
+   * ответе прятало все файлы миссии CASEA-5, в том числе нерешённые.
    */
   function adrKeysOf(text) {
     const out = new Set();
@@ -14352,7 +14352,7 @@
    * ADR остаётся `proposed`, пока решение не записано в репозиторий. Но само
    * решение может быть уже принято — ответ лежит в базе. Держать такой ADR в
    * счётчике «ждёт Мастера» значит звать человека туда, где его больше нет:
-   * осталась работа агентов. 25.10 именно так висели NAR-2.14 и NAR-2.15.
+   * осталась работа агентов. 25.10 именно так висели CASEA-2.14 и CASEA-2.15.
    */
   async function decidedAdrNames() {
     const names = new Set();
@@ -14932,7 +14932,7 @@
   /**
    * Что уже лежит в Ready — с ролью и номером.
    *
-   * 24.10 карточка NAR-1.10 вернулась в Ready после неудачной выдачи, а в
+   * 24.10 карточка CASEA-1.10 вернулась в Ready после неудачной выдачи, а в
    * строке «Очередь» видно только число: Координатор не знал, чья она, и мог
    * назвать в next не ту роль — или создать дубликат «на всякий случай».
    */
@@ -15080,13 +15080,13 @@
   /**
    * Rework — статус, а не очередь.
    *
-   * 25.10 Координатор поставил NAR-2.5 в Rework за форму ответа: код уже был в
+   * 25.10 Координатор поставил CASEA-2.5 в Rework за форму ответа: код уже был в
    * main, а в отчёте не хватало цитат. Из Rework карточка сама никуда не
    * уходит — транспорт выдаёт только Ready, — а в промпте стояло «карточку с
    * ответом обратно в Ready не возвращай». Два правила вместе запирали карточку
    * навсегда. Теперь причина и путь назад названы прямо: вернуть в Ready можно,
    * а следы прошлого ответа снимает транспорт на выдаче (1.4.76 — без опоры на
-   * память о Rework: 27.10 NAR-4.9 прошла Rework → Ready за один ход, и память
+   * память о Rework: 27.10 CASEA-4.9 прошла Rework → Ready за один ход, и память
    * о нём не успела появиться).
    */
   const reworkCause = (card) => {
@@ -15256,10 +15256,10 @@
 
       // Решение по устаревшей очереди не применяется.
       //
-      // 25.10, 21:36–21:42. Карточка NAR-2.16 висела в Running после съеденной
+      // 25.10, 21:36–21:42. Карточка CASEA-2.16 висела в Running после съеденной
       // отправки; Мастер вернул её в Ready. Скрипт в это время дочитывал ответ
       // Координатора, полученный ДО правки, — в нём стояло next: "Tools", и
-      // ушла NAR-2.17, хотя в Ready уже лежала NAR-2.16 с меньшим Sequence.
+      // ушла CASEA-2.17, хотя в Ready уже лежала CASEA-2.16 с меньшим Sequence.
       // Транспорт не выбирает за Координатора, но и применять его решение к
       // другой очереди не имеет права: план посчитан по снимку, снимок устарел.
       if (expect.kind === "plan" && typeof expect.readyKey === "string") {
@@ -16160,7 +16160,7 @@
    *
    * Раньше третья перевыдача одной карточки сразу ставила паузу: цикл замирал,
    * звонил телефон, и человек шёл разбираться, почему Координатор и исполнитель
-   * гоняют одну работу. 07.11 на SYN-2 · S-4 так вышло трижды: исполнитель
+   * гоняют одну работу. 07.11 на CASEB-2 · S-4 так вышло трижды: исполнитель
    * честно отдал draft-PR с описанием блокера по Scope, транспорт увидел «нет
    * заявки о мерже» и вернул карточку в Rework — правила сработали, а разбирать
    * петлю было некому, кроме Мастера.
@@ -17767,7 +17767,7 @@
 
     // Карточка перечитывается прямо перед выдачей: между выбором из списка и
     // отправкой её мог тронуть Координатор, прошлый тик или человек. 23.10
-    // NAR-1.7 выдали второй раз с новым run — она была в списке Ready уже
+    // CASEA-1.7 выдали второй раз с новым run — она была в списке Ready уже
     // отвеченной, и агент честно повторил ту же работу.
     const fresh = await notion("GET", `pages/${card.id}`);
     const preflight = await taskPreflight(fresh, mission, confirmed[0].zone || "");
@@ -17808,7 +17808,7 @@
     // сам: следы прошлого ответа («Submitted At», «PR», «Run ID») ставит выдача,
     // и только она имеет право их снять. Координатор их не трогает — коннектор
     // отвечает validation_error, а ждать, пока Rework попадёт в опрос, нельзя:
-    // 27.10 на NAR-4.9 он длился меньше одного тика и выдача отказала.
+    // 27.10 на CASEA-4.9 он длился меньше одного тика и выдача отказала.
     const clearing = redispatchClearProps(fresh);
     if (clearing) {
       const why = redispatchWhy(fresh);
@@ -18024,7 +18024,7 @@
 
   const PILOT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4 часа до вызова Мастера
   const PILOT_FORBIDDEN = [
-    /CF_[A-Z]+_RESULT/, /\bCF_[A-Z_]+\b/, /notion/i, /cortex/i,
+    /CF_[A-Z]+_RESULT/, /\bCF_[A-Z_]+\b/, /notion/i, /aux-workspace/i,
     /РЕГЛАМЕНТ/i, /WARDEN/i, /DECISIONS/, /notion\.so/i,
   ];
   const pilotBriefClean = (brief) => {
@@ -18055,7 +18055,7 @@
     try { const u = new URL(clean); host = u.host; path = u.pathname; } catch { return { ok: false, error: "pilot URL не разбирается" }; }
     if (!/arena|e2b|app/i.test(host)) return { ok: false, error: "pilot URL не похож на страницу Arena-агента" };
     if (!/^[0-9a-f]{40}$/i.test(String(startSha || ""))) return { ok: false, error: "startSha должен быть 40-hex SHA коммита WOTR target" };
-    if (!pilotBriefClean(brief)) return { ok: false, error: "бриф содержит внутренние токены (CF_/Notion/cortex/REGULATION/WARDEN/DECISIONS) или пуст" };
+    if (!pilotBriefClean(brief)) return { ok: false, error: "бриф содержит внутренние токены (CF_/Notion/aux-workspace/REGULATION/WARDEN/DECISIONS) или пуст" };
     const variant = pilotVariant(brief);
     if (!["A", "B", "C"].includes(variant)) return { ok: false, error: "бриф должен быть помечен вариантом A, B или C" };
     if (!String(isolation || "").trim()) return { ok: false, error: "нужно подтверждение изоляции от Мастера (isolation)" };
@@ -18402,7 +18402,7 @@
     "provision_old_archived", "provision_old_archive_unverified", "provision_job_done", "provision_paused",
     "provision_conflict", "provision_noop"];
   const PROVISION_BOOTSTRAP_FORBIDDEN = [
-    /CF_[A-Z_]+/i, /notion/i, /cortex/i, /REGULATION/, /WARDEN/i, /DECISIONS/,
+    /CF_[A-Z_]+/i, /notion/i, /aux-workspace/i, /REGULATION/, /WARDEN/i, /DECISIONS/,
     /ntn_[A-Za-z0-9]/, /secret_[A-Za-z0-9]/, /ghp_[A-Za-z0-9]/, /github_pat_[A-Za-z0-9]/,
     /Bearer\s+[A-Za-z0-9]/i, /sk-[A-Za-z0-9]{12}/, /app\.notion|notion\.so|notion\.site/i,
   ];
@@ -21504,7 +21504,7 @@ function reviewPullRequest({ files, pr, zone } = {}) {
         ghostAfterUpdate = null;
         await releaseUndelivered(gone, "обновление скрипта: задание не уходило");
       }
-      // Эфемерные пилоты SYN-P1 читаются до командного транспорта и живут в
+      // Эфемерные пилоты CASEB-P1 читаются до командного транспорта и живут в
       // отдельном namespace; на странице команды consumePilot возвращает false.
       if (await consumePilot()) return;
       if (await consumePending(fromToggle)) return;
@@ -21513,7 +21513,7 @@ function reviewPullRequest({ files, pr, zone } = {}) {
       // Ожидание без отметки отправки и без очереди — след упавшей попытки:
       // сообщения в чате нет, карточке в Running делать нечего. Убираем это
       // на любой странице, иначе Координатор видит живой ход там, где работы
-      // не начиналось (24.10, NAR-1.12).
+      // не начиналось (24.10, CASEA-1.12).
       if (await holdLegacyUnsentDispatch()) return;
       const ghost = await dropGhostHandoff("задание не дошло: отметки отправки нет");
       if (ghost) {
@@ -21746,7 +21746,7 @@ function reviewPullRequest({ files, pr, zone } = {}) {
 
       // Опрос вместо ответа — не ответ. Разбираем его раньше любых
       // напоминаний: иначе «маркера нет» превращается в напоминание агенту,
-      // который просто ждёт ответа на свой вопрос (24.10, NAR-1.12).
+      // который просто ждёт ответа на свой вопрос (24.10, CASEA-1.12).
       const poll = await answerPolls(me, expect);
       if (poll === "answered") {
         log(`Жду, что ${me.name} напишет после ответа на вопрос.`);

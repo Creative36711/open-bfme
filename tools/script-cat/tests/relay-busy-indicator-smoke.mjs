@@ -5,7 +5,7 @@
 // сообщением, а дальше 12 часов стояло:
 //
 //   13:31:03 Агент ещё отвечает: задание из очереди подождёт и уйдёт, как только
-//            он закончит (плашка «Карточка «SYN-3 · B5 · Анализатор литералов
+//            он закончит (плашка «Карточка «CASEB-3 · B5 · Анализатор литералов
 //            fail-closed» · d»).
 //   13:32:10 Автоцикл выключен.
 //
@@ -40,7 +40,7 @@ const cut = (from, to) => {
   const { shortLabel, fullLabel } = new Function(`${helpers}; return { shortLabel, fullLabel };`)();
   const el = {
     getAttribute: () => null,
-    textContent: 'Карточка «SYN-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49',
+    textContent: 'Карточка «CASEB-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49',
   };
   assert.ok(fullLabel(el).length > 80, 'полный текст длиннее порога — транскрипт виден как транскрипт');
   assert.equal(shortLabel(el).length, 60, 'обрезанная подпись остаётся 60 знаками (журнал не раздувается)');
@@ -95,7 +95,7 @@ const makeBusy = ({ marks = [], stop = null, plaque = null } = {}) => {
 // Ровно та строка из журнала Мастера: своя реплика с заданием в aria-live.
 {
   const busyReason = makeBusy({
-    marks: [el('Карточка «SYN-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49 · run 11774abe-3ef2-41e9-b42d-32d693639385', {
+    marks: [el('Карточка «CASEB-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49 · run 11774abe-3ef2-41e9-b42d-32d693639385', {
       attrs: { 'aria-live': 'polite' },
       inside: '[data-user-message-layout="true"]',
     })],
@@ -106,7 +106,7 @@ const makeBusy = ({ marks = [], stop = null, plaque = null } = {}) => {
 // Даже без разметки сообщения: длинный текст — транскрипт, а не индикатор.
 {
   const busyReason = makeBusy({
-    marks: [el('Карточка «SYN-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49')],
+    marks: [el('Карточка «CASEB-3 · B5 · Анализатор литералов fail-closed» · dispatch 4126f0cf-5705-813f-9b45-c60f2fd06e49')],
   });
   assert.equal(busyReason(), null, 'длинный текст не считается индикатором (проверка по полному тексту)');
 }
@@ -170,7 +170,7 @@ assert.equal(makeBusy({ marks: [el('Thought for 12s')] }).busyReason?.() ?? null
     const store = new Map();
     const logs = [];
     const pauses = [];
-    const pending = { roleId: 'agent-1', roleName: 'Locale Auditor', title: 'SYN-3 · B5', text: 'x'.repeat(4000), at: 1, busySince };
+    const pending = { roleId: 'agent-1', roleName: 'Locale Auditor', title: 'CASEB-3 · B5', text: 'x'.repeat(4000), at: 1, busySince };
     const code = `return async function(pending) {
       const C = { pendingBusyMaxMs: 30 * 60 * 1000 };
       ${block}

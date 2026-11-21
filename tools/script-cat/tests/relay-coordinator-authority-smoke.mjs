@@ -1,12 +1,12 @@
 // Проба 1.4.40: Координатор сам распоряжается очередью — включая черновики.
 //
-// Случай Мастера (2026-10-24). На приёмке NAR-1.8 Координатор написал:
+// Случай Мастера (2026-10-24). На приёмке CASEA-1.8 Координатор написал:
 // «старый Draft 1.9 архивирован — перевести Draft в Ready я не вправе», и
 // создал такую же карточку заново. Причина была не в правах, а в двух вещах:
 //   • в промпте стояло «Ready, Running и Submitted ставит движок» — читается
 //     как запрет выдавать существующий черновик;
 //   • в строке «Очередь: …» черновиков не было вовсе, то есть Координатор не
-//     видел собственный задел (NAR-1.10 лежал Draft и в очереди не появлялся).
+//     видел собственный задел (CASEA-1.10 лежал Draft и в очереди не появлялся).
 //
 // Здесь проверяется: права выданы, черновики видны списком, счётчик Draft есть,
 // а подсказки на промах говорят «выдай черновик», а не «создайте карточку».
@@ -23,18 +23,18 @@ assert.match(src, new RegExp(`@version\\s+${V.replace(/\./g, '\\.')}`), `вер�
 
 // ── 1. Промпт: очередь — зона Координатора (декларативный компилятор) ──────
 const { PromptCompiler, planRequest } = await import('./helpers/prompt-env.mjs');
-const draftLineText = 'Черновики: NAR-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
-const readyLineText = 'Готовы к выдаче: NAR-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
+const draftLineText = 'Черновики: CASEA-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
+const readyLineText = 'Готовы к выдаче: CASEA-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
 const prompt = PromptCompiler.compile(planRequest({
   queue: { summary: '1 Submitted, 0 Running, 1 Ready, 0 Rework, 2 Draft', draft: draftLineText, ready: readyLineText },
 })).text;
 
 assert.match(prompt, /1 Submitted, 0 Running, 1 Ready, 0 Rework, 2 Draft/, 'черновики есть в счётчике очереди');
-assert.match(prompt, /NAR-1\.10 · Регрессия и отчёт/, 'черновики перечислены списком');
+assert.match(prompt, /CASEA-1\.10 · Регрессия и отчёт/, 'черновики перечислены списком');
 assert.match(prompt, /Draft→Ready/, 'выдача черновика — право Координатора');
 assert.match(prompt, /Running\/Submitted — движок/, 'граница движка названа точно');
 assert.match(prompt, /Accepted\/Rework\/Ready — ты/, 'Ready — не движок, а Координатор');
-assert.match(prompt, /Готовы к выдаче: NAR-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/, 'Ready перечислен с ролью');
+assert.match(prompt, /Готовы к выдаче: CASEA-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/, 'Ready перечислен с ролью');
 assert.match(prompt, /next — имя роли выдаваемой карточки или done/, 'адресат берётся из карточки');
 // D-092: процессные поля неадминской строки Координатор правит решением
 // приёмки, а права (Статус, Agent URL, Agent Admin, удаление) остаются Мастеру.
@@ -75,17 +75,17 @@ assert.match(draftLine([]), /Черновиков нет/, 'пустой зад�
 assert.match(draftLine([]), /предложи сам/, 'и это не приглашение ждать Мастера');
 
 const two = draftLine(
-  [card('NAR-1.10 · Регрессия и отчёт', 'Build/Release', 100), card('NAR-1.9 · Реестр caps', 'Kernel', 90)],
-  ['Kernel', 'Build/Release'],
+  [card('CASEA-1.10 · Регрессия и отчёт', 'Build/Release', 100), card('CASEA-1.9 · Реестр caps', 'FixtureExecutor', 90)],
+  ['FixtureExecutor', 'Build/Release'],
 );
-assert.match(two, /NAR-1\.9 · Реестр caps \(Kernel, Sequence 90\)/, 'порядок по Sequence, роль и номер видны');
-assert.match(two, /NAR-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/, 'второй черновик тоже в списке');
+assert.match(two, /CASEA-1\.9 · Реестр caps \(FixtureExecutor, Sequence 90\)/, 'порядок по Sequence, роль и номер видны');
+assert.match(two, /CASEA-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/, 'второй черновик тоже в списке');
 assert.ok(two.indexOf('Sequence 90') < two.indexOf('Sequence 100'), 'сначала меньший Sequence');
 
 const three = draftLine([
-  card('A · один', 'Kernel', 10),
-  card('B · два', 'Kernel', 20),
-  card('C · три', 'Kernel', 30),
+  card('A · один', 'FixtureExecutor', 10),
+  card('B · два', 'FixtureExecutor', 20),
+  card('C · три', 'FixtureExecutor', 30),
 ]);
 assert.match(three, /и ещё 1/, 'лишнее сверх лимита свёрнуто');
 assert.ok(!/C · три/.test(three), 'свёрнутые не перечисляются');
@@ -96,7 +96,7 @@ assert.match(draftLine([card('D · четыре', '', 40)]), /роль не за
 // Строки базы «Роли» целиком: видно, чего именно не хватает.
 const row = (name, status, url) => ({ name, status, url });
 const DIRECTORY = [
-  row('Kernel', 'Активна', 'https://arena.ai/agent/kernel'),
+  row('FixtureExecutor', 'Активна', 'https://arena.ai/agent/fixtureExecutor'),
   row('Build/Release', 'Ждёт', 'https://arena.ai/agent/01a16d5c-2b46-7efe-a7e7-06229a0e6ad1'),
   row('Studio', 'Активна', ''),
 ];
@@ -122,7 +122,7 @@ assert.match(
 
 // Регистр не мешает сверке.
 assert.ok(
-  !/Статус|нет Agent URL|нет в «Ролях»/.test(draftLine([card('H · восемь', 'kernel', 80)], DIRECTORY)),
+  !/Статус|нет Agent URL|нет в «Ролях»/.test(draftLine([card('H · восемь', 'fixtureExecutor', 80)], DIRECTORY)),
   'регистр роли не мешает сверке',
 );
 
@@ -151,17 +151,17 @@ const readyLine = new Function(
 
 assert.match(readyLine([]), /Ready пуст/, 'пустой Ready назван словами');
 assert.match(
-  readyLine([card('NAR-1.10 · Регрессия и отчёт', 'Build/Release', 100)]),
-  /NAR-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/,
+  readyLine([card('CASEA-1.10 · Регрессия и отчёт', 'Build/Release', 100)]),
+  /CASEA-1\.10 · Регрессия и отчёт \(Build\/Release, Sequence 100\)/,
   'у готовой карточки видно, кому её выдавать',
 );
 assert.match(readyLine([card('Без роли', '', 10)]), /роль не задана/, 'пустая роль названа');
 assert.match(readyLine([card('K-6', 'Executor Core', 60, 'fail')]), /Check=fail: результат не принят, сначала нужен Rework\/разбор Warden/, 'Coordinator явно видит fail и нужное состояние');
 {
   const many = readyLine([
-    card('A · один', 'Kernel', 10),
-    card('B · два', 'Kernel', 20),
-    card('C · три', 'Kernel', 30),
+    card('A · один', 'FixtureExecutor', 10),
+    card('B · два', 'FixtureExecutor', 20),
+    card('C · три', 'FixtureExecutor', 30),
   ]);
   assert.match(many, /и ещё 1/, 'лишнее сверх readyLineMax свёрнуто');
   assert.ok(!/C · три/.test(many), 'свёрнутые не перечисляются');
@@ -214,27 +214,27 @@ queueOf({ id: 'm1' }).then((queue) => {
     `${src.slice(routeFrom, routeTo)}; return decisionRoute;`,
   )((x) => String(x || '').replace(/-/g, '').toLowerCase());
 
-  const roles = [{ name: 'Coordinator', fn: 'Coordinator' }, { name: 'Kernel', fn: 'Executor' }];
+  const roles = [{ name: 'Coordinator', fn: 'Coordinator' }, { name: 'FixtureExecutor', fn: 'Executor' }];
 
-  const ask = decisionRoute('Kernel', { roles, readyRoles: [] });
+  const ask = decisionRoute('FixtureExecutor', { roles, readyRoles: [] });
   assert.equal(ask.kind, 'ask', 'нет карточки — просим, а не падаем');
   assert.match(ask.note, /переведи в Ready подходящий Draft/, 'подсказка предлагает выдать черновик');
 
-  const again = decisionRoute('Kernel', { roles, readyRoles: [], misses: 1 });
+  const again = decisionRoute('FixtureExecutor', { roles, readyRoles: [], misses: 1 });
   assert.equal(again.kind, 'pause', 'второй промах — пауза');
   assert.match(again.reason, /Нажмите «Продолжить»/, 'выход — продолжить, а не «создайте карточку»');
   assert.match(again.reason, /создать карточку или выдать черновик/, 'сказано, что он умеет');
 
   const directory = [
     { name: 'Coordinator', status: 'Активна', url: 'https://arena.ai/agent/c' },
-    { name: 'Kernel', status: 'Активна', url: 'https://arena.ai/agent/k' },
+    { name: 'FixtureExecutor', status: 'Активна', url: 'https://arena.ai/agent/k' },
     { name: 'Build/Release', status: 'Ждёт', url: 'https://arena.ai/agent/b' },
   ];
   const idle = decisionRoute('Build/Release', { roles, readyRoles: ['Build/Release'], directory });
   assert.equal(idle.kind, 'ask', 'карточка есть, роль не активна — объясняем, а не молчим');
   assert.match(idle.note, /карточка в Ready есть, но выдать её некому — Статус «Ждёт», Agent URL заполнен/, 'причина названа точно');
   assert.match(idle.note, /Статус роли и Agent URL ставит Мастер/, 'сказано, чья это зона');
-  assert.match(idle.note, /Активные роли: Coordinator, Kernel/, 'перечислены те, кому выдать можно');
+  assert.match(idle.note, /Активные роли: Coordinator, FixtureExecutor/, 'перечислены те, кому выдать можно');
   assert.match(idle.note, /правка черновика — твоё право/, 'Координатор может назначить другую роль');
 
   const idle2 = decisionRoute('Build/Release', { roles, readyRoles: ['Build/Release'], directory, misses: 1 });

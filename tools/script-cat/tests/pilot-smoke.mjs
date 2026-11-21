@@ -1,4 +1,4 @@
-// Эфемерные пилоты SYN-P1: регистрация только по URL Мастера, изоляция брифа,
+// Эфемерные пилоты CASEB-P1: регистрация только по URL Мастера, изоляция брифа,
 // идемпотентность, отдельный namespace и завершение по фактам, а не по маркеру.
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
@@ -50,8 +50,8 @@ assert.ok(again.ok && again.reused && again.id === first.id, 'повтор по 
 assert.equal(api.listPilots().length, 1);
 
 // 3. Изоляция от боевой роли: тот же URL, что у роли команды, отклоняется.
-store.set('cfn-roles-cache', [{ url: 'https://arena.ai/agent/team-kernel' }]);
-assert.equal(api.registerPilotAgent({ ...good, url: 'https://arena.ai/agent/team-kernel' }).ok, false, 'боевой URL запрещён');
+store.set('cfn-roles-cache', [{ url: 'https://arena.ai/agent/team-fixtureExecutor' }]);
+assert.equal(api.registerPilotAgent({ ...good, url: 'https://arena.ai/agent/team-fixtureExecutor' }).ok, false, 'боевой URL запрещён');
 
 // 4. Отправка пишет в отдельный namespace, не в K.pending/K.expect.
 const sent = api.sendToEphemeralAgent(first.id);

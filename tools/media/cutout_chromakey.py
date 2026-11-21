@@ -2,8 +2,8 @@
 """
 cutout-chromakey.py
 
-Источник: Creative36711/synapse, tools/media/cutout-chromakey.py → narthex c842670.
-Перенесено в Vault без изменений логики. Отличия копии synapse:
+Источник: Creative36711/synapse, tools/media/cutout-chromakey.py at pinned commit c842670.
+Перенесено в WOTR без изменений логики. Отличия локальной копии:
   * --mode flood в Pillow-ветке реально вырезает внешний фон (в оригинале не делал ничего);
   * добавлен --no-despill (в оригинале despill нельзя было выключить).
 

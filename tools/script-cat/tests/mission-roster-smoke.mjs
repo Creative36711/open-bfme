@@ -42,7 +42,7 @@ const provisionApi = new Function(
 )(norm, () => 'id', () => 'now', () => null, () => {}, {}, {}, () => {});
 
 const card = (seq, who) => ({ id: `card-${seq}`, properties: {
-  'Запрос': { title: [{ plain_text: `SYN-3 · B${seq}` }] },
+  'Запрос': { title: [{ plain_text: `CASEB-3 · B${seq}` }] },
   'Кому': who ? { select: { name: who } } : {},
   'Sequence': { number: seq },
 } });
@@ -194,10 +194,10 @@ const ACTIVE = [
 
 // ── 8. Админ-роли и роли вне allowlist по-прежнему отвергаются ────────────
 {
-  const cfg = { agentProvisionEnabled: true, agentProvisionRepoAllowlist: ['creative-textile/vault-core'], agentProvisionMaxJobs: 3 };
+  const cfg = { agentProvisionEnabled: true, agentProvisionRepoAllowlist: ['example-org/fixture-source-core'], agentProvisionMaxJobs: 3 };
   const row = (over = {}) => ({
     pageId: 'a709d6df-4698-4a98-b111-90d22de42894', id: 'agent-1', name: 'Build/Release', fn: 'Executor',
-    status: 'Ждёт', url: '', repo: 'creative-textile/vault-core', agentAdmin: false, agentState: 'запрошен', ...over,
+    status: 'Ждёт', url: '', repo: 'example-org/fixture-source-core', agentAdmin: false, agentState: 'запрошен', ...over,
   });
   assert.equal(provisionApi.provisionCandidateFromRow(row(), cfg).ok, true, 'обычная строка — кандидат');
   assert.match(provisionApi.provisionCandidateFromRow(row({ agentAdmin: true }), cfg).reason,

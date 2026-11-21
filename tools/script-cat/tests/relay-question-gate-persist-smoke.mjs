@@ -1,7 +1,7 @@
 // Проба 1.14.9 (D-081): вопрос Координатора не дошёл до Warden.
 //
 // Случай Мастера (09.11, журнал 15:34–15:49):
-//   15:34:53 «Новая обратная связь: «ADR: опубликовать ТЗ SYN-3 1.6 …» —
+//   15:34:53 «Новая обратная связь: «ADR: опубликовать ТЗ CASEB-3 1.6 …» —
 //            по умолчанию: Вариант 1 … Отвечает приёмка»;
 //   15:35:18 автоцикл включён;
 //   15:39:10 маркер Координатора: дальше «Locale Auditor»;
@@ -53,14 +53,14 @@ const rt = (p) =>
 
   // Вопрос Координатора из журнала: остановка + ссылка на ADR.
   const asked = api.parseQuestion({
-    text: 'ADR: опубликовать ТЗ SYN-3 1.6 (V-2, три уточнения), очередь 1.8 и решение D-081',
-    default: 'Вариант 1. Warden публикует ТЗ SYN-3 1.6',
+    text: 'ADR: опубликовать ТЗ CASEB-3 1.6 (V-2, три уточнения), очередь 1.8 и решение D-081',
+    default: 'Вариант 1. Warden публикует ТЗ CASEB-3 1.6',
     blocks: 'B0-r1 (Sequence 2) нельзя выставить в Ready',
     gate: true,
   });
   assert.equal(asked.gate, true, 'вопрос разобран как остановка');
 
-  const props = api.questionProps(asked, { roleName: 'Coordinator', mission: 'SYN-3' });
+  const props = api.questionProps(asked, { roleName: 'Coordinator', mission: 'CASEB-3' });
   const blocksText = rt(props['Что блокирует']);
   assert.match(blocksText, /ждёт ответа/, 'отметка остановки записана в строку');
   assert.match(blocksText, /B0-r1/, 'и не съела «что блокирует» — оно осталось читаемым');

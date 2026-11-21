@@ -57,10 +57,10 @@ const RUN = 'a437578a-e5d6-4a26-b72d-41d2de180d6c';   // выдача и кар�
 const TYPO = 'a437578a-e5db-4a26-b72d-41d2de180d6c';  // ровно то, что пришло
 const OTHER_RUN = '09238d7a-4791-4ff0-ba7b-9bc29e493061'; // другая машина: другой префикс
 const AGENT = '01a19db7-c1d2-7898-bf38-ff9eff301088';
-const PR_URL = 'https://github.com/creative-textile/vault-core/pull/26';
+const PR_URL = 'https://github.com/example-org/fixture-source-core/pull/26';
 const agentResult = (extra = {}) => `CF_AGENT_RESULT ${JSON.stringify({
   dispatch_id: CARD, run_id: RUN, status: 'submitted', check: 0,
-  report: 'Arena/vault/artifacts/SYN-2-S-4-a437578a-report.md', pr: PR_URL, merged: false, ...extra })}`;
+  report: 'Arena/fixture-workspace/artifacts/CASEB-2-S-4-a437578a-report.md', pr: PR_URL, merged: false, ...extra })}`;
 
 const TURN = '09999999-aaaa-4bbb-8ccc-eeeeeeeeeeee';
 const FIXED_NOW = Date.parse('2026-11-07T14:04:22.000Z');
@@ -68,7 +68,7 @@ class TestDate extends Date {
   constructor(...args) { super(...(args.length ? args : [FIXED_NOW])); }
   static now() { return FIXED_NOW; }
 }
-const NAME = 'SYN-2 · S-4 · Камера и локали';
+const NAME = 'CASEB-2 · S-4 · Камера и локали';
 const reviewer = { id: AGENT, name: 'Warden', fn: 'Reviewer', url: '/agent/warden' };
 const coordinator = { id: 'coord', name: 'Coordinator', fn: 'Coordinator' };
 const rich = (s) => ({ rich_text: s ? [{ plain_text: s }] : [] });
@@ -77,7 +77,7 @@ const state = (page) => page?.properties?.['Dispatch State']?.select?.name || ''
 const marker = (name, data) => `${name} ${JSON.stringify(data)}`;
 const expectDispatch = (extra = {}) => ({ kind: 'dispatch', ref: CARD, runId: RUN, missionId: MID, roleId: AGENT, watermark: 'before', sentAt: 1, ...extra });
 const clone = (v) => structuredClone(v);
-const longBody = 'Проверен оракул N-5: восемь локалей, отпечатки кадров 0/60/120 совпадают побайтово, регресс SYN-1 зелёный. '.repeat(4);
+const longBody = 'Проверен оракул N-5: восемь локалей, отпечатки кадров 0/60/120 совпадают побайтово, регресс CASEB-1 зелёный. '.repeat(4);
 const message = (text, id = 'msg-1') => ({ id, raw: text, text });
 const worker = { id: AGENT, name: 'Executor Core', fn: 'Executor' };
 

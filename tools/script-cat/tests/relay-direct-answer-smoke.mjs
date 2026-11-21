@@ -64,7 +64,7 @@ const cut = (start, end) => {
   const make = new Function('richText', 'missionLabel', 'questionType', 'questionMaterial', 'Q',
     `${body}\nreturn questionProps;`);
   const RT = (t) => [{ type: 'text', text: { content: String(t) } }];
-  const props = make(RT, () => 'SYN-3 · миссия', () => 'вопрос', (u) => u, { wait: 'Ждёт' })(
+  const props = make(RT, () => 'CASEB-3 · миссия', () => 'вопрос', (u) => u, { wait: 'Ждёт' })(
     { text: 'Нужно решение по ТЗ', fallback: 'ждать', gate: true, need: 'Warden', options: [] },
     { roleName: 'Coordinator' },
   );
@@ -72,7 +72,7 @@ const cut = (start, end) => {
   assert.match(blocks, /ждёт ответа/, 'признак остановки на месте');
   assert.match(blocks, /нужен ответ «Warden»/, 'Мастер видит в строке, кого именно ждут');
   // Без gate адресат в строку не пишется: иначе «кому» спорит с «ходит ли ход».
-  const plain = make(RT, () => 'SYN-3 · миссия', () => 'вопрос', (u) => u, { wait: 'Ждёт' })(
+  const plain = make(RT, () => 'CASEB-3 · миссия', () => 'вопрос', (u) => u, { wait: 'Ждёт' })(
     { text: 'Мелочь', fallback: 'как решил', gate: false, need: 'Warden', options: [] }, {},
   );
   assert.equal(plain['Что блокирует'], undefined, 'у обычного вопроса пометки о адресате нет');
@@ -164,7 +164,7 @@ const cut = (start, end) => {
 
   // Совсем неизвестное имя — та же история: строка живёт, Мастер увидит.
   calls.log.length = 0;
-  const unknown = await build()(mission, { id: 'row-3', text: 'Нужно решение', need: 'Kernel' });
+  const unknown = await build()(mission, { id: 'row-3', text: 'Нужно решение', need: 'FixtureExecutor' });
   assert.equal(unknown, false, 'роль без строки в «Ролях» вопрос не получает');
   assert.match(calls.log.join(' '), /нет в «Ролях»/, 'сказано, чего именно не хватает');
 

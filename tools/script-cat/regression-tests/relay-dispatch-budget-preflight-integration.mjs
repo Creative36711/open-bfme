@@ -1,7 +1,7 @@
 // D-043: боевой отказ K-29 (2026-11-05, 22:24) — oversized-карточка без payload.
 //
-// Факт из Drive-журнала: оракул 4232 знака, Scope 1435, инварианты 1035,
-// намерение 626; вместе с правилами и заголовками dispatch дал 10381 > 7500.
+// Sanitized structural fixture: оракул 4252 знака, Scope 1457, инварианты 1035,
+// намерение 626; вместе с правилами и заголовками dispatch превышает hard limit.
 // Прежний порядок ставил Running и создавал ожидание ДО сборки промпта, затем
 // откатывал карточку и называл null «дублем». Диагностика показывала overhead
 // marker/git, а не контент, который действительно не поместился.
@@ -26,9 +26,9 @@ const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
 const text = (value) => ({ rich_text: [{ plain_text: value }] });
 const title = (value) => ({ title: [{ plain_text: value }] });
 
-// Фикстура — дословные поля боевой карточки, без payload и без сетевых вызовов.
-assert.equal(fixture.acceptance.length, 4236);
-assert.equal(fixture.scope.length, 1431);
+// Фикстура сохраняет структуру oversized-карточки с нейтральными IDs, без payload и сети.
+assert.equal(fixture.acceptance.length, 4252);
+assert.equal(fixture.scope.length, 1457);
 assert.equal(fixture.invariants.length, 1035);
 assert.equal(fixture.intent.length, 626);
 const card = {
@@ -62,7 +62,7 @@ const promptTarget = (ctx = {}) => ({ repo: ctx.repo || '', baseBranch: ctx.bran
 const executorPrompt = new Function(
   'rt', 'taskTitle', 'promptRole', 'promptTarget', 'PromptCompiler', 'C', 'pause', 'budgetBreakdownLine',
   `${cut('  const taskFacts =', '\n  /** Ссылка на журнал последнего ответа')}return executorPrompt;`,
-)(rt, taskTitle, promptRole, promptTarget, PromptCompiler, { driveFolder: 'vault', payloadInlineMax: 1500 }, (message, ctx) => pauses.push({ message, ...ctx }), budgetBreakdownLine);
+)(rt, taskTitle, promptRole, promptTarget, PromptCompiler, { driveFolder: 'fixture-workspace', payloadInlineMax: 1500 }, (message, ctx) => pauses.push({ message, ...ctx }), budgetBreakdownLine);
 
 // Total-отказ показывает размеры fact-блоков, а не нулевой overhead marker/git.
 let earlyReason = '';
@@ -74,7 +74,7 @@ assert.match(earlyReason, /budget_exceeded/);
 assert.match(earlyReason, /total \d+ > жёсткого лимита 8000/, 'названы фактический размер и жёсткий лимит (D-048)');
 // В диагностике chars блока включает подпись поля; длины самих полей закреплены выше.
 assert.match(earlyReason, /task\.acceptance 42\d\d/);
-assert.match(earlyReason, /task\.scope 1438/);
+assert.match(earlyReason, /task\.scope 1464/);
 assert.match(earlyReason, /task\.invariants 1047/);
 assert.match(earlyReason, /task\.intent 637/);
 assert.doesNotMatch(earlyReason, /marker\.agent|git\.executor/, 'нулевой overhead не выдаётся за причину total-отказа');

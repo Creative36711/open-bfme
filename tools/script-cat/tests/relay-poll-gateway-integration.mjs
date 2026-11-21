@@ -150,7 +150,7 @@ function harness({ server = backend(), storage = new Map(), clock = { ms: 100000
     (text, bad, opts) => logs.push({ text, bad, opts }), sleep,
     (text, n) => String(text).slice(0, n), () => new globalThis.Date(clock.ms).toISOString(),
     request, fetch, () => true, { gwUrl: 'url', gwKey: 'key' }, { pollPauseCount: 3 },
-    () => {}, { pathname: '/agent/kernel' },
+    () => {}, { pathname: '/agent/fixtureExecutor' },
     { KeyboardEvent: class KeyboardEvent { constructor(type) { this.type = type; } } },
     (node) => node.id.replace('chat-message-', ''), () => true,
     () => ({ visibility: 'visible', display: 'block' }), now,
@@ -184,7 +184,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const second = group('Второй вопрос', ['Alpha', 'Beta']);
   h.state.groups = [first, second];
   h.network.onRequest = () => assert.equal(positive(h).length, 0, 'успех не объявляется до подтверждения');
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'answered');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'answered');
   assert.equal(first.submit.clicks, 1);
   assert.equal(second.submit.clicks, 1);
   assert.equal(first.submit.sent, h.POLL_REPLY);
@@ -215,7 +215,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness({ network: { mode: 'offline' } });
   const q = group('Нужен выбор?', ['Да', 'Нет'], { onSubmit: () => { h.state.groups = []; } });
   h.state.groups = [q];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'answered');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'answered');
   assert.equal(q.submit.clicks, 1);
   assert.equal(positive(h).length, 0);
   assert(h.logs.some((row) => /не записался.*Снимок сохранён/.test(row.text)));
@@ -242,7 +242,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const option = `Вариант ${'длинный '.repeat(30)}КОНЕЦ ВАРИАНТА`;
   const q = group(question, [option], { noLabel: true });
   h.state.groups = [q];
-  await h.answerPolls({ name: 'Kernel' }, EXPECT);
+  await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT);
   assert.match(content(h), /КОНЕЦ ВОПРОСА/);
   assert.match(content(h), /КОНЕЦ ВАРИАНТА/);
 }
@@ -253,7 +253,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   h.server.files.get(LOG).parent = 'another-folder';
   const q = group('Запись разрешена?', ['Да', 'Нет']);
   h.state.groups = [q];
-  await h.answerPolls({ name: 'Kernel' }, EXPECT);
+  await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT);
   assert.equal(h.server.files.get(LOG).writes, 0);
   assert.equal(positive(h).length, 0);
   assert(h.logs.some((row) => /шлюз Drive отказал.*текстовые файлы/.test(row.text)));
@@ -270,7 +270,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness({ network: { mode: 'lost-ack' } });
   const q = group('Записано, но без подтверждения?', ['Да', 'Нет']);
   h.state.groups = [q];
-  await h.answerPolls({ name: 'Kernel' }, EXPECT);
+  await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT);
   assert.equal(h.server.files.get(LOG).writes, 1);
   assert.equal(h.get(QUEUE, []).length, 1);
   assert.equal(positive(h).length, 0, 'без подтверждения не называем запись успешной');
@@ -288,7 +288,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness();
   const q = group('Какой режим?', ['Красный', 'Синий']);
   h.state.groups = [q];
-  await h.answerPolls({ name: 'Kernel' }, { ref: EXPECT.ref, runId: EXPECT.runId });
+  await h.answerPolls({ name: 'FixtureExecutor' }, { ref: EXPECT.ref, runId: EXPECT.runId });
   assert.equal(h.requests.length, 0);
   assert.equal(positive(h).length, 0);
   assert(h.logs.some((row) => /не записан.*нет ID журнала/.test(row.text)));
@@ -301,8 +301,8 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness();
   const q = group('Вопрос предыдущей попытки', ['Да', 'Нет']);
   h.state.groups = [q];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, { ...EXPECT, seen: ['123456789'] }), null);
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, { ...EXPECT, watermark: '123456789' }), null);
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, { ...EXPECT, seen: ['123456789'] }), null);
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, { ...EXPECT, watermark: '123456789' }), null);
   assert.equal(q.submit.clicks, 0);
   assert.equal(h.requests.length, 0);
 }
@@ -313,7 +313,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const first = group('Первый без поля?', ['1', '2'], { noInput: true, onSkip: () => { h.state.groups = []; } });
   const second = group('Второй без поля?', ['3', '4'], { noInput: true });
   h.state.groups = [first, second];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'waiting');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'waiting');
   assert.equal(first.skip.clicks, 1);
   assert.match(content(h), /Первый без поля\?/);
   assert.match(content(h), /Второй без поля\?/);
@@ -326,13 +326,13 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness();
   const q = group('Skip не сработал?', ['Да'], { noInput: true });
   h.state.groups = [q];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'waiting');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'waiting');
   assert.equal(q.skip.clicks, 1);
   assert.match(content(h), /Skip нажат, закрытие не подтверждено/);
   assert(h.logs.some((row) => /закрытие не подтверждено/i.test(row.text)));
   assert.equal((h.get(`cfn-poll2:${EXPECT.runId}`, [])).length, 0, 'без подтверждения вопрос не помечен закрытым');
   q.skip.click = () => { q.skip.clicks += 1; h.state.groups = []; };
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'waiting');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'waiting');
   assert.equal(q.skip.clicks, 2, 'повтор возможен');
   assert.match(content(h), /нажат Skip, ответ не отправлен/);
 }
@@ -343,7 +343,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const first = group('Ответить удалось?', ['Да']);
   const second = group('А тут?', ['Нет'], { noInput: true });
   h.state.groups = [first, second];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'answered');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'answered');
   assert.equal(first.submit.clicks, 1);
   assert.equal(second.skip.clicks, 0);
   assert.match(content(h), /результат при обработке: универсальный ответ отправлен/);
@@ -355,15 +355,15 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   const h = harness();
   const q = group('Позднее включившийся Submit?', ['Да'], { noSkip: true, disabled: true });
   h.state.groups = [q];
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'waiting');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'waiting');
   assert.match(content(h), /результат при обработке: отправка ответа не подтверждена/);
   assert.equal(q.submit.clicks, 0);
   q.submit.disabled = false;
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'answered');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'answered');
   assert.equal(q.submit.clicks, 1);
   assert.equal(markers(content(h)).length, 2, 'два разных исхода записаны отдельно');
   assert.match(content(h), /результат при обработке: универсальный ответ отправлен/);
-  assert.equal(await h.answerPolls({ name: 'Kernel' }, EXPECT), 'waiting');
+  assert.equal(await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT), 'waiting');
   assert.equal(q.submit.clicks, 1, 'на подтверждённый ответ второй раз не нажимаем');
 }
 
@@ -373,7 +373,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
   let captured;
   const q = group('Вопрос перед перезагрузкой', ['Вариант'], { onSubmit: () => { captured = h.get(QUEUE, []); } });
   h.state.groups = [q];
-  await h.answerPolls({ name: 'Kernel' }, EXPECT);
+  await h.answerPolls({ name: 'FixtureExecutor' }, EXPECT);
   h.set(QUEUE, captured); // состояние, существовавшее до завершения обработчика
   const restarted = harness({ server: h.server, storage: h.storage, clock: h.clock, state: { groups: [] } });
   await restarted.flushPollJournal();
@@ -388,7 +388,7 @@ const markers = (text) => text.match(/<!-- CF_DISPATCH [^\n]*:poll:[^\n]* -->/g)
 // Новая запись в очереди во время await не затирается после успеха первой.
 {
   const h = harness();
-  const base = { fileId: LOG, roleName: 'Kernel', readyAt: 0, nextAt: 0, attempts: 0 };
+  const base = { fileId: LOG, roleName: 'FixtureExecutor', readyAt: 0, nextAt: 0, attempts: 0 };
   const a = { ...base, marker: '<!-- CF_DISPATCH a:run:poll:1 -->' };
   const b = { ...base, marker: '<!-- CF_DISPATCH b:run:poll:2 -->' };
   a.entry = `\n${a.marker}\nA`;

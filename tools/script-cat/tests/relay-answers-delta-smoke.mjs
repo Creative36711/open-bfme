@@ -103,7 +103,7 @@ const queueContext = (answersLine) => ({
     'B10 · Отчёт (Warden, Sequence 24)',
     'B11 · Хвост (Locale Auditor, Sequence 25)',
   ].join('; ') + '.',
-  answerLine: 'Журнал ответа Kernel (NAR-1.2): https://drive.google.com/file/d/LOG2/view — прочитай, если нужны детали ответа.',
+  answerLine: 'Журнал ответа FixtureExecutor (CASEA-1.2): https://drive.google.com/file/d/LOG2/view — прочитай, если нужны детали ответа.',
   answersLine,
 });
 

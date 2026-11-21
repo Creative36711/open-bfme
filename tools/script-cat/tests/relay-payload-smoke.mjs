@@ -35,9 +35,9 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
   const card = {
     id: 'card-1',
     properties: {
-      'Запрос': { title: [{ plain_text: 'NAR-1.7 · Эффекты' }] },
+      'Запрос': { title: [{ plain_text: 'CASEA-1.7 · Эффекты' }] },
       'Намерение': { rich_text: [{ plain_text: 'Вынести эффекты.' }] },
-      'Кому': { select: { name: 'Kernel' } },
+      'Кому': { select: { name: 'FixtureExecutor' } },
       'Payload Drive File ID': { rich_text: payloadId ? [{ plain_text: payloadId }] : [] },
       'Dispatch State': { select: { name: 'Ready' } },
       'Check': { select: checkFail ? { name: 'fail' } : null },
@@ -56,8 +56,8 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
     'answerStampKey', 'reworkKey', 'taskPreflight', 'driveFileIds', 'joinPayloadFiles',
     `${src.slice(from, to)}; return dispatchTask;`,
   )(
-    async () => [{ id: 'agent-1', name: 'Kernel', fn: 'Executor' }],
-    async () => [{ id: 'agent-1', name: 'Kernel', fn: 'Executor', status: 'Активна', url: '/agent/agent-1' }],
+    async () => [{ id: 'agent-1', name: 'FixtureExecutor', fn: 'Executor' }],
+    async () => [{ id: 'agent-1', name: 'FixtureExecutor', fn: 'Executor', status: 'Активна', url: '/agent/agent-1' }],
     (x) => String(x || '').replace(/-/g, '').toLowerCase(),
     (p) => (p?.rich_text || p?.title || []).map((x) => x.plain_text || x.text?.content || '').join(''),
     async (action, fileId, extra = {}) => {
@@ -122,7 +122,7 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
 {
   const text = 'ПОДРОБНОЕ ЗАДАНИЕ ИЗ ФАЙЛА\nвторая строка';
   const h = makeHarness({ payloadId: 'PAYLOADFILE1aaaaaaaaaaaaaaaaaaa', fileText: text });
-  const sent = await h.dispatchTask(h.card, 'Kernel');
+  const sent = await h.dispatchTask(h.card, 'FixtureExecutor');
 
   assert.equal(sent, true, 'ход выдан');
   const read = h.calls.find((c) => c.action === 'read');
@@ -145,7 +145,7 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
 // ── 2. Файла нет: выдача идёт по карточке, чтения не было ─────────────────
 {
   const h = makeHarness();
-  const sent = await h.dispatchTask(h.card, 'Kernel');
+  const sent = await h.dispatchTask(h.card, 'FixtureExecutor');
   assert.equal(sent, true, 'ход выдан без файла');
   assert.ok(!h.calls.some((c) => c.action === 'read'), 'без Payload Drive File ID шлюз не дёргается');
   assert.ok(
@@ -162,7 +162,7 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
 {
   const h = makeHarness({ payloadId: 'BROKENFILEaaaaaaaaaaaaaaaaaaaaaaa', readFails: true });
   await assert.rejects(
-    () => h.dispatchTask(h.card, 'Kernel'),
+    () => h.dispatchTask(h.card, 'FixtureExecutor'),
     /Payload не прочитан \(файл BROKENFILEaaaaaaaaaaaaaaaaaaaaaaa\): Файл недоступен/,
     'нечитаемый файл останавливает выдачу с причиной',
   );
@@ -175,13 +175,13 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
 {
   const first = 'ФАЙЛ-КОНТРАКТ: таблица ошибок сцены';
   const second = 'ФАЙЛ-ДОПОЛНЕНИЕ: карта соответствий';
-  const ids = '1dCrg0UDwIwuPCDHHBC6hXx-rSrmrf2RV, 1nzGpfiDROrv5aiMfbyW-6dzceSvPjyrT (SYN3-B0-addendum-mapping.md)';
+  const ids = '1dCrg0UDwIwuPCDHHBC6hXx-rSrmrf2RV, 1nzGpfiDROrv5aiMfbyW-6dzceSvPjyrT (CASEB-3-B0-addendum-mapping.md)';
   const texts = {
     '1dCrg0UDwIwuPCDHHBC6hXx-rSrmrf2RV': first,
     '1nzGpfiDROrv5aiMfbyW-6dzceSvPjyrT': second,
   };
   const h = makeHarness({ payloadId: ids, fileText: '', fileTexts: texts });
-  const sent = await h.dispatchTask(h.card, 'Kernel');
+  const sent = await h.dispatchTask(h.card, 'FixtureExecutor');
   assert.equal(sent, true, 'выдача с двумя файлами проходит');
   const reads = h.calls.filter((c) => c.action === 'read').map((c) => c.fileId);
   assert.deepEqual(reads, Object.keys(texts), 'каждый id прочитан отдельно, имя файла не мешает');
@@ -198,7 +198,7 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
   const text = 'ОДИН ФАЙЛ, ДОСЛОВНО';
   const h = makeHarness({ payloadId: 'PAYLOADFILE1aaaaaaaaaaaaaaaaaaa', fileText: text });
   h.calls.length = 0;
-  await h.dispatchTask(h.card, 'Kernel');
+  await h.dispatchTask(h.card, 'FixtureExecutor');
   const prompt = h.calls.find((c) => c.action === 'send').prompt;
   assert.equal(prompt, `PROMPT[${text}]`, 'текст единственного файла не обёрнут и не обрезан');
 }
@@ -206,7 +206,7 @@ function makeHarness({ payloadId = '', fileText = '', fileTexts = null, readFail
 // ── 4. Check=fail без наблюдённого Rework возвращается Coordinator, не паузит и не чистит следы ──
 {
   const h = makeHarness({ checkFail: true, reworkObserved: false });
-  const reason = await h.dispatchTask(h.card, 'Kernel');
+  const reason = await h.dispatchTask(h.card, 'FixtureExecutor');
   assert.match(reason, /Check=fail/);
   assert.match(reason, /оставь карточку в Rework/);
   assert.equal(h.calls.filter((c) => c.action === 'pause').length, 0, 'первый отказ не останавливает цикл');

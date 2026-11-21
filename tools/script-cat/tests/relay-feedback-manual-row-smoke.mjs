@@ -51,10 +51,10 @@ const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
   const Q = { wait: 'Ждёт' };
   const make = new Function('rt', 'norm', 'missionSame', 'Q', 'query', 'C',
     `${block}${body}\nreturn { questionRows, rowInMission };`);
-  const name = 'SYN-3 · Фаза 1.2 — измеримость: инвариант, который нельзя обойти молча';
+  const name = 'CASEB-3 · Фаза 1.2 — измеримость: инвариант, который нельзя обойти молча';
   const mission = { id: '4126f0cf-5705-819c-89c3-c1566cf5b67a', properties: { 'Миссия': { title: [{ plain_text: name }] } } };
   const manual = { id: 'row-manual', properties: {
-    'Вопрос': { title: [{ plain_text: 'SYN-3 · Предложение Warden: опубликовать ТЗ 1.7' }] },
+    'Вопрос': { title: [{ plain_text: 'CASEB-3 · Предложение Warden: опубликовать ТЗ 1.7' }] },
     'Статус': { select: null },                                   // агент статуса не поставил
     'Миссия': { rich_text: [{ plain_text: mission.id }] },         // голый UUID вместо имени
     'Ответ': { rich_text: [] },
@@ -62,7 +62,7 @@ const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
   const byName = { id: 'row-name', properties: {
     'Вопрос': { title: [{ plain_text: 'Имя миссии с хвостом' }] },
     'Статус': { select: { name: 'Ждёт' } },
-    'Миссия': { rich_text: [{ plain_text: 'SYN-3 · Фаза 1.2 - измеримость (4126f0cf-5705-819c-89c3-c1566cf5b67a), круг 0' }] },
+    'Миссия': { rich_text: [{ plain_text: 'CASEB-3 · Фаза 1.2 - измеримость (4126f0cf-5705-819c-89c3-c1566cf5b67a), круг 0' }] },
     'Ответ': { rich_text: [] },
   } };
   const foreign = { id: 'row-foreign', properties: {
@@ -117,7 +117,7 @@ const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
   const block = cut('  const missionKeyOf = (text) =>', '  async function questionRows(');
   const make = new Function(`${block}\nreturn { missionLabel };`);
   const { missionLabel } = make();
-  const name = 'SYN-3 · Фаза 1.2 — измеримость';
+  const name = 'CASEB-3 · Фаза 1.2 — измеримость';
   assert.equal(missionLabel(name), name, 'имя миссии пишется как есть');
   assert.equal(missionLabel('4126f0cf-5705-819c-89c3-c1566cf5b67a'), '',
     'голый UUID не пишется: иначе строка перестанет быть своей для той же миссии');

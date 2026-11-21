@@ -86,7 +86,7 @@ const props = (over = {}) => ({
   'Доставлено': { date: over.delivered ? { start: over.delivered } : null },
   'Роль': { rich_text: over.role ? [{ plain_text: over.role }] : [] },
   'Карточка': { rich_text: [] },
-  'Миссия': { rich_text: [{ plain_text: 'NAR-2' }] },
+  'Миссия': { rich_text: [{ plain_text: 'CASEA-2' }] },
   'Варианты': { rich_text: [] },
   'Что блокирует': { rich_text: [] },
 });
@@ -117,8 +117,8 @@ const props = (over = {}) => ({
 
 // ── 2. Строка записи: статус, срок, вариант по умолчанию ───────────────────
 {
-  const q = api.parseQuestion({ text: 'Сжигать ли старую копию?', default: 'оставить', options: ['A', 'B'], blocks: 'NAR-2.6' });
-  const properties = api.questionProps(q, { roleName: 'Coordinator', card: 'NAR-2.6', mission: 'NAR-2' });
+  const q = api.parseQuestion({ text: 'Сжигать ли старую копию?', default: 'оставить', options: ['A', 'B'], blocks: 'CASEA-2.6' });
+  const properties = api.questionProps(q, { roleName: 'Coordinator', card: 'CASEA-2.6', mission: 'CASEA-2' });
   assert.equal(properties['Статус'].select.name, 'Ждёт', 'ждёт ответа');
   assert.equal(properties['Вопрос'].title[0].text.content, 'Сжигать ли старую копию?', 'текст — заголовок строки');
   assert.equal(properties['По умолчанию'].rich_text[0].text.content, 'оставить', 'вариант по умолчанию в строке');
@@ -126,7 +126,7 @@ const props = (over = {}) => ({
   assert.equal(properties['Срок'], undefined, 'срок не пишется: сроков в поведении нет');
   assert.equal(properties['Тип'].select.name, 'Вопрос', 'тип строки ставит транспорт');
   assert.equal(properties['Варианты'].rich_text[0].text.content, 'A · B', 'варианты одной строкой');
-  assert.equal(properties['Что блокирует'].rich_text[0].text.content, 'NAR-2.6', 'что блокирует');
+  assert.equal(properties['Что блокирует'].rich_text[0].text.content, 'CASEA-2.6', 'что блокирует');
   assert.equal(properties['Роль'].rich_text[0].text.content, 'Coordinator', 'роль автора');
 
   const noOptions = api.questionProps(api.parseQuestion({ text: 'q', default: 'a' }), {});
@@ -151,16 +151,16 @@ const props = (over = {}) => ({
 }
 
 // ── 3б. Длинный вариант по умолчанию не режется и не отвергается (D-072) ───
-// 08.11 боевой SYN-3 встал на пределе в 200 знаков: агент дал полный вариант
-// («Одним PR Warden'а: ТЗ SYN-3 1.5 …, очередь 1.7, D-070 и страница миссии…»),
+// 08.11 боевой CASEB-3 встал на пределе в 200 знаков: агент дал полный вариант
+// («Одним PR Warden'а: ТЗ CASEB-3 1.5 …, очередь 1.7, D-070 и страница миссии…»),
 // а транспорт объявил его «слишком длинным» и приёмке не передал. Решение, по
 // которому идёт работа, сокращать нельзя.
 {
-  const longDefault = `${'Одним PR Warden\'а: ТЗ SYN-3 1.5, очередь 1.7, D-070. '.repeat(6)}конец`;
+  const longDefault = `${'Одним PR Warden\'а: ТЗ CASEB-3 1.5, очередь 1.7, D-070. '.repeat(6)}конец`;
   assert.ok(longDefault.length > 200, 'вариант длиннее прежнего предела');
   const q = api.parseQuestion({ text: 'Публиковать ли одним PR?', default: longDefault });
   assert.equal(q.fallback, longDefault, 'вариант сохранён целиком, без усечения и без отказа');
-  const props = api.questionProps(q, { roleName: 'Coordinator', mission: 'SYN-3' });
+  const props = api.questionProps(q, { roleName: 'Coordinator', mission: 'CASEB-3' });
   assert.equal(props['По умолчанию'].rich_text.map((x) => x.text.content).join(''), longDefault,
     'в Notion уходит ровно тот же текст');
 }
@@ -194,7 +194,7 @@ const props = (over = {}) => ({
 // ── 5. Запись вопроса ──────────────────────────────────────────────────────
 const run = async () => {
   const q = api.parseQuestion({ text: 'Сжигать ли копию?', default: 'оставить' });
-  const row = await api.askQuestion(q, { roleName: 'Coordinator', card: 'NAR-2.6', mission: 'NAR-2', key: 'turn-1' });
+  const row = await api.askQuestion(q, { roleName: 'Coordinator', card: 'CASEA-2.6', mission: 'CASEA-2', key: 'turn-1' });
   assert.equal(row.id, 'row-1', 'строка создана');
   assert.equal(created.length, 1, 'ровно один запрос в Notion');
   assert.equal(created[0].method, 'POST', 'создание страницы');

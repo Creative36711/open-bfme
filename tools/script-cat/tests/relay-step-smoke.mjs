@@ -723,16 +723,16 @@ const pending = { roleId: "coordinator", text: "план, пожалуйста",
 }
 
 // 6.5.2. Просроченная очередь чужой роли: снимаем на любой странице.
-// 1.4.44: 24.10 карточка NAR-1.12 осталась Running, потому что Мастер стоял не
+// 1.4.44: 24.10 карточка CASEA-1.12 осталась Running, потому что Мастер стоял не
 // на странице адресата. Очередь просрочена — сообщения в чате нет, значит и
 // ожиданию держаться не за что, а карточке — тем более.
 {
-  const old = { ...pending, roleId: "kernel", at: 1_000_000 - 11 * 60 * 1000 };
+  const old = { ...pending, roleId: "fixtureExecutor", at: 1_000_000 - 11 * 60 * 1000 };
   const { api, out } = load({
     pending: old,
     editor: null,
     send: true,
-    expect: { roleId: "kernel", kind: "dispatch", ref: "c1", at: old.at },
+    expect: { roleId: "fixtureExecutor", kind: "dispatch", ref: "c1", at: old.at },
     rollback: true,
   });
   await api.consumePending(true);
@@ -743,12 +743,12 @@ const pending = { roleId: "coordinator", text: "план, пожалуйста",
 
 // 6.5.2b. Ожидание, у которого есть отметка отправки, не снимается.
 {
-  const old = { ...pending, roleId: "kernel", at: 1_000_000 - 11 * 60 * 1000 };
+  const old = { ...pending, roleId: "fixtureExecutor", at: 1_000_000 - 11 * 60 * 1000 };
   const { api, out } = load({
     pending: old,
     editor: null,
     send: true,
-    expect: { roleId: "kernel", kind: "dispatch", ref: "c1", at: old.at, sentAt: old.at, verified: true },
+    expect: { roleId: "fixtureExecutor", kind: "dispatch", ref: "c1", at: old.at, sentAt: old.at, verified: true },
   });
   await api.consumePending(true);
   assert.equal(out.sets.get("cfn-pending"), null, 'очередь очищена');
@@ -758,7 +758,7 @@ const pending = { roleId: "coordinator", text: "план, пожалуйста",
 
 // 6.6. Чужое задание не трогаем.
 {
-  const { api, out } = load({ pending: { ...pending, roleId: "kernel" }, editor: null, send: true });
+  const { api, out } = load({ pending: { ...pending, roleId: "fixtureExecutor" }, editor: null, send: true });
   assert.equal(await api.consumePending(true), false, 'чужой ход не наш');
   assert.equal(out.logs.length, 0, 'и журнал не засоряется');
 }

@@ -17,7 +17,7 @@
     ].join("\n") });
 
     // Имя миссии, её id, ссылка на ТЗ и номер круга — данные Мастера, а не
-    // инструкции. 08.11 в 00:24 боевой SYN-3 встал ровно здесь: один URL ТЗ
+    // инструкции. 08.11 в 00:24 боевой CASEB-3 встал ровно здесь: один URL ТЗ
     // (?pvs=4, 256 знаков) плюс длинное имя миссии дали 292 из 3200, и промпт не
     // собрался, хотя правила Координатора были целы. Бюджет overhead по D-034
     // защищает от раздувания инструкций, а не от длины данных; тот же приём уже
@@ -165,8 +165,8 @@
     // читал запрет про каталог и не понимал, к чему он относится. Фаза не
     // называется в блоке намеренно: активная фаза меняется (сейчас Ф1), а
     // правило остаётся. Источник фаз — docs/PHASES.md через краткий регламент.
-    def("phases.bans", { version: 2, ruleIds: ["R-PHASES"], render: () =>
-      "Фазы: активную не опережай; retail read-only; advanced AI/multiplayer — Ф8+; платное — с лимитом Мастера; без сервисов «на будущее»; оракул не ослаблять. Cost gate: build none/focused/full; retail none/reuse/hydrate. Без tier нельзя full build/hydrate." });
+    def("phases.bans", { version: 3, ruleIds: ["R-PHASES"], render: () =>
+      "Фазы: не опережай; retail read-only; AI/multiplayer — Ф8+; оракул не ослаблять. Package: адаптируй существующий launcher, не upstream binary/второй updater; strategy+tactical — один game process. Cost: build none/focused/full; retail none/reuse/hydrate; без tier нельзя full/hydrate." });
 
     // WOTR-D-013: состав локалей теперь принят и обеспечен реальными каталогами
     // tools/l10n/catalog. Теги zh-Hans и pt-BR не сокращаются: это часть
@@ -402,7 +402,7 @@
     def("pilot.stop", { audience: ["pilot"], render: () =>
       "Финал — отчёт текстом: что сделано, как запущено, артефакты, журнал затруднений и допущения. Командные маркеры не используй." });
     def("pilot.repo", { audience: ["pilot"], render: (c) =>
-      `Репо: ${c.pilot?.repo || "Creative36711/open-bfme"}@${c.pilot?.startSha || "main"}, read-only; запись только в локальный sandbox.` });
+      `Репо: ${c.pilot?.repo || "Creative36711/open-bfme"}@${c.pilot?.startSha || "main"}, read-only; запись лишь в sandbox.` });
 
     def("delivery.recovery", { render: () =>
       "Это продолжение того же хода после сбоя доставки, не новая задача и не новая выдача. Сохрани все ID. Разбери снимок очереди и продолжи по правилам своей роли." });

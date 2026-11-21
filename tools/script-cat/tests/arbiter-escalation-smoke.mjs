@@ -1,6 +1,6 @@
 // D-053 · Арбитраж повторяющейся петли.
 //
-// 07.11 карточку SYN-2 · S-4 перевыдали три раза за шесть часов: исполнитель
+// 07.11 карточку CASEB-2 · S-4 перевыдали три раза за шесть часов: исполнитель
 // честно отдал draft-PR с описанием блокера по Scope, транспорт увидел «нет
 // заявки о мерже» и вернул её в Rework. Правила сработали — а разбирать петлю
 // пришлось Мастеру, потому что третья перевыдача сразу ставила паузу.
@@ -39,11 +39,11 @@ function harness({ cardState = 'Ready', check = 'fail', pr = '', answer = '', ro
   const plans = [];
   const pages = new Map([
     [MISSION, { id: MISSION, properties: {
-      'Миссия': { title: [{ plain_text: 'SYN-2 · Мини-игра арены' }] },
+      'Миссия': { title: [{ plain_text: 'CASEB-2 · Мини-игра арены' }] },
       'Состояние': { select: { name: 'Активна' } },
     } }],
     [CARD, { id: CARD, properties: {
-      'Запрос': { title: [{ plain_text: 'SYN-2 · S-4 · Детерминированная мини-игра арены' }] },
+      'Запрос': { title: [{ plain_text: 'CASEB-2 · S-4 · Детерминированная мини-игра арены' }] },
       'Mission ID': rich(MISSION),
       'Кому': { select: { name: 'Executor Core' } },
       'Dispatch State': { select: { name: cardState } },
@@ -136,7 +136,7 @@ function harness({ cardState = 'Ready', check = 'fail', pr = '', answer = '', ro
 
 const expectFor = (over = {}) => ({
   kind: 'arbiter', ref: CARD, turnId: TURN, roleId: WARDEN.id, roleName: 'Warden',
-  watermark: 'before', sentAt: Date.now(), title: 'SYN-2 · S-4 · Детерминированная мини-игра арены', ...over,
+  watermark: 'before', sentAt: Date.now(), title: 'CASEB-2 · S-4 · Детерминированная мини-игра арены', ...over,
 });
 const marker = (data) => `Разбор петли текстом.\nCF_ARBITER_RESULT ${JSON.stringify(data)}`;
 
@@ -145,12 +145,12 @@ const marker = (data) => `Разбор петли текстом.\nCF_ARBITER_RE
   const r = PromptCompiler.compile({
     kind: 'arbiter',
     role: { name: 'Warden', fn: 'Reviewer' },
-    mission: { id: MISSION, name: 'SYN-2 · Мини-игра арены' },
+    mission: { id: MISSION, name: 'CASEB-2 · Мини-игра арены' },
     turnId: TURN,
-    arbiter: { cardId: CARD, cardTitle: 'SYN-2 · S-4 · Мини-игра арены', role: 'Executor Core',
+    arbiter: { cardId: CARD, cardTitle: 'CASEB-2 · S-4 · Мини-игра арены', role: 'Executor Core',
       redispatchCount: 3, redispatchLimit: 3, windowHours: 6, reason: 'её видели в Rework',
       state: 'Ready', check: 'fail', answer: 'Scope blocker — не готов к мержу: нужен game/cli/main.gd вне зоны S-4.',
-      pr: 'https://github.com/creative-textile/vault-core/pull/26', prState: 'draft, открыт',
+      pr: 'https://github.com/example-org/fixture-source-core/pull/26', prState: 'draft, открыт',
       attempts: '07.11 12:05 · dispatch · executor.card · Rework', queue: '1 Ready, 1 Rework' },
     delivery: { tier: 'full' },
   });
@@ -180,7 +180,7 @@ const marker = (data) => `Разбор петли текстом.\nCF_ARBITER_RE
 
 // ── 2. Петля уходит арбитру, а не в паузу ──────────────────────────────────
 {
-  const h = harness({ answer: 'Готово: arena.exe --seed 7 детерминирован.', pr: 'https://github.com/creative-textile/vault-core/pull/26' });
+  const h = harness({ answer: 'Готово: arena.exe --seed 7 детерминирован.', pr: 'https://github.com/example-org/fixture-source-core/pull/26' });
   // Транспорт уже видел три перевыдачи за окно.
   h.store.set('cfn-redispatch:' + CARD, [Date.now() - 1000, Date.now() - 500, Date.now()]);
   const escalated = await h.api.escalateToWarden(h.pages.get(CARD), 'её видели в Rework');

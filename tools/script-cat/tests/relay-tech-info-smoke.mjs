@@ -3,16 +3,16 @@
 import { strict as assert } from 'node:assert';
 import { PromptCompiler, dispatchRequest, planRequest, reviewRequest } from './helpers/prompt-env.mjs';
 
-const exec = PromptCompiler.compile(dispatchRequest('Executor', { role: { name: 'Kernel', fn: 'Executor', zone: 'game/**' } })).text;
+const exec = PromptCompiler.compile(dispatchRequest('Executor', { role: { name: 'FixtureExecutor', fn: 'Executor', zone: 'game/**' } })).text;
 const audit = PromptCompiler.compile(dispatchRequest('Auditor', { role: { name: 'Runtime Auditor', fn: 'Auditor' } })).text;
 const coord = PromptCompiler.compile(planRequest()).text;
 const rev = PromptCompiler.compile(reviewRequest()).text;
 
 // Executor: git-ритуал и мерж самому, репозиторий назван.
-assert.match(exec, /Kernel/);
+assert.match(exec, /FixtureExecutor/);
 assert.match(exec, /merge-base HEAD origin\/main/);
 assert.match(exec, /gh pr merge <N> --squash/);
-assert.match(exec, /creative-textile\/vault/);
+assert.match(exec, /example-org\/fixture-source-core/);
 assert.match(exec, /PR без общей истории удалит чужие файлы/);
 
 // Auditor: только чтение, без мержа и без сброса дерева.
@@ -31,8 +31,8 @@ assert.match(coord, /Notion/);
 assert.match(rev, /Ничего не правь|не правь/);
 
 // Другой проект: его репозиторий и base, без старого снимка.
-const other = PromptCompiler.compile(dispatchRequest('Executor', { target: { repo: 'team/vault', baseBranch: 'release/next' } })).text;
-assert.match(other, /team\/vault/);
+const other = PromptCompiler.compile(dispatchRequest('Executor', { target: { repo: 'team/fixture-workspace', baseBranch: 'release/next' } })).text;
+assert.match(other, /team\/fixture-workspace/);
 assert.match(other, /origin\/release\/next/);
 assert.doesNotMatch(other, /origin\/main/);
 

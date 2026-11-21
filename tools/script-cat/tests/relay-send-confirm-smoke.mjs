@@ -4,7 +4,7 @@
 //   21:06:08 «ПАУЗА: Send нажат, но сообщение не появилось — текст остался в
 //   поле» — скрипт трижды кликнул Send и не смог сказать, что именно не
 //   сработало;
-//   NAR-1.7 выдана дважды (run 8abe7712 и run 9f22e42b) — вторая выдача по
+//   CASEA-1.7 выдана дважды (run 8abe7712 и run 9f22e42b) — вторая выдача по
 //   уже отвеченной карточке, агент повторил ту же работу.
 //
 // Здесь проверяется, что доставка подтверждается появлением своего сообщения,
@@ -32,7 +32,7 @@ const { sendKey } = new Function(`${flatSrc}\n${sendKeySrc}\nreturn { sendKey };
 
 const task = [
   'Технический блок: ветка-снимок …',
-  'Задача NAR-1.8 · Крафт, торговля, встречи, мета (dispatch 4016f0cf-5705-81f4-8e07-d987ab5f34db, run 1fc527ed-3af9-4e09-9288-523ed62c5d24).',
+  'Задача CASEA-1.8 · Крафт, торговля, встречи, мета (dispatch 4016f0cf-5705-81f4-8e07-d987ab5f34db, run 1fc527ed-3af9-4e09-9288-523ed62c5d24).',
   'ЦЕЛЬ И ГРАНИЦЫ',
 ].join('\n');
 const key = sendKey(task);
@@ -51,7 +51,7 @@ assert.equal(
   'без номера выдачи ключ держится на карточке',
 );
 
-const plan = 'Ход Координатора\nCF_COORDINATOR_RESULT {"mission_id":"m1","turn_id":"turn-777","status":"completed","next":"Kernel"}';
+const plan = 'Ход Координатора\nCF_COORDINATOR_RESULT {"mission_id":"m1","turn_id":"turn-777","status":"completed","next":"FixtureExecutor"}';
 assert.equal(sendKey(plan), 'turn-777', 'ход Координатора опознаётся по номеру хода');
 assert.notEqual(sendKey(plan), sendKey(plan.replace('turn-777', 'turn-888')), 'у разных ходов разные ключи');
 
@@ -98,7 +98,7 @@ const lastUserSays = (nodes, dead = '') => {
 const shown = lastUserSays([wrapperNode('прошлое сообщение'), wrapperNode(task)]);
 assert.equal(shown(key), true, 'своё сообщение найдено по ключу');
 
-const stale = lastUserSays([wrapperNode(task.replace('NAR-1.8', 'NAR-1.7').replace('1fc527ed', '8abe7712'))]);
+const stale = lastUserSays([wrapperNode(task.replace('CASEA-1.8', 'CASEA-1.7').replace('1fc527ed', '8abe7712'))]);
 assert.equal(stale(key), false, 'чужое (прошлое) сообщение за подтверждение не сходит');
 
 const empty = lastUserSays([]);
@@ -166,10 +166,10 @@ const { looseResult } = new Function(
 
 const executor = { fn: 'Executor' };
 const expect = { ref: '4016f0cf-5705-8106-ad46-c4b4cca19b90', runId: '8abe7712-9f32-42f0-babe-3c031fc335d2' };
-const kernelText =
-  'NAR-1.7 RESULT — dispatch `4016f0cf-5705-8106-ad46-c4b4cca19b90`; run `8abe7712-9f32-42f0-babe-3c031fc335d2`; PR #31 MERGED.';
-const loose = looseResult(kernelText, executor, expect);
-assert.ok(loose, 'ответ Kernel разобран по тексту');
+const fixtureExecutorText =
+  'CASEA-1.7 RESULT — dispatch `4016f0cf-5705-8106-ad46-c4b4cca19b90`; run `8abe7712-9f32-42f0-babe-3c031fc335d2`; PR #31 MERGED.';
+const loose = looseResult(fixtureExecutorText, executor, expect);
+assert.ok(loose, 'ответ FixtureExecutor разобран по тексту');
 assert.equal(loose.pr, 31, 'номер PR извлечён');
 assert.equal(loose.merged, true, 'мерж извлечён');
 assert.equal(loose.dispatch_id, expect.ref, 'выдача та же');
@@ -181,15 +181,15 @@ assert.equal(
   null,
   'чужая выдача не принимается',
 );
-assert.equal(looseResult(kernelText, { fn: 'Auditor' }, expect), null, 'аудитору мягкий разбор не нужен');
+assert.equal(looseResult(fixtureExecutorText, { fn: 'Auditor' }, expect), null, 'аудитору мягкий разбор не нужен');
 const foreign = '11111111-1111-4111-8111-111111111111';
 assert.equal(looseResult(`dispatch ${foreign}; run ${expect.runId}; PR #31; в цитате ${expect.ref}`, executor, expect), null,
   'упоминание ожидаемой карточки в цитате не подменяет чужой dispatch');
 assert.equal(looseResult(`Карточка ${expect.ref}; run ${expect.runId}; PR #31`, executor, expect), null,
   'неподписанный UUID не является dispatch_id');
-assert.equal(looseResult(`${kernelText} dispatch ${foreign}`, executor, expect), null,
+assert.equal(looseResult(`${fixtureExecutorText} dispatch ${foreign}`, executor, expect), null,
   'противоречащий второй dispatch не игнорируется');
-assert.equal(looseResult(`${kernelText} run ${foreign}`, executor, expect), null,
+assert.equal(looseResult(`${fixtureExecutorText} run ${foreign}`, executor, expect), null,
   'противоречащий второй run не игнорируется');
 assert.equal(looseResult(`dispatch ${expect.ref}; PR #31`, executor, expect), null, 'отсутствующий run не восстанавливается');
 assert.ok(looseResult(`dispatch_id: ${expect.ref}; run_id: ${expect.runId}; PR #31`, executor, expect),

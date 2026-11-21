@@ -26,18 +26,18 @@ const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
 const K = { pending: 'pending', expect: 'expect', lastSend: 'lastSend', deadSend: 'deadSend', stateV: 'stateV', paused: 'paused', pause: 'pause', errSeen: 'errSeen' };
 const warden = { name: 'Warden', fn: 'Reviewer', id: 'rev-1', url: '/agent/rev-1', status: 'Активна' };
 const reviewer = { name: 'Независимый приёмщик', fn: 'Reviewer', id: 'rev-2', url: '/agent/rev-2', status: 'Активна' };
-const kernel = { name: 'Kernel', fn: 'Executor', id: 'exec-1', url: '/agent/exec-1', status: 'Активна', repo: 'creative-textile/vault-core' };
+const fixtureExecutor = { name: 'FixtureExecutor', fn: 'Executor', id: 'exec-1', url: '/agent/exec-1', status: 'Активна', repo: 'example-org/fixture-source-core' };
 const auditor = { name: 'Runtime Auditor', fn: 'Auditor', id: 'audit-1', url: '/agent/audit-1', status: 'Активна' };
 const coordinator = { name: 'Coordinator', fn: 'Coordinator', id: 'coord-1', url: '/agent/coord-1', status: 'Активна' };
-const all = [coordinator, warden, reviewer, kernel, auditor];
+const all = [coordinator, warden, reviewer, fixtureExecutor, auditor];
 const decisionRoute = new Function('norm', `${routing}\nreturn decisionRoute;`)(norm);
 
 for (const [name, directory, roles, ready] of [
   ['Warden', all, all, ['Warden']],
   ['warden', all, all, []],
   [reviewer.name, all, all, [reviewer.name]],
-  [reviewer.name, all, [coordinator, kernel, auditor], [reviewer.name]], // неактивный Reviewer
-  ['Alias', [...all, { ...kernel, id: reviewer.id, name: 'Alias' }], [{ ...kernel, id: reviewer.id, name: 'Alias' }], ['Alias']],
+  [reviewer.name, all, [coordinator, fixtureExecutor, auditor], [reviewer.name]], // неактивный Reviewer
+  ['Alias', [...all, { ...fixtureExecutor, id: reviewer.id, name: 'Alias' }], [{ ...fixtureExecutor, id: reviewer.id, name: 'Alias' }], ['Alias']],
 ]) {
   const route = decisionRoute(name, { roles, directory, readyRoles: ready });
   assert.equal(route.kind, 'ask', `${name}: никакой dispatch`);
@@ -47,7 +47,7 @@ for (const [name, directory, roles, ready] of [
   assert.match(route.note, /done/);
   assert.equal(decisionRoute(name, { roles, directory, readyRoles: ready, misses: 2 }).kind, 'pause', 'нет бесконечной петли');
 }
-assert.equal(decisionRoute('Kernel', { roles: all, directory: all, readyRoles: ['Kernel'] }).kind, 'dispatch');
+assert.equal(decisionRoute('FixtureExecutor', { roles: all, directory: all, readyRoles: ['FixtureExecutor'] }).kind, 'dispatch');
 assert.equal(decisionRoute('Runtime Auditor', { roles: all, directory: all, readyRoles: ['Runtime Auditor'] }).kind, 'dispatch');
 assert.equal(decisionRoute('done', { roles: all, directory: all }).kind, 'done');
 assert.equal(decisionRoute('Unknown fn', {
@@ -57,7 +57,7 @@ assert.equal(decisionRoute('Unknown fn', {
 const clone = (x) => structuredClone(x);
 const rich = (text) => ({ rich_text: text ? [{ plain_text: text }] : [] });
 const rt = (prop) => (prop?.rich_text || prop?.title || []).map((x) => x.plain_text || x.text?.content || '').join('');
-function fixture(who = 'Kernel') {
+function fixture(who = 'FixtureExecutor') {
   return { id: 'card-1', url: 'https://notion.example/card-1', properties: {
     'Запрос': { title: [{ plain_text: 'STAB-1.40 · тест роли' }] },
     'Кому': { select: { name: who } },
@@ -77,7 +77,7 @@ function makeDispatch({ active = all, directory = all, freshCard = fixture(), di
       if (directoryError) throw new Error(directoryError);
       return clone(directory);
     },
-    norm, rt, K, C: { repo: 'example/relay-fixture', branch: 'main' }, ACTIVE_PROFILE: { legacy: false, repo: 'example/relay-fixture', branch: 'main', repos: [{ repo: 'creative-textile/vault-core', branch: 'main' }, { repo: 'example/relay-fixture', branch: 'main' }] },
+    norm, rt, K, C: { repo: 'example/relay-fixture', branch: 'main' }, ACTIVE_PROFILE: { legacy: false, repo: 'example/relay-fixture', branch: 'main', repos: [{ repo: 'example-org/fixture-source-core', branch: 'main' }, { repo: 'example/relay-fixture', branch: 'main' }] },
     GM_getValue: (key, fallback) => storage.has(key) ? storage.get(key) : fallback,
     GM_setValue: (key, value) => storage.set(key, clone(value)),
     notion: async (method, path) => { calls.reads.push({ method, path }); return clone(freshCard); },
@@ -144,34 +144,34 @@ for (const role of [warden, reviewer, { ...warden, fn: 'Executor' }, { ...review
 // Кеш уже устарел / сеть недоступна / Agent URL подменён: fail closed до
 // чтения карточки и до её записи.
 for (const directory of [
-  [{ ...kernel, fn: 'Reviewer' }],
-  [{ ...kernel, id: 'other-id' }],
-  [{ ...kernel, status: 'Ждёт' }],
-  [kernel, { ...reviewer, id: kernel.id, status: 'Ждёт' }],
+  [{ ...fixtureExecutor, fn: 'Reviewer' }],
+  [{ ...fixtureExecutor, id: 'other-id' }],
+  [{ ...fixtureExecutor, status: 'Ждёт' }],
+  [fixtureExecutor, { ...reviewer, id: fixtureExecutor.id, status: 'Ждёт' }],
   [],
 ]) {
-  const h = makeDispatch({ active: [kernel], directory });
-  const result = await h.dispatchTask(fixture(), 'Kernel');
+  const h = makeDispatch({ active: [fixtureExecutor], directory });
+  const result = await h.dispatchTask(fixture(), 'FixtureExecutor');
   assert.equal(typeof result, 'string');
   assert.deepEqual(h.calls.roleReads, [{ fresh: true, requireFresh: true }]);
   assert.equal(h.calls.reads.length + h.calls.patches.length + h.calls.gateway.length, 0);
 }
 {
-  const h = makeDispatch({ active: [kernel], directoryError: 'Notion offline' });
-  await assert.rejects(() => h.dispatchTask(fixture(), 'Kernel'), /Notion offline/);
+  const h = makeDispatch({ active: [fixtureExecutor], directoryError: 'Notion offline' });
+  await assert.rejects(() => h.dispatchTask(fixture(), 'FixtureExecutor'), /Notion offline/);
   assert.equal(h.calls.reads.length + h.calls.patches.length + h.calls.gateway.length, 0);
 }
 {
   const freshCard = fixture('Runtime Auditor');
   const h = makeDispatch({ freshCard });
-  const result = await h.dispatchTask(fixture('Kernel'), 'Kernel');
+  const result = await h.dispatchTask(fixture('FixtureExecutor'), 'FixtureExecutor');
   assert.match(result, /адресат карточки изменился/);
   assert.equal(h.calls.patches.length + h.calls.gateway.length, 0, 'не выдаём переназначенную карточку');
 }
 
 // Настоящие Executor и Auditor проходят тем же dispatchTask и sendToRole.
 // Для Run создаётся новый лог, старый файл не используется для записи.
-for (const role of [kernel, auditor]) {
+for (const role of [fixtureExecutor, auditor]) {
   const freshCard = fixture(role.name);
   freshCard.properties['Output Drive File ID'] = rich('OLD-LOG');
   freshCard.properties['Payload Drive File ID'] = rich('ACTUALPAYLOADaaaaaaaaaaaaaaaaaaaa');
@@ -191,12 +191,12 @@ for (const role of [kernel, auditor]) {
   assert.equal(h.calls.patches[0].props['Output Drive File ID'].rich_text[0].text.content, 'NEW-LOG');
   assert.equal(h.storage.get(K.pending).roleId, role.id);
   assert.equal(h.storage.get(K.expect).kind, 'dispatch');
-  if (role === kernel) assert.equal(h.storage.get(K.expect).targetRepo, 'creative-textile/vault-core', 'live Notion role repo overrides stale default profile route');
+  if (role === fixtureExecutor) assert.equal(h.storage.get(K.expect).targetRepo, 'example-org/fixture-source-core', 'live Notion role repo overrides stale default profile route');
   assert.match(h.storage.get(K.pending).text, /свежий payload/);
 }
 {
   const h = makeDispatch({ failCreateLog: true });
-  await assert.rejects(() => h.dispatchTask(fixture(), 'Kernel'), /не вернул ID журнала/);
+  await assert.rejects(() => h.dispatchTask(fixture(), 'FixtureExecutor'), /не вернул ID журнала/);
   assert.equal(h.calls.patches.length, 0);
   assert.equal(h.storage.has(K.pending), false);
 }
@@ -367,7 +367,7 @@ for (const hasMessage of [false, true]) {
 // Полная проверка прав перед фактической доставкой: устаревший кеш,
 // перенастроенная роль и псевдоним одного Agent ID не обходят dispatchTask.
 {
-  const other = { ...kernel, id: 'exec-1' };
+  const other = { ...fixtureExecutor, id: 'exec-1' };
   const queued = { roleId: other.id, text: 'рабочее задание', at: Date.now() };
   const waiting = { kind: 'dispatch', roleId: other.id, roleName: other.name, roleFn: 'Executor', ref: 'card-1', runId: 'r1' };
   const h = makeConsumer(waiting, queued, [other]);
@@ -377,9 +377,9 @@ for (const hasMessage of [false, true]) {
 }
 for (const { waiting, owners } of [
   { waiting: { ...oldExpect, roleFn: '', roleName: 'Другой приёмщик' }, owners: [{ ...reviewer, id: warden.id }] },
-  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'Kernel' }, owners: [{ ...kernel, id: warden.id }, warden] },
-  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'Kernel' }, owners: [warden] },
-  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'Kernel' }, owners: new Error('Notion offline') },
+  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'FixtureExecutor' }, owners: [{ ...fixtureExecutor, id: warden.id }, warden] },
+  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'FixtureExecutor' }, owners: [warden] },
+  { waiting: { ...oldExpect, roleFn: 'Executor', roleName: 'FixtureExecutor' }, owners: new Error('Notion offline') },
 ]) {
   const h = makeConsumer(waiting, pending, owners);
   await h.consumePending(true);
@@ -389,7 +389,7 @@ for (const { waiting, owners } of [
   assert.ok(['reviewer-task-pending', 'reviewer-task-check'].includes(h.calls.paused[0].options.kind));
 }
 {
-  const h = makeConsumer({ ...oldExpect, roleFn: 'Executor', roleName: 'Kernel', roleId: 'other-id' }, pending, [kernel]);
+  const h = makeConsumer({ ...oldExpect, roleFn: 'Executor', roleName: 'FixtureExecutor', roleId: 'other-id' }, pending, [fixtureExecutor]);
   await h.consumePending(true);
   assert.equal(h.calls.paused[0].options.kind, 'reviewer-task-check');
   assert.equal(h.calls.roleReads.length, 0);
@@ -433,7 +433,7 @@ for (const legacy of [oldExpect, { ...oldExpect, roleFn: '', roleName: 'Неза
     [{ ...oldExpect, roleFn: '', roleName: 'Другой' }, [{ ...reviewer, id: warden.id }], true],
     [{ ...oldExpect, roleFn: '', roleName: 'Другой' }, [], true],
     [{ ...oldExpect, roleFn: '', roleName: 'Другой' }, new Error('offline'), true],
-    [{ ...oldExpect, roleFn: 'Executor', roleName: 'Kernel' }, [{ ...kernel, id: warden.id }], false],
+    [{ ...oldExpect, roleFn: 'Executor', roleName: 'FixtureExecutor' }, [{ ...fixtureExecutor, id: warden.id }], false],
     [{ ...oldExpect, sentAt: 123 }, [warden], false],
   ]) {
     const store = new Map([[K.expect, clone(waiting)]]), pauses = [];

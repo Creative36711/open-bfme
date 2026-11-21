@@ -27,7 +27,7 @@ const question = (id, text, status, answer = '') => ({ id, properties: {
 } });
 const expired = question('expired', 'Предложение docs/decisions/STAB-1.32.md: принять?', Q.byDefault, 'оставить как есть');
 const answered = question('answered', 'Предложение docs/decisions/STAB-1.34.md: принять?', Q.done, 'принять точный diff');
-const unanswered = question('missing', 'Предложение docs/decisions/NAR-2.14.md: принять?', Q.done, '');
+const unanswered = question('missing', 'Предложение docs/decisions/CASEA-2.14.md: принять?', Q.done, '');
 
 // Закрытие обычных вопросов по сроку сохраняется, но предложение по ADR
 // остаётся открытым до настоящего решения приёмки или Мастера.
@@ -127,8 +127,8 @@ const { adrKeysOf, adrSubjectKeysOf, decidedAdrNames } = new Function('questionR
   assert.equal(names.has('stab-1.35'), true, 'решение относится к теме вопроса');
   assert.equal(names.has('a'), false, 'неоднозначный вопрос о двух файлах не присваивает решение каждому');
   assert.equal(names.has('b'), false, 'для неоднозначного вопроса нужно уточнение');
-  assert.equal(names.has('nar-2.14'), false, 'пустой ответ не признаётся');
-  assert.deepEqual([...adrSubjectKeysOf('NAR-2.14: docs/decisions/0016-boundary.md')], ['0016-boundary']);
+  assert.equal(names.has('casea-2.14'), false, 'пустой ответ не признаётся');
+  assert.deepEqual([...adrSubjectKeysOf('CASEA-2.14: docs/decisions/0016-boundary.md')], ['0016-boundary']);
   assert.deepEqual([...adrSubjectKeysOf('ORBIT_X-7.19: решение')], ['orbit_x-7.19'], 'префикс другого проекта не зашит');
   assert.deepEqual([...adrSubjectKeysOf('ORBIT_X-7.19 или TEAM-4.2')], [], 'неоднозначные темы не объединяются');
 }

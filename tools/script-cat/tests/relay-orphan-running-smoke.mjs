@@ -2,10 +2,10 @@
 //
 // Случай Мастера, 28.10. Задание для Pack Author не ушло (ложное «отправлено»,
 // 1.4.82), Мастер нажал ↺ — очередь и ожидание в хранилище снялись, а карточка
-// NAR-5.3 осталась в Notion в Running. Дальше журнал говорит сам за себя:
+// CASEA-5.3 осталась в Notion в Running. Дальше журнал говорит сам за себя:
 //
 //   19:54:44 План Координатора запрошен (0 Submitted, 1 Running, 1 Ready…)
-//   19:56:11 Выдан ход Architect: «NAR-5.16 · ADR 0016 принят…»
+//   19:56:11 Выдан ход Architect: «CASEA-5.16 · ADR 0016 принят…»
 //
 // Координатор увидел «1 Running», решил, что работа идёт, и выдал следующую
 // карточку. Прежняя висела в Running до 45-минутного `releaseStalled` — и даже
@@ -213,7 +213,7 @@ function makeDialog({ state = {}, answer = true, rolled = true, swept = [], fail
 
 // Отказ в диалоге ничего не трогает.
 {
-  const h = makeDialog({ state: { expect: { kind: 'dispatch', ref: 'c1', sentAt: 1, title: 'NAR-5.3 · Пак state-ui' } }, answer: false });
+  const h = makeDialog({ state: { expect: { kind: 'dispatch', ref: 'c1', sentAt: 1, title: 'CASEA-5.3 · Пак state-ui' } }, answer: false });
   await h.resetState();
   assert.equal(h.calls.released.length, 0, 'карточка не тронута');
   assert.equal(h.calls.resets, 0, 'состояние не снято');
@@ -223,7 +223,7 @@ function makeDialog({ state = {}, answer = true, rolled = true, swept = [], fail
 
 // Сброс с живым ходом: сначала карточка → Ready, потом память, потом сироты.
 {
-  const handoff = { kind: 'dispatch', ref: 'c1', sentAt: 1, title: 'NAR-5.3 · Пак state-ui' };
+  const handoff = { kind: 'dispatch', ref: 'c1', sentAt: 1, title: 'CASEA-5.3 · Пак state-ui' };
   const h = makeDialog({ state: { expect: handoff }, swept: [cardOf('c9', 30)] });
   await h.resetState();
   assert.equal(h.calls.released.length, 1, 'карточка текущего хода возвращена');

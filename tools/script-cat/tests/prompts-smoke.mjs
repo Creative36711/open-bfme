@@ -67,7 +67,7 @@ for (const req of cases) {
 {
   const r = PromptCompiler.compile(pilotRequest());
   assert.ok(r.ok);
-  for (const bad of ['CF_AGENT_RESULT', 'CF_COORDINATOR_RESULT', 'Notion', 'cortex', 'REGULATION', 'WARDEN', 'DECISIONS']) {
+  for (const bad of ['CF_AGENT_RESULT', 'CF_COORDINATOR_RESULT', 'Notion', 'aux-workspace', 'REGULATION', 'WARDEN', 'DECISIONS']) {
     assert.ok(!r.text.includes(bad), `пилот без «${bad}»`);
   }
   assert.ok(r.text.includes('a'.repeat(40)), 'startSha в брифе');
@@ -124,9 +124,9 @@ for (const req of cases) {
 // влезает в бюджет auditor.card БЕЗ подъёма бюджета (скелет стал компактнее).
 {
   const k17 = dispatchRequest('Auditor', {
-    task: { ...task(), title: 'SYN-1 · K-17 · Промежуточный независимый аудит O-4' },
+    task: { ...task(), title: 'CASEB-1 · K-17 · Промежуточный независимый аудит O-4' },
     role: { name: 'Spec Auditor', fn: 'Auditor', zone: 'docs/agents/**, tools/script-cat/**' },
-    target: { repo: 'creative-textile/vault', baseBranch: 'arena/87031a47-vault' },
+    target: { repo: 'example-org/fixture-source', baseBranch: 'arena/87031a47-fixture-workspace' },
   });
   const r = PromptCompiler.compile(k17);
   assert.ok(r.ok, `K-17-подобная карточка компилируется: ${r.error?.message}`);
@@ -182,11 +182,11 @@ for (const req of cases) {
 // 13. D-035: исполнитель/аудитор/ревьюер получают адрес папки артефактов, не корень.
 {
   for (const fn of ['Executor', 'Auditor', 'Reviewer']) {
-    const r = PromptCompiler.compile(dispatchRequest(fn, { drive: { project: 'vault' } }));
+    const r = PromptCompiler.compile(dispatchRequest(fn, { drive: { project: 'fixture-workspace' } }));
     assert.ok(r.ok, `${fn} компилируется с drive.artifacts`);
     const b = r.blocks.find((x) => x.id === 'drive.artifacts');
     assert.ok(b, `${fn} несёт блок drive.artifacts`);
-    assert.ok(r.text.includes('Arena/vault/artifacts'), `${fn} видит адрес папки artifacts`);
+    assert.ok(r.text.includes('Arena/fixture-workspace/artifacts'), `${fn} видит адрес папки artifacts`);
     assert.ok(r.text.includes('не корень Диска'), `${fn} видит запрет корня`);
     assert.ok(!b.verbatim, 'drive.artifacts не verbatim (честный overhead)');
     // drive.layout по-прежнему только Координатору — исполнитель его не получает
@@ -204,9 +204,9 @@ for (const req of cases) {
 {
   const longZone = 'docs/agents/**, tools/script-cat/**, contracts/**, docs/DECISIONS.md, docs/REGULATION.md, docs/design/**, docs/process/**, docs/agents/roles/**';
   const k20 = dispatchRequest('Auditor', {
-    task: { ...task(), title: 'SYN-1 · K-20 · Промежуточный независимый аудит O-8' },
+    task: { ...task(), title: 'CASEB-1 · K-20 · Промежуточный независимый аудит O-8' },
     role: { name: 'Spec Auditor', fn: 'Auditor', zone: longZone },
-    target: { repo: 'creative-textile/vault-core', baseBranch: 'main' },
+    target: { repo: 'example-org/fixture-source-core', baseBranch: 'main' },
   });
   const r = PromptCompiler.compile(k20);
   assert.ok(r.ok, `K-20 с длинной зоной компилируется: ${r.error?.message}`);
@@ -230,7 +230,7 @@ for (const req of cases) {
 
 // 15б. D-075/1.14.1: план Координатора собирается на БОЕВЫХ размерах данных.
 //
-// 08.11 в 00:24 живой SYN-3 встал на budget_exceeded (overhead 3303 > 3200) —
+// 08.11 в 00:24 живой CASEB-3 встал на budget_exceeded (overhead 3303 > 3200) —
 // а проба этого не видела, потому что гоняла короткое имя миссии и короткий ТЗ.
 // Факты (имя, id, ссылка на ТЗ, круг) теперь verbatim, как зона роли в D-036:
 // бюджет overhead защищает инструкции, а не длину данных Мастера. Здесь
@@ -239,12 +239,12 @@ for (const req of cases) {
   const zone = 'docs/agents/**, tools/script-cat/**, contracts/**, docs/DECISIONS.md, docs/REGULATION.md, docs/design/**, docs/process/**, docs/agents/roles/**, docs/adr/**';
   const longMission = {
     id: '4126f0cf-5705-819c-89c3-c1566cf5b67a',
-    name: 'SYN-3 · Транспорт и укомплектованность миссии (D-063…D-075)',
+    name: 'CASEB-3 · Транспорт и укомплектованность миссии (D-063…D-075)',
     round: 2, reworkLimit: 3,
-    tzUrl: 'https://app.notion.com/p/VAULT-1-TZ-1-0-4166f0cf570581cb9645f6a2120f4943',
+    tzUrl: 'https://app.notion.com/p/CASEC-1-TZ-1-0-4166f0cf570581cb9645f6a2120f4943',
   };
   const live = PromptCompiler.compile(planRequest({ role: { name: 'Coordinator', fn: 'Coordinator', zone }, mission: longMission }));
-  assert.ok(live.ok, `боевой SYN-3 собирается: ${live.error?.message}`);
+  assert.ok(live.ok, `боевой CASEB-3 собирается: ${live.error?.message}`);
   assert.ok(live.metrics.overheadChars <= 3400, `overhead ${live.metrics.overheadChars} ≤ 3400 (D-092)`);
 
   // Overhead не должен зависеть от длины данных: иначе следующий длинный URL
@@ -285,7 +285,7 @@ for (const req of cases) {
   // Боевой план из телеметрии — 7271 — обязан влезать: документированный
   // предел Coordinator 7500, и правка не должна ломать живую работу.
   const live = planRequest({
-    mission: { id: '4126f0cf-5705-819c-89c3-c1566cf5b67a', name: 'SYN-3 · Транспорт', round: 1, reworkLimit: 3 },
+    mission: { id: '4126f0cf-5705-819c-89c3-c1566cf5b67a', name: 'CASEB-3 · Транспорт', round: 1, reworkLimit: 3 },
     role: { name: 'Coordinator', fn: 'Coordinator', zone: 'a/**' },
     queue: { summary: '0 Submitted, 0 Running, 1 Ready', ready: 'Готовы: ' + 'X'.repeat(1030), answersLine: 'О'.repeat(2770) },
   });
@@ -321,9 +321,9 @@ for (const req of cases) {
 {
   const longZone = 'src/core/**, src/schema/**, src/i18n/**, tools/notice-verifier/**, contracts/**, docs/design/core/**, docs/decisions/**, package.json, NOTICE, tsconfig.json';
   const k21 = dispatchRequest('Executor', {
-    task: { ...task(), title: 'SYN-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций' },
+    task: { ...task(), title: 'CASEB-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций' },
     role: { name: 'Executor Core', fn: 'Executor', zone: longZone },
-    target: { repo: 'creative-textile/vault-core', baseBranch: 'main' },
+    target: { repo: 'example-org/fixture-source-core', baseBranch: 'main' },
   });
   const r = PromptCompiler.compile(k21);
   assert.ok(r.ok, `K-21 с длинной зоной компилируется: ${r.error?.message}`);
@@ -334,9 +334,9 @@ for (const req of cases) {
   assert.match(r.text, /gh pr merge <N> --squash/, 'команда мержа осталась в git.executor');
   // Overhead не зависит от длины зоны: зона — verbatim-факт, запас не съедается.
   const longer = PromptCompiler.compile(dispatchRequest('Executor', {
-    task: { ...task(), title: 'SYN-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций' },
+    task: { ...task(), title: 'CASEB-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций' },
     role: { name: 'Executor Core', fn: 'Executor', zone: `${longZone}, docs/adr/**, tools/**, src/**` },
-    target: { repo: 'creative-textile/vault-core', baseBranch: 'main' },
+    target: { repo: 'example-org/fixture-source-core', baseBranch: 'main' },
   }));
   assert.ok(longer.ok, 'ещё более длинная зона компилируется');
   assert.equal(longer.metrics.overheadChars, r.metrics.overheadChars, 'overhead не зависит от длины зоны (verbatim)');
@@ -363,7 +363,7 @@ for (const req of cases) {
   const longZone = 'src/core/**, src/schema/**, src/i18n/**, tools/notice-verifier/**, contracts/**, docs/design/core/**, docs/decisions/**, package.json, NOTICE, tsconfig.json';
   const big = {
     ...task(),
-    title: 'SYN-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций',
+    title: 'CASEB-1 · K-21 · Исправить offline NOTICE verifier без потери атрибуций',
     intent: 'Починить offline-верификатор NOTICE так, чтобы он проверял атрибуции без сети и не терял ни одной записи.',
     invariants: 'Существующие атрибуции сохраняются дословно; порядок записей не меняется; verifier работает полностью offline; ни одна лицензия не теряется; поведение остальных проверок не меняется. '.repeat(8),
     acceptance: 'node tools/notice-verifier/verify.mjs --offline возвращает 0; количество атрибуций в NOTICE равно количеству в реестре (253); grep -c attributions = 253; ни одна строка не потеряна; отчёт с SHA и кодом возврата; каждая проверка закрыта командой или артефактом. '.repeat(8),
@@ -387,7 +387,7 @@ for (const req of cases) {
 
 // 17б. D-072: агенту сказано, что вариант по умолчанию пишется целиком.
 // Раньше транспорт молча требовал ≤200 знаков, а промпт об этом не говорил:
-// 08.11 в 20:01 боевой SYN-3 дал полный вариант в 260 знаков и получил паузу
+// 08.11 в 20:01 боевой CASEB-3 дал полный вариант в 260 знаков и получил паузу
 // «ничего не усекал и приёмке не передал».
 {
   const plan = PromptCompiler.compile(planRequest()).text;
@@ -424,7 +424,7 @@ for (const req of cases) {
   };
   const k43 = {
     ...task(),
-    title: 'SYN-1 · K-43 · Возврат 1: снять устаревший комментарий examples/cycle.game.yaml (F-1 аудита K-41)',
+    title: 'CASEB-1 · K-43 · Возврат 1: снять устаревший комментарий examples/cycle.game.yaml (F-1 аудита K-41)',
     intent: sizeUp('Снять устаревший комментарий к примеру.', 944),
     invariants: sizeUp('YAML-данные не меняются.', 642),
     acceptance: sizeUp('grep -n на main не находит старой формулировки.', 2541),
@@ -451,12 +451,12 @@ for (const req of cases) {
 {
   const arbiter = (over = {}) => ({
     kind: 'arbiter', role: role('Reviewer', { name: 'Warden' }),
-    mission: { id: UUID.mission, name: 'SYN-2 · Мини-игра арены' },
+    mission: { id: UUID.mission, name: 'CASEB-2 · Мини-игра арены' },
     turnId: UUID.turn,
-    arbiter: { cardId: UUID.dispatch, cardTitle: 'SYN-2 · S-4 · Мини-игра арены',
+    arbiter: { cardId: UUID.dispatch, cardTitle: 'CASEB-2 · S-4 · Мини-игра арены',
       redispatchCount: 3, redispatchLimit: 3, windowHours: 6, reason: 'её видели в Rework',
       state: 'Ready', check: 'fail', answer: 'Scope blocker — не готов к мержу.',
-      pr: 'https://github.com/creative-textile/vault-core/pull/26', prState: 'draft, открыт',
+      pr: 'https://github.com/example-org/fixture-source-core/pull/26', prState: 'draft, открыт',
       attempts: '07.11 12:05 · dispatch · executor.card · Rework', queue: '1 Ready, 1 Rework' },
     delivery: { tier: 'full' }, ...over,
   });

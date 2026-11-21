@@ -1,6 +1,6 @@
 # Регламент команды War Of The Ring: Remaster
 
-Версия 1.1 · 2026-11-20 · владелец: Мастер · хранитель: Warden.
+Версия 1.2 · 2026-11-20 · владелец: Мастер · хранитель: Warden.
 
 Это полный источник процессных правил. Notion-копия: [«Регламент команды WOTR Remaster»](https://app.notion.com/p/WOTR-Remaster-41e6f0cf57058178ac91c320891b1d7b). Краткий вход для каждого хода лежит в `docs/regulation-digest.md` и вшивается в ScriptCat. Номер краткой и полной копий обязан совпадать; краткая копия не может разрешать запрещённое полной.
 
@@ -15,6 +15,7 @@
 | Godot world | 2.5D hex map, камера, ввод, HUD, визуализация состояния | `godot/wotr_remaster/world/**` |
 | Campaign editor | Campaign Pack, схемы, миграции, validation, undo/redo | `godot/wotr_remaster/editor/**`, campaign schemas |
 | OpenBFME tactical runtime | бой по правилам RotWK/BFME2, retail loader, Godot presentation | синхронизируемый код OpenBFME |
+| Player launcher/package | WOTR identity, retail discovery, signed update, one-archive start | адаптируемые `launcher/**`, `tools/release/**` |
 | Retail data | BFME2 1.06 и RotWK 2.01 пользователя | read-only вне Git-изменений продукта |
 | Agent transport | ScriptCat, relay build/watchdog, профиль проекта | `tools/script-cat/**`, `tools/relay-*.mjs` |
 | Process | фазы, миссии, решения, evidence | `docs/**`, четыре базы Notion |
@@ -38,6 +39,7 @@
 13. **Custom maps.** Карты, которых нет в RotWK 2.01, поставляются как лицензированные content-addressed Campaign Pack overlays с metadata/starts/profile, SHA-256 и provenance, а не как private loose path.
 14. **Локали.** Обязательный product baseline: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`. Locale и display strings не меняют simulation/save/network hash.
 15. **Минимально достаточная стоимость.** Карточка заранее объявляет build/retail Cost gate. Полная сборка движка и Drive hydration запускаются только по матрице `docs/agents/cost-gates.md`; успешный mock/focused test не отменяет обязательный полный или retail gate.
+16. **Обычный player entry.** Существующий launcher/one-archive pipeline адаптируется под WOTR; upstream binary без изменений и второй updater запрещены. Один архив → WOTR launcher → retail detection/selection → **Play WOTR Remaster**. Стратегия и tactical остаются одним game process; WOTR update data/settings/saves изолированы от upstream OpenBFME. Offline bundled start обязателен, а platform support заявляется только после fresh-profile oracle.
 
 Подробная схема: `docs/ARCHITECTURE.md` и принятые ADR в `docs/architecture/`.
 
@@ -81,7 +83,9 @@
 
 ## 5. Фазы и миссии
 
-План начинается с **фазы 1** и содержит фазы 1–8: `docs/PHASES.md`. Каждая фаза имеет минимум одну миссию. Активная разработка начинается с `WOTR-1.1`: карта → движение → OpenBFME tactical battle → полный результат → карта/save.
+План начинается с **фазы 1** и содержит фазы 1–8: `docs/PHASES.md`. Каждая фаза имеет минимум одну миссию. Активная разработка начинается с `WOTR-1.1`: карта → движение → OpenBFME tactical battle → полный результат → карта/save. После её принятия `WOTR-1.2` даёт первый portable player playtest через адаптированный launcher.
+
+Перед любыми рабочими карточками каждой миссии обязательна отдельная read-only карточка **B0 · репетиция оракула**. Её создаёт ассистент и ставит в `Ready`; остальные карточки создаёт только Coordinator после `Accepted` B0. B0 не реализует продукт, не запускает full build/retail hydration и перечисляет исполнимые команды/действия, prerequisites, negative cases и evidence для каждого пункта финального оракула.
 
 Миссия существует только при наличии:
 
@@ -138,9 +142,10 @@
 | Localization | catalog/coverage/generated checks + locale-invariant hash + target screenshots/font/input smoke; independent UX audit |
 | Legacy importer/maps | byte-stable import + stable-ID/provenance report + invalid-reference/capacity/fallback tests + license gate |
 | OpenBFME pin | C++/GDExtension build + focused upstream tests + WOTR regressions + retail smoke |
-| ScriptCat | build check + portability guard + smoke + regression + tool-limit suites |
+| Launcher/package | one audited archive + fresh-profile unpack/start + retail selection + offline/update/tamper/coexistence/direct-start negatives |
+| ScriptCat | build check + full-tree former-project guard + smoke + regression + tool-limit suites |
 
-Финальный gate `WOTR-1.1` выполняется в Arena с доступными retail BFME2/RotWK: strategic map → order → real OpenBFME battle → native result → same campaign state → save/load → equal canonical hash.
+Финальный gate `WOTR-1.1` выполняется в Arena с доступными retail BFME2/RotWK: strategic map → order → real OpenBFME battle → native result → same campaign state → save/load → equal canonical hash. Зависимый gate `WOTR-1.2` выполняется на каждой заявленной платформе из fresh profile: one archive → WOTR launcher → retail selection → Play → тот же native round-trip/save, плюс offline, signature/tamper и OpenBFME-coexistence negatives.
 
 ## 9. Save, hash и миграции
 

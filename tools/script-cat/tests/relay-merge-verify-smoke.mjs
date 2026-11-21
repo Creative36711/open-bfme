@@ -35,8 +35,8 @@ const refApi = new Function(
   `${src.slice(refFrom, refTo)}\nreturn { prRef, taskTargetRepository, canonicalTargetRepository };`,
 )({ repo: 'example/relay-fixture' }, (p) => (p?.rich_text || []).map((x) => x.plain_text || '').join(''), {
   legacy: false, repos: [
-    { repo: 'creative-textile/vault', branch: 'main' },
-    { repo: 'creative-textile/vault-core', branch: 'main' },
+    { repo: 'example-org/fixture-source', branch: 'main' },
+    { repo: 'example-org/fixture-source-core', branch: 'main' },
   ],
 });
 const { prRef, taskTargetRepository } = refApi;
@@ -49,17 +49,17 @@ assert.deepEqual(
   'ссылка',
 );
 assert.deepEqual(
-  prRef({ pr: 'https://github.com/creative-textile/vault-core/pull/5' }),
-  { repo: 'creative-textile/vault-core', number: 5 },
+  prRef({ pr: 'https://github.com/example-org/fixture-source-core/pull/5' }),
+  { repo: 'example-org/fixture-source-core', number: 5 },
   'чужой репозиторий берётся из ссылки',
 );
 assert.equal(prRef({ pr: null }), null, 'без PR — нечего проверять');
 assert.equal(prRef({ pr: 'none' }), null, '«none» — тоже');
 assert.equal(prRef(null), null, 'без ответа — тоже');
-assert.equal(taskTargetRepository({ properties: { Repository: { rich_text: [{ plain_text: 'creative-textile/vault-core' }] } }, }, 'creative-textile/vault'), 'creative-textile/vault-core', 'явный repo карточки приоритетнее профиля');
-assert.equal(taskTargetRepository({ properties: {} }, 'creative-textile/vault-core'), 'creative-textile/vault-core', 'старые карточки наследуют repo роли');
-assert.equal(taskTargetRepository({ properties: { Repository: { rich_text: [{ plain_text: 'vault-core' }] } }, }, 'creative-textile/vault'), 'creative-textile/vault-core', 'bare slug карточки разрешается в единственный репозиторий профиля');
-assert.equal(taskTargetRepository({ properties: {} }, 'vault-core'), 'creative-textile/vault-core', 'bare slug роли разрешается в репозиторий профиля');
+assert.equal(taskTargetRepository({ properties: { Repository: { rich_text: [{ plain_text: 'example-org/fixture-source-core' }] } }, }, 'example-org/fixture-source'), 'example-org/fixture-source-core', 'явный repo карточки приоритетнее профиля');
+assert.equal(taskTargetRepository({ properties: {} }, 'example-org/fixture-source-core'), 'example-org/fixture-source-core', 'старые карточки наследуют repo роли');
+assert.equal(taskTargetRepository({ properties: { Repository: { rich_text: [{ plain_text: 'fixture-source-core' }] } }, }, 'example-org/fixture-source'), 'example-org/fixture-source-core', 'bare slug карточки разрешается в единственный репозиторий профиля');
+assert.equal(taskTargetRepository({ properties: {} }, 'fixture-source-core'), 'example-org/fixture-source-core', 'bare slug роли разрешается в репозиторий профиля');
 
 // ensureMerged calls this fast boundary guard before verifyMergeClaim. It must
 // resolve the same configured cross-repository URL, or it masks the later fix.
@@ -71,20 +71,20 @@ assert.equal(taskTargetRepository({ properties: {} }, 'vault-core'), 'creative-t
     'C', 'ACTIVE_PROFILE', 'hasMergedClaim',
     `${src.slice(refFrom, refTo)}\n${src.slice(boundaryFrom, boundaryTo)}\nreturn { projectPrBoundary };`,
   )(
-    { repo: 'creative-textile/vault' },
+    { repo: 'example-org/fixture-source' },
     { legacy: false, repos: [
-      { repo: 'creative-textile/vault', branch: 'main' },
-      { repo: 'creative-textile/vault-core', branch: 'main' },
+      { repo: 'example-org/fixture-source', branch: 'main' },
+      { repo: 'example-org/fixture-source-core', branch: 'main' },
     ] },
     (result) => result?.merged === true,
   ).projectPrBoundary;
   assert.equal(
-    boundary({ pr: 'https://github.com/creative-textile/vault-core/pull/5' }, 'creative-textile/vault'),
+    boundary({ pr: 'https://github.com/example-org/fixture-source-core/pull/5' }, 'example-org/fixture-source'),
     '',
-    'configured vault PR is not stopped by the early boundary check',
+    'configured fixture-source PR is not stopped by the early boundary check',
   );
   assert.match(
-    boundary({ pr: 'https://github.com/unknown/repo/pull/5' }, 'creative-textile/vault'),
+    boundary({ pr: 'https://github.com/unknown/repo/pull/5' }, 'example-org/fixture-source'),
     /PR относится к unknown\/repo/,
     'unconfigured repo remains a boundary',
   );
@@ -147,34 +147,34 @@ assert.equal(closed.status, 'closed', 'закрытый без мержа — т
 // Полная ссылка может задавать другой репозиторий только если тот входит в
 // whitelist профиля; базовый репозиторий и ветка всё равно проверяются.
 {
-  const crossRepoUrl = 'https://github.com/creative-textile/vault-core/pull/5';
+  const crossRepoUrl = 'https://github.com/example-org/fixture-source-core/pull/5';
   const api = makeVerify({
     merged: true,
     merged_at: '2026-11-03T11:40:26Z',
-    base: { repo: { full_name: 'creative-textile/vault-core' }, ref: 'main' },
+    base: { repo: { full_name: 'example-org/fixture-source-core' }, ref: 'main' },
   }, undefined, { legacy: false, repos: [
     { repo: 'example/relay-fixture', branch: 'main' },
-    { repo: 'creative-textile/vault-core', branch: 'main' },
+    { repo: 'example-org/fixture-source-core', branch: 'main' },
   ] });
   const check = await api.verifyMergeClaim({ pr: crossRepoUrl }, 'ghp_token', { repo: 'example/relay-fixture', branch: 'main' });
   assert.equal(check.status, 'merged', 'разрешённый URL repo переопределяет неверный repo ожидания');
-  assert.match(api.calls[0].url, /repos\/creative-textile\/vault-core\/pulls\/5/, 'GitHub запрошен по репозиторию URL');
+  assert.match(api.calls[0].url, /repos\/example-org\/fixture-source-core\/pulls\/5/, 'GitHub запрошен по репозиторию URL');
 }
 {
   const api = makeVerify({
     merged: true,
     merged_at: '2026-11-03T11:40:26Z',
-    base: { repo: { full_name: 'creative-textile/vault' }, ref: 'main' },
+    base: { repo: { full_name: 'example-org/fixture-source' }, ref: 'main' },
   }, undefined, { legacy: false, repos: [
-    { repo: 'creative-textile/vault', branch: 'main' },
-    { repo: 'creative-textile/vault-core', branch: 'main' },
+    { repo: 'example-org/fixture-source', branch: 'main' },
+    { repo: 'example-org/fixture-source-core', branch: 'main' },
   ] });
-  const check = await api.verifyMergeClaim({ pr: 5 }, 'ghp_token', { repo: 'vault', branch: 'main' });
+  const check = await api.verifyMergeClaim({ pr: 5 }, 'ghp_token', { repo: 'fixture-source', branch: 'main' });
   assert.equal(check.status, 'merged', 'старое targetRepo со slug нормализуется перед проверкой');
-  assert.match(api.calls[0].url, /repos\/creative-textile\/vault\/pulls\/5/, 'slug никогда не уходит в GitHub API как owner/repo');
+  assert.match(api.calls[0].url, /repos\/example-org\/fixture-source\/pulls\/5/, 'slug никогда не уходит в GitHub API как owner/repo');
 }
 {
-  const api = makeVerify({ merged: true }, undefined, { legacy: false, repos: [{ repo: 'creative-textile/vault', branch: 'main' }] });
+  const api = makeVerify({ merged: true }, undefined, { legacy: false, repos: [{ repo: 'example-org/fixture-source', branch: 'main' }] });
   const check = await api.verifyMergeClaim({ pr: 5 }, '', { repo: 'nowhere', branch: 'main' });
   assert.equal(check.status, 'boundary', 'неразрешимый bare slug отвергается до сети');
   assert.equal(api.calls.length, 0, 'не отправляется ошибочный /repos/nowhere запрос');
@@ -182,7 +182,7 @@ assert.equal(closed.status, 'closed', 'закрытый без мержа — т
 {
   const api = makeVerify({ merged: true, base: { repo: { full_name: 'unknown/repo' }, ref: 'main' } }, undefined, { legacy: false, repos: [
     { repo: 'example/relay-fixture', branch: 'main' },
-    { repo: 'creative-textile/vault-core', branch: 'main' },
+    { repo: 'example-org/fixture-source-core', branch: 'main' },
   ] });
   const check = await api.verifyMergeClaim({ pr: 'https://github.com/unknown/repo/pull/5' }, 'ghp_token', { repo: 'example/relay-fixture', branch: 'main' });
   assert.equal(check.status, 'boundary', 'неизвестный репозиторий не принимается');
@@ -201,7 +201,7 @@ assert.ok(missingApi.calls[2].url.endsWith('/repos/example/relay-fixture'), 'п�
 assert.equal(missingApi.calls[2].options.anonymous, true, 'диагностический repo-запрос тоже строго анонимный');
 
 // Если сохранённый токен получает 404, публичный PR должен проверяться
-// анонимным повтором. Это покрывает PR #5 в creative-textile/vault-core: merged.
+// анонимным повтором. Это покрывает PR #5 в example-org/fixture-source-core: merged.
 {
   const api = makeVerify(({ headers }) => {
     if (headers.Authorization) return Object.assign(new Error('HTTP 404: Not Found'), { status: 404 });

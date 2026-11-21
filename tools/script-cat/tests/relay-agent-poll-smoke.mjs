@@ -1,6 +1,6 @@
 // Проба 1.4.63: агент спросил вместо работы — цикл отвечает сам.
 //
-// 24.10 в 17:25 Kernel на середине NAR-1.12 остановился и выставил опрос
+// 24.10 в 17:25 FixtureExecutor на середине CASEA-1.12 остановился и выставил опрос
 // «May I expand the write zone for this task?»: варианты, свободное поле и
 // `Skip`. Для транспорта это конец хода без маркера — работа не сдана, карточка
 // висит в Running, а напоминание уходит агенту, который просто ждёт ответа.
@@ -124,7 +124,7 @@ function makePollApi(groups) {
     },
     { pollPauseCount: 3 },
     (reason, context) => pauses.push({ reason, context }),
-    { pathname: '/agent/kernel' },
+    { pathname: '/agent/fixtureExecutor' },
     { KeyboardEvent: class KE { constructor(type) { this.type = type; } } },
     (node) => node.id.replace('chat-message-', ''),
     () => true,
@@ -168,7 +168,7 @@ function makePollApi(groups) {
   const bundle = makeGroup('Rebuild the tracked CLI bundle?', ['Allow', 'Do not']);
   const api = makePollApi([zone, bundle]);
   const result = await api.answerPolls(
-    { name: 'Kernel' },
+    { name: 'FixtureExecutor' },
     { runId: 'run-1', ref: 'card-1', logId: 'log-1' },
   );
   assert.equal(result, 'answered', 'опрос разобран');
@@ -177,7 +177,7 @@ function makePollApi(groups) {
   assert.equal(zone.submit.clicks, 1, 'первый вопрос отправлен кнопкой Submit');
   assert.equal(bundle.submit.clicks, 1, 'второй вопрос тоже');
   assert.ok(!events.includes('May I expand the write zone for this task?:input') === false, 'поле правится событием input, а не напрямую');
-  assert.ok(logged.some((l) => /Kernel спросил вместо работы/.test(l.text)), 'вопрос назван в журнале');
+  assert.ok(logged.some((l) => /FixtureExecutor спросил вместо работы/.test(l.text)), 'вопрос назван в журнале');
   assert.ok(
     logged.filter((l) => /спросил вместо работы/.test(l.text)).length === 2,
     'в журнале оба вопроса, а не первый',
@@ -199,8 +199,8 @@ function makePollApi(groups) {
   journal.length = 0;
   const zone = makeGroup('May I expand the write zone for this task?', ['Yes', 'No']);
   const api = makePollApi([zone]);
-  const first = await api.answerPolls({ name: 'Kernel' }, { runId: 'run-2', ref: 'card-2' });
-  const second = await api.answerPolls({ name: 'Kernel' }, { runId: 'run-2', ref: 'card-2' });
+  const first = await api.answerPolls({ name: 'FixtureExecutor' }, { runId: 'run-2', ref: 'card-2' });
+  const second = await api.answerPolls({ name: 'FixtureExecutor' }, { runId: 'run-2', ref: 'card-2' });
   assert.equal(first, 'answered', 'первый раз отвечаем');
   assert.equal(second, 'waiting', 'второй раз только ждём');
   assert.equal(zone.submit.clicks, 1, 'второй отправки нет');
@@ -210,7 +210,7 @@ function makePollApi(groups) {
 {
   store.clear();
   const api = makePollApi([]);
-  assert.equal(await api.answerPolls({ name: 'Kernel' }, null), null, 'нет опроса — нет работы');
+  assert.equal(await api.answerPolls({ name: 'FixtureExecutor' }, null), null, 'нет опроса — нет работы');
 }
 
 // 2.5. Свободного поля нет — только тогда Skip, и об этом сказано прямо.
@@ -220,7 +220,7 @@ function makePollApi(groups) {
   pauses.length = 0;
   const noField = makeGroup('Разрешить расширение зоны?', ['Да', 'Нет'], { input: false });
   const api = makePollApi([noField]);
-  const result = await api.answerPolls({ name: 'Kernel' }, { runId: 'run-3', ref: 'card-3' });
+  const result = await api.answerPolls({ name: 'FixtureExecutor' }, { runId: 'run-3', ref: 'card-3' });
   assert.equal(result, 'waiting', 'ответить некуда — работа не считается сделанной');
   assert.equal(noField.skip.clicks, 1, 'Skip нажимается только здесь');
   assert.ok(logged.some((l) => /Skip нажат, но опрос не исчез.*не подтверждено/.test(l.text)), 'неподтверждённый Skip назван честно');
@@ -235,7 +235,7 @@ function makePollApi(groups) {
   logged.length = 0;
   const slow = makeGroup('May I expand the write zone?', ['Yes', 'No'], { staleFor: 3 });
   const api = makePollApi([slow]);
-  const result = await api.answerPolls({ name: 'Kernel' }, { runId: 'run-5', ref: 'card-5' });
+  const result = await api.answerPolls({ name: 'FixtureExecutor' }, { runId: 'run-5', ref: 'card-5' });
   assert.equal(result, 'answered', 'дождались включения кнопки и отправили');
   assert.equal(slow.submit.sent, api.POLL_REPLY, 'текст ушёл именно через Submit');
   assert.ok(!logged.some((l) => /нажал Skip/.test(l.text)), 'Skip не понадобился');
@@ -248,7 +248,7 @@ function makePollApi(groups) {
   for (let i = 1; i <= 3; i += 1) {
     const g = makeGroup(`Вопрос ${i}`, ['Да', 'Нет']);
     const api = makePollApi([g]);
-    await api.answerPolls({ name: 'Kernel' }, { runId: 'run-4', ref: 'card-4' });
+    await api.answerPolls({ name: 'FixtureExecutor' }, { runId: 'run-4', ref: 'card-4' });
   }
   assert.equal(pauses.length, 1, 'третий опрос подряд ставит цикл на паузу');
   assert.match(pauses[0].reason, /спрашивает вместо работы 3 раз за ход/, 'причина названа');

@@ -1,6 +1,6 @@
 // D-037: сторож ADR обходит ВСЕ репозитории профиля, а не только главный.
-// Боевой сценарий SYN-1: главный репозиторий (vault) не содержит
-// docs/decisions (404), предложение лежит во втором репозитории (vault).
+// Боевой сценарий CASEB-1: главный репозиторий (fixture-workspace) не содержит
+// docs/decisions (404), предложение лежит во втором репозитории (fixture-workspace).
 // Раньше сторож читал только C.repo, поэтому полный текст с Git blob SHA
 // никогда не дописывался в вопрос и предохранитель не пропускал его к приёмке.
 // Здесь исполняются настоящие блоки ScriptCat против модели GitHub/хранилища.
@@ -39,7 +39,7 @@ function makeStore(initial = {}) {
 }
 
 // Модель GitHub: главный репозиторий без папки decisions (404), второй — с proposed.
-function githubModel({ mainHasFolder = false, secondFile = 'SYN-1.md' } = {}) {
+function githubModel({ mainHasFolder = false, secondFile = 'CASEB-1.md' } = {}) {
   const calls = [];
   const request = async (_method, url) => {
     calls.push(url);
@@ -85,7 +85,7 @@ function runRefresh({ store, request, repos, deliveries, decided = new Set() }) 
   const refreshDecisions = runRefresh({ store, request, repos, deliveries });
   const rows = await refreshDecisions(true);
   assert.equal(rows.length, 1, 'предложение из второго репозитория найдено');
-  assert.equal(rows[0].file, 'SYN-1.md');
+  assert.equal(rows[0].file, 'CASEB-1.md');
   assert.equal(rows[0].repo, SECOND, 'строка помнит свой репозиторий');
   assert.equal(rows[0].branch, 'main');
   assert.equal(rows[0].sha, sha);
@@ -94,8 +94,8 @@ function runRefresh({ store, request, repos, deliveries, decided = new Set() }) 
   assert.ok(calls.some((u) => u.includes(`${SECOND}/contents/docs/decisions?`)), 'второй репозиторий опрошен');
   // Кэш составной: ключ включает репозиторий.
   const texts = store.get('cfn-adr-text', {});
-  assert.ok(texts[`${SECOND}/SYN-1.md`], 'кэш по составному ключу repo/file');
-  assert.equal(texts[`${SECOND}/SYN-1.md`].content, content);
+  assert.ok(texts[`${SECOND}/CASEB-1.md`], 'кэш по составному ключу repo/file');
+  assert.equal(texts[`${SECOND}/CASEB-1.md`].content, content);
 }
 
 // 2. Если главный репозиторий тоже содержит папку decisions, обходятся оба.
@@ -128,15 +128,15 @@ function runRefresh({ store, request, repos, deliveries, decided = new Set() }) 
 
 // 4. Плоский кэш до D-037 переносится под ключ главного репозитория и не смешивается.
 {
-  const store = makeStore({ 'cfn-adr-text': { 'SYN-1.md': { sha, status: 'proposed', content } } });
+  const store = makeStore({ 'cfn-adr-text': { 'CASEB-1.md': { sha, status: 'proposed', content } } });
   const { request } = githubModel();
   const deliveries = [];
   const repos = [{ repo: MAIN, branch: 'main', main: true }, { repo: SECOND, branch: 'main' }];
   await runRefresh({ store, request, repos, deliveries })(true);
   const texts = store.get('cfn-adr-text', {});
-  assert.equal(texts['SYN-1.md'], undefined, 'плоский ключ убран');
-  assert.ok(texts[`${MAIN}/SYN-1.md`], 'старый кэш перенесён под главный репозиторий');
-  assert.ok(texts[`${SECOND}/SYN-1.md`], 'кэш второго репозитория отдельно');
+  assert.equal(texts['CASEB-1.md'], undefined, 'плоский ключ убран');
+  assert.ok(texts[`${MAIN}/CASEB-1.md`], 'старый кэш перенесён под главный репозиторий');
+  assert.ok(texts[`${SECOND}/CASEB-1.md`], 'кэш второго репозитория отдельно');
 }
 
 // 5. proposalQuestion строит ссылку из репозитория/ветки самого предложения.
@@ -145,14 +145,14 @@ function runRefresh({ store, request, repos, deliveries, decided = new Set() }) 
     'ADR_FOLDER', 'C', 'fullQuestionText',
     `${proposalBlock}\nreturn { proposalQuestion };`,
   )('docs/decisions', { repo: MAIN, branch: 'main' }, (s) => String(s).trim());
-  const q = proposalQuestion({ file: 'SYN-1.md', sha, content, repo: SECOND, branch: 'release/2' }, 'SYN-1');
-  assert.equal(q.url, `https://github.com/${SECOND}/blob/release/2/docs/decisions/SYN-1.md`, 'ссылка ведёт в репозиторий предложения');
+  const q = proposalQuestion({ file: 'CASEB-1.md', sha, content, repo: SECOND, branch: 'release/2' }, 'CASEB-1');
+  assert.equal(q.url, `https://github.com/${SECOND}/blob/release/2/docs/decisions/CASEB-1.md`, 'ссылка ведёт в репозиторий предложения');
   assert.ok(q.fullText.includes(q.url), 'ссылка доступна приёмке');
   assert.ok(q.fullText.includes(`${SECOND}@release/2`), 'репозиторий и ветка названы в тексте');
   assert.ok(q.fullText.includes(`CF_ADR_CONTENT ${sha}`), 'маркер полного текста на месте');
   // Без repo/branch в строке — наследие главного репозитория.
-  const legacy = proposalQuestion({ file: 'SYN-1.md', sha, content }, 'SYN-1');
-  assert.equal(legacy.url, `https://github.com/${MAIN}/blob/main/docs/decisions/SYN-1.md`);
+  const legacy = proposalQuestion({ file: 'CASEB-1.md', sha, content }, 'CASEB-1');
+  assert.equal(legacy.url, `https://github.com/${MAIN}/blob/main/docs/decisions/CASEB-1.md`);
 }
 
 // 6. Ключ дедупликации включает репозиторий, когда он известен.
@@ -164,15 +164,15 @@ function runRefresh({ store, request, repos, deliveries, decided = new Set() }) 
   )(
     'docs/decisions', 'proposed',
     async (q, ctx) => { calls.push({ q, ctx }); return null; },
-    async () => ({ id: 'mission', properties: { 'Миссия': { title: [{ plain_text: 'SYN-1' }] } } }),
+    async () => ({ id: 'mission', properties: { 'Миссия': { title: [{ plain_text: 'CASEB-1' }] } } }),
     (p) => (p?.rich_text || p?.title || []).map((x) => x.plain_text || '').join(''),
     () => {}, async () => [], { done: 'Решено', byDefault: 'Принят дефолт' }, (p) => p?.select?.name || '',
     { repo: MAIN }, (s) => String(s).trim(),
     () => new Set(), (file) => String(file || '').replace(/\.md$/i, '').toLowerCase(), () => {},
   );
-  await deliverProposals([{ file: 'SYN-1.md', sha, content, repo: SECOND, branch: 'main' }]);
+  await deliverProposals([{ file: 'CASEB-1.md', sha, content, repo: SECOND, branch: 'main' }]);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].ctx.key, `adr-full:${SECOND}/SYN-1.md:${sha}`, 'ключ включает репозиторий');
+  assert.equal(calls[0].ctx.key, `adr-full:${SECOND}/CASEB-1.md:${sha}`, 'ключ включает репозиторий');
 }
 
 console.log('OK: D-037 — сторож ADR обходит все репозитории профиля; 404 главного не роняет обход; предложение второго репозитория доходит до доставки');

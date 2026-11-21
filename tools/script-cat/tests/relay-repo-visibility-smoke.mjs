@@ -1,8 +1,8 @@
-// Проба D-086 в однократном контуре Vault: репозиторий один, но правила остались.
+// Проба D-086 в однократном контуре FixtureWorkspace: репозиторий один, но правила остались.
 //
 // Мастер: «кто к какому репозиторию подключён, тот тот и правит; подключение —
-// в Notion, база «Роли», поле «Репозиторий»». У Vault это один
-// `creative-textile/vault`, поэтому проверяется не «два репозитория», а три
+// в Notion, база «Роли», поле «Репозиторий»». У FixtureWorkspace это один
+// `example-org/fixture-source`, поэтому проверяется не «два репозитория», а три
 // вещи, которые ломаются и на одном:
 //   • сверка редакции ТЗ читает репозиторий документов, а не сессии (в форке
 //     они разные, и это должно работать без правки кода);
@@ -62,16 +62,20 @@ assert.match(upload, /contents\/\$\{encodeURI\(path\)\}/, 'путь пишетс
 // продолжала говорить «Версия ТЗ 1.5». Гейт сверки такой документ считал бы
 // опубликованным, потому что читает одну шапку из двух.
 //
-// WOTR has a published phase plan and an active mission spec. Their revisions
-// are compared directly; the generic template intentionally keeps <N.M>.
+// WOTR has an independently versioned phase plan and mission specifications.
+// The plan may advance when a dependent mission is added without rewriting the
+// accepted active-mission specification; both versions must remain explicit.
 {
   const plan = readFileSync(new URL('../../../docs/PHASES.md', import.meta.url), 'utf8');
   const mission = readFileSync(new URL('../../../docs/missions/WOTR-1.1.md', import.meta.url), 'utf8');
+  const packageMission = readFileSync(new URL('../../../docs/missions/WOTR-1.2.md', import.meta.url), 'utf8');
   const inPlan = plan.match(/Редакция\s+(\d+\.\d+)/i);
   const inMission = mission.match(/ТЗ\s+(\d+\.\d+)/);
+  const inPackageMission = packageMission.match(/Specification version:\s*\*\*(\d+\.\d+)\*\*/);
   assert.ok(inPlan, 'в шапке плана назван номер редакции');
-  assert.ok(inMission, 'в шапке активной миссии назван номер ТЗ');
-  assert.equal(inPlan[1], inMission[1], 'редакции плана и активной миссии совпадают');
+  assert.equal(inMission?.[1], '1.1', 'активное WOTR-1.1 ТЗ сохраняет принятую редакцию');
+  assert.equal(inPackageMission?.[1], '1.0', 'зависимая WOTR-1.2 имеет собственную версию');
+  assert.match(plan, /WOTR-1\.2 · Player entry and portable playtest package/, 'план ссылается на зависимую player-package миссию');
   const declared = plan.slice(0, 1200).match(/Редакция\s*\**\s*(\d+\.\d+)/i);
   assert.ok(declared, 'в шапке плана назван номер редакции');
   // Номер редакции сравнивается попарно, а не как дробь: `Number("1.10")` = 1.1,
@@ -99,6 +103,6 @@ assert.match(upload, /contents\/\$\{encodeURI\(path\)\}/, 'путь пишетс
 assert.match(src, /@version\s+1\.(?:14\.(?:1[6-9]|2[0-9]|3[0-9])|1[5-9]\.\d+)/, 'сборка не старее 1.14.16');
 const decisions = readFileSync(new URL('../upstream-fixtures/docs/DECISIONS.md', import.meta.url), 'utf8');
 assert.match(decisions, /## D-086/, 'решение D-086 в журнале');
-assert.match(decisions, /creative-textile\/vault/, 'целевой репозиторий записан, а не подразумевается');
+assert.match(decisions, /example-org\/fixture-source/, 'целевой репозиторий записан, а не подразумевается');
 
 console.log('ok 1 - tests/relay-repo-visibility-smoke.mjs');

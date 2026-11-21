@@ -44,7 +44,7 @@ const card = '4016f0cf-5705-81f4-8e07-d987ab5f34db';
 const task = (run) =>
   [
     'Технический блок: ветка-снимок …',
-    `Задача NAR-5.3 · Пак state-ui, часть 1: автомат состояний (dispatch ${card}, run ${run}).`,
+    `Задача CASEA-5.3 · Пак state-ui, часть 1: автомат состояний (dispatch ${card}, run ${run}).`,
     'ЦЕЛЬ И ГРАНИЦЫ',
   ].join('\n');
 
@@ -77,8 +77,8 @@ function saysWith({ nodes, known = [], dead = '', times = {} } = {}) {
 }
 
 const node = (id, text) => ({ id: `chat-message-${id}`, textContent: text });
-const oldReply = node(NODE_OLD, `Задача NAR-5.3 … (${first}).`);
-const newReply = node(NODE_NEW, `Задача NAR-5.3 … (${second}).`);
+const oldReply = node(NODE_OLD, `Задача CASEA-5.3 … (${first}).`);
+const newReply = node(NODE_NEW, `Задача CASEA-5.3 … (${second}).`);
 
 // Случай 19:38: в чате только прошлая выдача, новой нет.
 const onlyOld = saysWith({ nodes: [oldReply], known: [NODE_OLD] });

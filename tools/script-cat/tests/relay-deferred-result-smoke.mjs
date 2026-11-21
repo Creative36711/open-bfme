@@ -75,8 +75,8 @@ function heldEvent(kind = 'dispatch', overrides = {}) {
     sourceRoleId: UUID.role,
     answer: 'Keep the current API; verify the boundary with the contract test.',
     question: 'Should the API stay stable?',
-    card: 'SYN-1.4 · API',
-    mission: 'SYN-1',
+    card: 'CASEB-1.4 · API',
+    mission: 'CASEB-1',
     missionId: UUID.mission,
     turnId: UUID.returnTurn,
     deferred,
@@ -207,7 +207,7 @@ function makeReturnApi(state = new Map(), pauses = []) {
     report: 'logs/run.md', question: { text: 'Should the API stay stable?', default: 'Keep it stable' },
   };
   const result = await defer('question payload', 'continue by default', {
-    roleName: 'Builder', roleId: UUID.role, missionId: UUID.mission, mission: 'SYN-1', card: 'SYN-1.4',
+    roleName: 'Builder', roleId: UUID.role, missionId: UUID.mission, mission: 'CASEB-1', card: 'CASEB-1.4',
   }, original, 'CF_AGENT_RESULT', decision);
   assert.equal(result.held, true, 'result processing pauses for the explicit gate');
   assert.equal(result.queued, true, 'question and deferred decision remain queued');
