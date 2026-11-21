@@ -129,6 +129,41 @@ git quotes the non-ASCII path before the glob matcher sees it. Running the same 
 gives «26 файлов, все в зоне». Fixing `preflight.mjs` is
 transport work outside this card.
 
+## Pull request checks
+
+`Commit gate on the pull request's changes` passes: `python3 tools/precommit.py` over the staged
+26 files. `Workflow lint (actionlint, zizmor)`, `Reference MP3 fixtures`, `Linux engine build and
+unit tests`, `macOS arm64 build and unit tests`, `Windows MSVC build and unit tests (build.bat)`,
+`Windows cross build (llvm-mingw, compile only)`, `Windows tests` and both sanitizer jobs are
+green.
+
+`Public tree audit (the built-in rules)` is red, and it is red on `main` in exactly the same way.
+The audit reports two findings, neither of them produced by this change:
+
+```
+PR AUDIT: not a public top-level entry: campaigns
+PR AUDIT: developer-machine path in engine/tests/WotrRemaster/test_pack.cpp
+```
+
+They arrived with `c39c2cd` (`WOTR-1.1-K2: deterministic WotR Remaster strategic core`, PR #7).
+Verified on both trees from the same checkout, so the comparison is not a claim about logs:
+
+| Command | Findings |
+|---|---|
+| `python3 tools/release/pr_audit.py --tree "$(git rev-parse 'HEAD^1^{tree}')"` (`main`) | FAILED, the two lines above |
+| `python3 tools/release/pr_audit.py --tree "$(git rev-parse 'HEAD^{tree}')"` (this branch) | FAILED, the same two lines, no additional finding |
+
+The Python step behind the audit does not run in CI once the audit fails; run directly, the same
+state is visible in `tools/release/test_autorelease.py::test_audit_tree_of_the_real_public_tree`
+(fails on the real tree for these two findings; 272 neighbouring tests of that file pass), while
+`tools/release/test_public_push_guard.py` is green (16 passed).
+
+Both findings sit in `engine/**` and `campaigns/**`, outside the transport zone, so they are not
+fixed here: a top-level `campaigns/` entry and a `/home/author/...` fixture path inside a test are
+the K2 card's own release-boundary decision (remove the entry from the public top level, or name
+the path in a form the audit accepts). This release does not merge on top of a red audit by
+editing another card's files.
+
 ## Release boundary
 
 This evidence accepts the deterministic repository artifact and the bounded local gates
