@@ -25,6 +25,35 @@ theirs = newly fetched OpenBFME SHA
 That has the conflict behaviour of a normal downstream merge while keeping
 unreachable historical LFS objects out of pushes.
 
+## Pin file format
+
+`OPENBFME_UPSTREAM` is a key=value record, not a bare SHA:
+
+```text
+# Machine-readable upstream pin for WOTR Remaster.
+repository=https://github.com/Open-BFME/openbfme-godot.git
+tag=v0.4.12-nightly.261118100
+commit=4a8d82727c2664c381b7b1c07344881760c4765b
+license=GPL-3.0
+pinned_at=2026-11-20
+```
+
+`commit=` and `tag=` are one exact pair, and the sync tool enforces it:
+
+1. `commit=` must be a 40-hex SHA and `tag=`/`repository=` must be present;
+2. the fetched remote's URL must equal `repository=` (a stray remote cannot
+   stand in for the pinned source);
+3. `refs/tags/<tag>` on that remote must peel to exactly `commit=` before any
+   merge is offered — a mismatch aborts, so the pin is never silently bumped
+   or overridden locally;
+4. an update rewrites only `commit=`, `tag=` (a tag that peels to the new
+   commit; an untagged tip is refused) and `pinned_at=`, leaving the header,
+   `repository=` and `license=` byte-identical.
+
+`tools/arena/sync_upstream.sh --check` is the read-only verification: exit 0
+means the pair is intact; it also prints the base/next SHAs, and `Already
+current.` means the working tree already carries the pinned upstream commit.
+
 ## Remotes and commands
 
 One-time local setup:
@@ -47,12 +76,21 @@ tools/arena/sync_upstream.sh
 
 The script:
 
-1. fetches `upstream/main` without tags;
-2. merges old upstream / downstream HEAD / new upstream at tree level;
-3. leaves real conflicts in the index for review;
-4. rejects a resulting tree containing Git LFS pointers;
-5. updates `OPENBFME_UPSTREAM` only after a conflict-free merge;
-6. stages changes but never commits or pushes automatically.
+1. verifies the pin (`repository=` equals the remote URL, `tag=` peels to
+   `commit=`);
+2. fetches `upstream/main` and the pinned tag without importing tags;
+3. merges old upstream / downstream HEAD / new upstream at tree level;
+4. leaves real conflicts in the index for review;
+5. rejects a resulting tree containing Git LFS pointers;
+6. updates `OPENBFME_UPSTREAM` only after a conflict-free merge, and only the
+   `commit=`/`tag=`/`pinned_at=` lines of the key=value record;
+7. stages changes but never commits or pushes automatically.
+
+Every accepted sync records its evidence (old/new commit, upstream range,
+`LICENSE`/`NOTICE` delta, each touched WOTR-owned path and every conflict
+decision) as a report artifact under the Drive folder
+`Arena/wotr-remaster/artifacts/`, named
+`<dispatch_id>_<run_id>__<slug>.md`.
 
 ## Pin, do not float at runtime
 
