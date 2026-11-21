@@ -27,9 +27,9 @@
 |---|---|---|
 | WOTR-1.1 mission | `41e6f0cf-5705-819a-a3ba-c15034fef51e` | Active |
 | WOTR-1.1 B0 | `41e6f0cf-5705-818e-8c4f-ce0f5c0df68e` | Ready |
-| WOTR-1.2 mission | `41f6f0cf-5705-8139-9897-eaf4f79e4799` | Draft; no request cards until accepted WOTR-1.1 |
+| WOTR-1.2 mission | `41f6f0cf-5705-8139-9897-eaf4f79e4799` | Draft; no live request cards; preparation not authorized |
 
-WOTR-1.2 has no live row in «Запросах». Its B0 is intentionally deferred until WOTR-1.1 is accepted on integrated `main`.
+WOTR-1.2 has no live row in «Запросах»; its prematurely created B0 is in trash. Do not create a replacement or start preparation after WOTR-1.1 automatically: a separate future decision is required.
 
 ## Profile values
 

@@ -32,7 +32,7 @@
 
 ### WOTR-1.2 · Player entry and portable playtest package
 
-Зависит от принятой WOTR-1.1. Существующий OpenBFME launcher и one-archive pipeline адаптируются как WOTR product flavor: один распаковываемый архив на заявленную платформу, WOTR identity/route, отдельные update data/settings/saves, retail detection, offline start, signed updates и fail-closed package audit. Стратегия и tactical runtime остаются одним native game process; новый updater не создаётся. До любых рабочих карточек обязательна отдельная B0-репетиция оракула. Подробное ТЗ: `docs/missions/WOTR-1.2.md`.
+Зависит от принятой WOTR-1.1, но снятие этой зависимости само по себе не запускает подготовку: для старта WOTR-1.2 требуется отдельное будущее решение. Существующий OpenBFME launcher и one-archive pipeline адаптируются как WOTR product flavor: один распаковываемый архив на заявленную платформу, WOTR identity/route, отдельные update data/settings/saves, retail detection, offline start, signed updates и fail-closed package audit. Стратегия и tactical runtime остаются одним native game process; новый updater не создаётся. После отдельного решения о подготовке первой карточкой должна стать B0-репетиция оракула. Подробное ТЗ: `docs/missions/WOTR-1.2.md`.
 
 Выход: первый внутренний playtest, который обычный тестер запускает через **Play WOTR Remaster** без checkout, build tools, environment variables или developer CLI. Public release остаётся заблокирован history/license/signing gates; непроверенная платформа не называется поддерживаемой.
 
@@ -94,6 +94,6 @@ Advanced planning AI, deterministic lockstep command stream, desync detection, r
 
 ## Активность
 
-Активная фаза: **1**. Текущий принимаемый результат: **WOTR-1.1**. Пока она не принята на integrated `main`, `WOTR-1.2` остаётся черновиком без карточек в «Запросах», включая B0. Только после принятия WOTR-1.1 ассистент создаёт B0 для WOTR-1.2; остальные карточки Coordinator нарезает после `Accepted` этой B0. Остальные миссии остаются черновиками до прохождения зависимостей своей фазы.
+Активная фаза: **1**. Текущий принимаемый результат: **WOTR-1.1**. `WOTR-1.2` остаётся черновиком без живых карточек в «Запросах», включая B0; её преждевременно созданная B0 архивирована. Сначала Coordinator нарезает реализацию WOTR-1.1, и команда завершает эту миссию. Даже принятие WOTR-1.1 не создаёт новую WOTR-1.2 B0 автоматически: подготовка WOTR-1.2 ждёт отдельного будущего решения. Остальные миссии остаются черновиками до прохождения зависимостей своей фазы и отдельного решения об их подготовке.
 
 Рекомендуемый release milestone после фазы 3 — публичный alpha только при зелёных retail-history, license/provenance, signing и fresh-profile package gates. Это не календарное обещание и не разрешение публикации из ранних фаз.

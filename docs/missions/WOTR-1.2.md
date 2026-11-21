@@ -8,17 +8,21 @@ Normative decisions: [ADR-001](../architecture/ADR-001-GODOT-NATIVE-WOTR.md),
 
 ## 1. Dependency and start gate
 
-This mission starts only after `WOTR-1.1` is accepted on an integrated `main`
-SHA. It consumes the accepted explicit WOTR route and native
-strategy → tactical → strategy round-trip; it does not redesign those systems.
+Preparing this mission requires both an accepted `WOTR-1.1` on an integrated
+`main` SHA and a separate future decision that explicitly starts WOTR-1.2
+preparation. Acceptance of WOTR-1.1 is necessary but not sufficient and must
+not automatically create a request card. The mission consumes the accepted
+explicit WOTR route and native strategy → tactical → strategy round-trip; it
+does not redesign those systems.
 
-While `WOTR-1.1` is active, no WOTR-1.2 request card exists, including B0.
-After `WOTR-1.1` is accepted on integrated `main`, the assistant creates the
-`WOTR-1.2-B0` oracle-rehearsal card. Before any implementation or audit card is
-created, B0 must be `Accepted`. It is read-only with `build: none`,
-`retail: none` and names every command/action, platform, prerequisite, expected
-observable, negative case and evidence path needed by this specification. Only
-the Coordinator creates the remaining cards.
+Until that separate decision, no WOTR-1.2 request card exists, including B0,
+and no preparation or implementation work starts. Once preparation is
+separately authorized, the assistant creates `WOTR-1.2-B0` as the first card.
+Before any implementation or audit card is created, B0 must be `Accepted`. It
+is read-only with `build: none`, `retail: none` and names every command/action,
+platform, prerequisite, expected observable, negative case and evidence path
+needed by this specification. Only the Coordinator creates the remaining
+cards.
 
 ## 2. Intent
 

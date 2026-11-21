@@ -28,9 +28,9 @@
 
 ## 4. Фазы и ход
 
-План: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save; после accept зависимая `WOTR-1.2` даёт portable playtest. Не делай работу будущих фаз и пустые заготовки.
+План: `docs/PHASES.md`, фазы 1–8. Активная миссия `WOTR-1.1`: map → movement → OpenBFME battle → full native result → map/save. `WOTR-1.2` остаётся черновиком без карточек: accept `WOTR-1.1` только снимает зависимость, а подготовка `WOTR-1.2` требует отдельного будущего решения. Не делай работу будущих миссий и пустые заготовки.
 
-До рабочих карточек каждой миссии ассистент создаёт единственную `Ready` B0 — read-only репетицию всего оракула (`build:none`, `retail:none`). Только после её `Accepted` Coordinator нарезает остальные карточки.
+После отдельного решения начать подготовку миссии ассистент создаёт её первую карточку: единственную `Ready` B0 — read-only репетицию всего оракула (`build:none`, `retail:none`). Только после её `Accepted` Coordinator нарезает остальные карточки.
 
 Цикл: Warden публикует ТЗ → Coordinator готовит Draft/Ready и зависимости → ScriptCat выдаёт dispatch/run → агент сдаёт evidence и точный marker → Coordinator Accepted/Rework → независимый audit → Warden `accept/rework/master`. Зелёная карточка не заменяет финальный oracle собранной миссии. `master` — только доступ/аккаунт, лицензия/ToS, платное действие, секрет, agent activation или продуктовая граница.
 

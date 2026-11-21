@@ -103,9 +103,11 @@ does not waive those blockers.
 ## Mission boundary
 
 `WOTR-1.1` proves the native game route from a clean checkout. The dependent
-mission `WOTR-1.2` proves the launcher, one-archive package and ordinary-player
-first run. `WOTR-1.2` has its own mandatory B0 oracle rehearsal before the
-Coordinator may create implementation/audit cards.
+mission `WOTR-1.2` is intended to prove the launcher, one-archive package and
+ordinary-player first run, but accepted WOTR-1.1 only removes its dependency;
+it does not start preparation. A separate future decision is required. If that
+decision starts WOTR-1.2, its B0 oracle rehearsal precedes any Coordinator-created
+implementation/audit cards.
 
 ## Consequences
 

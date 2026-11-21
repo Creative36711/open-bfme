@@ -28,9 +28,10 @@ not final: transport/contract tests and related evidence changed before removal.
 - `1.16.3` embedded regulation 1.1: role classification, cost tiers and exact
   product locales.
 - `1.16.4` embeds regulation 1.2, the launcher/player-package boundary and the
-  mandatory B0 rehearsal rule. It removes former-project names/card labels from
-  source comments, contracts, tests and regression fixtures. The full-tree
-  portability guard enforces that boundary.
+  mandatory B0 rehearsal rule for explicitly authorized mission preparation.
+  It removes former-project names/card labels from source comments, contracts,
+  tests and regression fixtures. The full-tree portability guard enforces that
+  boundary.
 
 Transport behavior through upstream D-122 remains covered. Files under
 `upstream-fixtures/` are now **sanitized structural fixtures**, not frozen
