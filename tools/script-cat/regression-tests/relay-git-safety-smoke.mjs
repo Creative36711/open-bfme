@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { PromptCompiler, dispatchRequest } from '../tests/helpers/prompt-env.mjs';
 
-const prompt = PromptCompiler.compile(dispatchRequest('Executor', { role: { fn: 'Executor', name: 'Kernel', zone: 'game/**' } })).text;
+const prompt = PromptCompiler.compile(dispatchRequest('Executor', { role: { fn: 'Executor', name: 'FixtureExecutor', zone: 'game/**' } })).text;
 
 // Опасные команды не выдаются как исполняемые.
 assert.doesNotMatch(prompt, /^\s*git reset --hard origin\/main/m, 'reset --hard не приказ');

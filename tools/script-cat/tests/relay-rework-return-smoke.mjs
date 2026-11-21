@@ -84,7 +84,7 @@ const CLEAR = {
 assert.equal(
   api.reworkSeen('card-1'),
   false,
-  'памяти о Rework нет — ровно как было на NAR-4.9',
+  'памяти о Rework нет — ровно как было на CASEA-4.9',
 );
 assert.deepEqual(api.redispatchClearProps(card()), CLEAR, 'обычный Rework→Ready снимает следы');
 assert.equal(api.redispatchClearProps(card({ check: 'fail' })), null, 'Check=fail без наблюдённого Rework не очищается автоматически');
@@ -142,7 +142,7 @@ assert.deepEqual(
 {
   const old = card({ id: 'old', role: 'Architect' });
   const next = card({ id: 'next', role: 'Architect', submitted: null, pr: null, runId: [] });
-  const other = card({ id: 'other', role: 'Kernel' });
+  const other = card({ id: 'other', role: 'FixtureExecutor' });
   const picked = api.pickReadyForRole([old, next, other], 'Architect');
   assert.equal(picked.id, 'next', 'свежая работа не подменяется повторной');
   assert.equal(api.pickReadyForRole([old, other], 'Architect').id, 'old', 'если другой нет — берётся отвеченная');

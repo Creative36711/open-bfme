@@ -46,7 +46,7 @@ const quiet = console.log; console.log = () => {};
 const legacyKey = api.setupGatewayKey();
 const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
 function setup(id, name) { props.set('CF_SETUP_PROJECT_ID', id); props.set('CF_SETUP_PROJECT_FOLDER', name); return api.setupProjectGateway(); }
-const a = setup(A, 'vault'), b = setup(B, 'atlas');
+const a = setup(A, 'fixture-workspace'), b = setup(B, 'atlas');
 console.log = quiet;
 assert.notEqual(a.key, b.key); assert.notEqual(a.key, legacyKey); assert.notEqual(b.key, legacyKey);
 const call = (key, body) => JSON.parse(api.doPost({ postData: { contents: JSON.stringify({ ...body, key }) } }).getContent());
@@ -109,8 +109,8 @@ const projectFolder = find(call(a.key, { action: 'ping', projectId: A }).project
 projectFolder.setName('moved');
 assert.equal(call(a.key, { action: 'ping', projectId: A }).ok, false, 'переименование не перенаправляет запись');
 assert.equal(call(a.key, { action: 'createLog', projectId: A, dispatchId: dispatch, runId: run }).ok, false);
-projectFolder.setName('vault');
-assert.throws(() => setup(A, 'vault'), /уже зарегистрирован/);
+projectFolder.setName('fixture-workspace');
+assert.throws(() => setup(A, 'fixture-workspace'), /уже зарегистрирован/);
 assert.throws(() => setup('55555555-5555-4555-8555-555555555555', 'atlas'), /уже занят/);
 assert.equal(call(a.key, { action: 'ping', projectId: A }).ok, true, 'отказ регистрации не меняет прежние доступы');
 // saveArtifact: проектная граница и чтение только своего artifacts
@@ -121,10 +121,10 @@ assert.equal(call(a.key, { action: 'read', projectId: A, fileId: artA.fileId }).
 assert.equal(call(b.key, { action: 'read', projectId: B, fileId: artA.fileId }).ok, false, 'чужой артефакт не читается');
 assert.equal(call(b.key, { action: 'saveArtifact', projectId: B, name: artName, content: '{}' }).fileId !== artA.fileId, true, 'имя не пересекает проекты');
 // D-031: подкаталог миссии не пересекает проекты и читается только своим ключом.
-const d031 = 'SYN-P1__P-A__shot__2026-11-04.png';
+const d031 = 'CASEB-P1__P-A__shot__2026-11-04.png';
 const pngB64 = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64');
-const shotA = call(a.key, { action: 'saveArtifact', projectId: A, name: d031, content: pngB64, encoding: 'base64', subdir: 'SYN-P1' });
-assert.equal(shotA.ok, true); assert.equal(find(shotA.fileId).parent.name, 'SYN-P1');
+const shotA = call(a.key, { action: 'saveArtifact', projectId: A, name: d031, content: pngB64, encoding: 'base64', subdir: 'CASEB-P1' });
+assert.equal(shotA.ok, true); assert.equal(find(shotA.fileId).parent.name, 'CASEB-P1');
 assert.equal(call(b.key, { action: 'verifyArtifactPlacement', projectId: B, fileId: shotA.fileId }).ok, false, 'чужой PNG не подтверждается');
 assert.equal(call(a.key, { action: 'verifyArtifactPlacement', projectId: A, fileId: shotA.fileId }).ok, true);
 console.log('OK: Gateway 1.8.0 — два проекта, разные ключи, artifacts (D-031/PNG/подкаталог) и миграция без смены ключа, границы чтения/записи, отказ при переносе и legacy');

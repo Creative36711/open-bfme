@@ -68,7 +68,7 @@ for (const id of ['continuation.answer', 'continuation.review', 'continuation.ar
 {
   const r = PromptCompiler.compile({
     kind: 'arbiter', role: role('Reviewer'), turnId: UUID.turn, mission: { id: UUID.mission },
-    arbiter: { cardId: UUID.dispatch, cardTitle: 'NAR-1.10' },
+    arbiter: { cardId: UUID.dispatch, cardTitle: 'CASEA-1.10' },
     delivery: { tier: 'compact', attempt: 1 },
   });
   assert.ok(r.ok, `повтор арбитража собирается: ${r.error?.message}`);

@@ -1,6 +1,6 @@
 # War Of The Ring: Remaster · фазы 1–8
 
-Редакция 1.1 · 2026-11-20 · владелец: Warden.
+Редакция 1.2 · 2026-11-20 · владелец: Warden.
 
 Источник статуса исполнения — база Notion «Миссии»; этот файл фиксирует продуктовую последовательность и опубликованную редакцию. Фаза — рамка результата, миссия — принимаемая работа внутри неё. В каждой фазе есть минимум одна миссия.
 
@@ -18,7 +18,7 @@
 
 ## Фаза 0 · Baseline decisions (решения приняты; history sanitation открыта)
 
-Приняты ADR-001…003: Godot-native boundary; перенос legacy world через one-way importer без legacy runtime; tactical capacity по opposed sides с fallback/autoresolve; custom maps как лицензированные content-addressed overlays; eight-locale baseline; tiered build/retail cost policy; Upstream Integrator как Executor. Полный legacy dataset и `__wotr_maps.big` остаются заблокированы license/provenance gate. Retail history всё ещё содержит запрещённые объекты: cleanup выполняется отдельно как destructive owner-approved repository operation, не блокирует проектирование, но release workflow остаётся заблокирован до fresh-clone audit rc 0.
+Приняты ADR-001…004: Godot-native boundary; перенос legacy world через one-way importer без legacy runtime; tactical capacity по opposed sides с fallback/autoresolve; custom maps как лицензированные content-addressed overlays; eight-locale baseline; адаптация существующего launcher/one-archive pipeline с отдельной WOTR identity; tiered build/retail cost policy; Upstream Integrator как Executor. Полный legacy dataset и `__wotr_maps.big` остаются заблокированы license/provenance gate. Retail history всё ещё содержит запрещённые объекты: cleanup выполняется отдельно как destructive owner-approved repository operation, не блокирует проектирование, но public release workflow остаётся заблокирован до fresh-clone all-ref audit rc 0.
 
 ## Фаза 1 · Technical walking skeleton
 
@@ -29,6 +29,12 @@
 `Campaign Pack → карта → WEGO move → conflict → BattleRequest → OpenBFME tactical map → BattleResult → campaign state → save/load`.
 
 Выход: маленький synthetic Campaign Pack, отдельный `WotrRemaster` core, canonical state/hash/save, Godot map interaction, native adapter и один полный retail round-trip в Arena. Tactical profile: Vanilla RotWK 2.01. Подробное ТЗ: `docs/missions/WOTR-1.1.md`.
+
+### WOTR-1.2 · Player entry and portable playtest package
+
+Зависит от принятой WOTR-1.1. Существующий OpenBFME launcher и one-archive pipeline адаптируются как WOTR product flavor: один распаковываемый архив на заявленную платформу, WOTR identity/route, отдельные update data/settings/saves, retail detection, offline start, signed updates и fail-closed package audit. Стратегия и tactical runtime остаются одним native game process; новый updater не создаётся. До любых рабочих карточек обязательна отдельная B0-репетиция оракула. Подробное ТЗ: `docs/missions/WOTR-1.2.md`.
+
+Выход: первый внутренний playtest, который обычный тестер запускает через **Play WOTR Remaster** без checkout, build tools, environment variables или developer CLI. Public release остаётся заблокирован history/license/signing gates; непроверенная платформа не называется поддерживаемой.
 
 ## Фаза 2 · Campaign Pack и редактор
 
@@ -88,4 +94,6 @@ Advanced planning AI, deterministic lockstep command stream, desync detection, r
 
 ## Активность
 
-Активная фаза: **1**. Первый принимаемый результат: **WOTR-1.1**. Остальные миссии остаются черновиками до прохождения зависимостей своей фазы.
+Активная фаза: **1**. Текущий принимаемый результат: **WOTR-1.1**. `WOTR-1.2` остаётся черновиком и не выдаёт реализацию до принятия WOTR-1.1; единственная заранее готовая карточка в ней — обязательная B0-репетиция. Остальные миссии остаются черновиками до прохождения зависимостей своей фазы.
+
+Рекомендуемый release milestone после фазы 3 — публичный alpha только при зелёных retail-history, license/provenance, signing и fresh-profile package gates. Это не календарное обещание и не разрешение публикации из ранних фаз.

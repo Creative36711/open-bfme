@@ -82,7 +82,7 @@ for (const [text, want] of cases) assert.equal(classifyArenaFailure(text), want,
   const { recordPromptAttempt } = new Function('GM_getValue', 'GM_setValue', 'nowIso', 'dbg',
     `${src20.slice(recFrom, recTo)}\nreturn { recordPromptAttempt };`)(GM_getValue, GM_setValue, nowIso, dbg);
   const env = PromptCompiler.compile(dispatchRequest('Executor'));
-  for (let i = 0; i < 250; i++) recordPromptAttempt(env, { kind: 'dispatch', ref: 'd', role: 'Kernel', outcome: 'delivered' });
+  for (let i = 0; i < 250; i++) recordPromptAttempt(env, { kind: 'dispatch', ref: 'd', role: 'FixtureExecutor', outcome: 'delivered' });
   const list = GM_getValue('cfn-prompt-journal-v1', []);
   assert.equal(list.length, 200, 'кольцо на 200 записей');
   const row = list.at(-1);

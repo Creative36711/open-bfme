@@ -93,7 +93,7 @@ function buildEnv({ expect = null, pilots = [] } = {}) {
 }
 
 const baseExpect = (over = {}) => ({
-  roleId: 'role-x', roleName: 'Kernel', roleUrl: '/agent/x', roleFn: 'Executor',
+  roleId: 'role-x', roleName: 'FixtureExecutor', roleUrl: '/agent/x', roleFn: 'Executor',
   kind: 'dispatch', ref: UUID.dispatch, runId: UUID.run, missionId: UUID.mission, turnId: UUID.turn,
   watermark: 'wm-0', seen: ['wm-0'], sentAt: Date.now() - 1000, verified: true,
   text: 'original task text', prompt: { profileId: 'executor.card', metrics: { chars: 3000, utf8Bytes: 3000 } },
@@ -278,7 +278,7 @@ const baseExpect = (over = {}) => ({
   assert.equal(w.toolLimitContinuations, 1);
   const sent = env.delivered.at(-1);
   assert.ok(!/CF_/.test(sent), 'pilot continuation без CF_*');
-  assert.ok(!/notion|cortex|REGULATION|WARDEN|DECISIONS|vault/i.test(sent), 'pilot без внутренних ссылок');
+  assert.ok(!/notion|aux-workspace|REGULATION|WARDEN|DECISIONS|fixture-workspace/i.test(sent), 'pilot без внутренних ссылок');
   const j = env.journal.find((x) => x.outcome === 'tool_limit_continued');
   assert.equal(j.profileId, 'continuation.pilot');
   assert.equal(j.kind, 'pilot');

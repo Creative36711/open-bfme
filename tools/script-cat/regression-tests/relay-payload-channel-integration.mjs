@@ -26,7 +26,7 @@ function makeExecutorPrompt(pauses) {
     `${src.slice(pFrom, pTo)}\nreturn executorPrompt;`)(
     rt, taskTitle, promptRole, promptTarget, PromptCompiler,
     (text) => pauses.push(text), budgetBreakdownLine,
-    { driveFolder: 'vault', projectName: 'Vault' });
+    { driveFolder: 'fixture-workspace', projectName: 'FixtureWorkspace' });
 }
 
 function makeHarness({ payloadId = '', fileText = '', saveFails = false } = {}) {
@@ -36,7 +36,7 @@ function makeHarness({ payloadId = '', fileText = '', saveFails = false } = {}) 
   const card = {
     id: 'card-1',
     properties: {
-      'Запрос': { title: [{ plain_text: 'SYN-1 · K-17 · Аудит' }] },
+      'Запрос': { title: [{ plain_text: 'CASEB-1 · K-17 · Аудит' }] },
       'Намерение': { rich_text: [{ plain_text: 'Проверить O-4.' }] },
       'Acceptance': { rich_text: [{ plain_text: 'grep -c отчёт = 1' }] },
       'Scope': { rich_text: [{ plain_text: 'docs/agents/**' }] },
@@ -87,13 +87,13 @@ function makeHarness({ payloadId = '', fileText = '', saveFails = false } = {}) 
     (page) => page?.properties?.['Кому']?.select?.name || '',
     (page, fallback) => fallback,
     () => true,
-    { repo: 'creative-textile/vault', branch: 'arena/87031a47-vault', payloadInlineMax: 1500 },
-    { legacy: true, repo: 'creative-textile/vault', branch: 'main' },
+    { repo: 'example-org/fixture-source', branch: 'arena/87031a47-fixture-workspace', payloadInlineMax: 1500 },
+    { legacy: true, repo: 'example-org/fixture-source', branch: 'main' },
     (key, fallback) => store[key] ?? fallback,
     (key, value) => { store[key] = value; },
     (text) => pauses.push(text),
     { pending: 'cfn-pending', expect: 'cfn-expect' },
-    () => 'creative-textile/vault',
+    () => 'example-org/fixture-source',
     (value, fallback) => String(value || fallback || '').trim(),
     () => 'main',
     () => null,

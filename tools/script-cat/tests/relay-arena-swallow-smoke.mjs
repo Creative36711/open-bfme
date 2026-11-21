@@ -1,7 +1,7 @@
 // Проба 1.4.74: ошибка Arena поверх задания не считается доставкой, а задание
 // повторяется минимальным сообщением «прочитай карточку сам».
 //
-// 25.10 задание Architect (NAR-2.16) не принималось трижды — 21:24, 22:55 и
+// 25.10 задание Architect (CASEA-2.16) не принималось трижды — 21:24, 22:55 и
 // 23:08: «Something went wrong. Please try again.» Один раз это были полные
 // 7 586 символов, другой — 7 610 после повторной отправки. Дело не в длине и не
 // в разметке: короткое сообщение тому же агенту проходило. Поэтому повтор — не
@@ -49,7 +49,7 @@ function makeRequeue() {
 
 const fullPrompt =
   '=== CF_TECH v1 ===\n━━━ ТЕХНИЧЕСКАЯ ИНФОРМАЦИЯ · Architect ━━━\n' +
-  'Задача NAR-2.16 · ADR 2.14 принят (dispatch 4046f0cf-5705-81bd-92ca-ed93c5a98eab, run d03f84ab).\n' +
+  'Задача CASEA-2.16 · ADR 2.14 принят (dispatch 4046f0cf-5705-81bd-92ca-ed93c5a98eab, run d03f84ab).\n' +
   'ЦЕЛЬ И ГРАНИЦЫ\n'.padEnd(7000, 'правила хода и техблок ');
 
 const expect = {
@@ -59,7 +59,7 @@ const expect = {
   kind: 'dispatch',
   ref: '4046f0cf-5705-81bd-92ca-ed93c5a98eab',
   runId: 'd03f84ab-a1b7-4b52-9495-63ca54f7420e',
-  title: 'NAR-2.16 · ADR 2.14 принят',
+  title: 'CASEA-2.16 · ADR 2.14 принят',
   watermark: 'chat-message-41',
   text: fullPrompt,
   sentAt: Date.now(),
@@ -143,7 +143,7 @@ const toSays = src.indexOf('  /**\n   * Ждём подтверждение до
 assert.ok(fromSays > 0 && toSays > fromSays, 'блок lastUserSays на месте');
 const saysBlock = src.slice(fromSays, toSays);
 
-function says({ dead = '', lastId = 'chat-message-42', text = 'Задание 2.16 · NAR-2.16' } = {}) {
+function says({ dead = '', lastId = 'chat-message-42', text = 'Задание 2.16 · CASEA-2.16' } = {}) {
   const fn = new Function(
     'GM_getValue', 'K', 'userMessages', 'nodeId', 'flat',
     `${saysBlock}\nreturn { lastUserSays };`,

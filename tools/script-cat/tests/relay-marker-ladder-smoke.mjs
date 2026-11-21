@@ -1,8 +1,8 @@
 // Проба D-067: маркер читается по лестнице, идентичность при этом не слабеет.
 //
-// 07.11.2026, 16:56. Координатор миссии SYN-3 ответил по делу, но последняя
+// 07.11.2026, 16:56. Координатор миссии CASEB-3 ответил по делу, но последняя
 // строка ответа была JSON-ом без имени маркера:
-//   {"next":"Contract Architect","question":{"id":"SYN3-ADR-V2-FRAMES-0",…}}
+//   {"next":"Contract Architect","question":{"id":"CASEB-3-ADR-V2-FRAMES-0",…}}
 // Разбор искал только литерал `CF_COORDINATOR_RESULT`. Маркера «нет» — и цикл
 // дважды попросил «не хватило последней строки с CF_COORDINATOR_RESULT», а на
 // третий раз встал на паузу 17:01:24 при полностью информативном ответе. Агент
@@ -50,12 +50,12 @@ const live = [
   'Очередь после хода: 1 Submitted, 1 Ready, черновики S-13…S-16.',
   'ADR готов: default — вариант A (V-2 на N ∈ {60,120,1}).',
   '',
-  '{"next":"Contract Architect","question":{"id":"SYN3-ADR-V2-FRAMES-0","topic":"V-2","default":"A"}}',
+  '{"next":"Contract Architect","question":{"id":"CASEB-3-ADR-V2-FRAMES-0","topic":"V-2","default":"A"}}',
 ].join('\n');
 const liveParsed = parseMarker(live, COORD);
 assert.ok(liveParsed, 'ответ 16:56 принимается: JSON без имени маркера');
 assert.equal(liveParsed.next, 'Contract Architect', 'next прочитан');
-assert.equal(liveParsed.question.id, 'SYN3-ADR-V2-FRAMES-0', 'вопрос прочитан');
+assert.equal(liveParsed.question.id, 'CASEB-3-ADR-V2-FRAMES-0', 'вопрос прочитан');
 assert.equal(markerRejectReason(COORD), 'no-name', 'дефект назван: нет имени маркера');
 assert.equal(parseMarker(live, AGENT), null, 'тот же текст не считается сдачей карточки');
 
@@ -66,15 +66,15 @@ assert.equal(parseMarker('Отчёт.\n{"question":{"id":"q1","default":"A"}}', 
 
 // ── 2. Имя в другом написании и «почти JSON» ───────────────────────────────
 for (const [label, text] of [
-  ['нижний регистр через дефис', 'Готово.\ncf-coordinator-result {"mission_id":"m1","turn_id":"t1","next":"Kernel"}'],
-  ['пробелы вместо подчёркиваний', 'Готово.\nCF COORDINATOR RESULT {"mission_id":"m1","next":"Kernel"}'],
-  ['одинарные кавычки', "Готово.\nCF_COORDINATOR_RESULT {'mission_id':'m1','next':'Kernel'}"],
-  ['висячая запятая', 'Готово.\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"Kernel",}'],
-  ['типографские кавычки', 'Готово.\nCF_COORDINATOR_RESULT {“mission_id”:“m1”,“next”:“Kernel”}'],
+  ['нижний регистр через дефис', 'Готово.\ncf-coordinator-result {"mission_id":"m1","turn_id":"t1","next":"FixtureExecutor"}'],
+  ['пробелы вместо подчёркиваний', 'Готово.\nCF COORDINATOR RESULT {"mission_id":"m1","next":"FixtureExecutor"}'],
+  ['одинарные кавычки', "Готово.\nCF_COORDINATOR_RESULT {'mission_id':'m1','next':'FixtureExecutor'}"],
+  ['висячая запятая', 'Готово.\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"FixtureExecutor",}'],
+  ['типографские кавычки', 'Готово.\nCF_COORDINATOR_RESULT {“mission_id”:“m1”,“next”:“FixtureExecutor”}'],
 ]) {
   const parsed = parseMarker(text, COORD);
   assert.ok(parsed, `принимается: ${label}`);
-  assert.equal(parsed.next, 'Kernel', `next прочитан: ${label}`);
+  assert.equal(parsed.next, 'FixtureExecutor', `next прочитан: ${label}`);
 }
 
 // Имя названо (пусть и иначе) — это ответ агента, даже если в объекте нет
@@ -86,7 +86,7 @@ assert.equal(parseMarker('Готово.\n{"mission_id":"m1","note":"жду от�
   'JSON без имени и без подписи ответом не считается');
 
 // ── 3. Строгие ступени не потеряны ─────────────────────────────────────────
-const strictParsed = parseMarker('Отчёт.\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"Kernel"}', COORD);
+const strictParsed = parseMarker('Отчёт.\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"FixtureExecutor"}', COORD);
 assert.ok(strictParsed, 'ступень 1 работает');
 assert.equal(markerRejectReason(COORD), '', 'на строгом чтении дефект не выдумывается');
 assert.equal(
@@ -140,7 +140,7 @@ assert.equal(parseMarker(`Арбитраж.\n${arbiterBody}`, REVIEW), null, 'а
 // Свой маркер, но с чужими ID: разбор пропускает, а сверку ID делает
 // вызывающий (sameMission/markerMissing) — здесь проверяем, что разбор не
 // выдумывает ID от себя.
-const foreignIds = parseMarker('Итог.\n{"next":"Kernel","mission_id":"deadbeef-0000-4000-8000-000000000000"}', COORD);
+const foreignIds = parseMarker('Итог.\n{"next":"FixtureExecutor","mission_id":"deadbeef-0000-4000-8000-000000000000"}', COORD);
 assert.equal(foreignIds.mission_id, 'deadbeef-0000-4000-8000-000000000000', 'ID из ответа не подменяются');
 assert.match(src, /const sameMission = !decision\.mission_id/, 'сверка миссии по-прежнему в коде Координатора');
 assert.match(src, /return markerMissing\(role, expect, "CF_COORDINATOR_RESULT", manual\)/,
@@ -152,8 +152,8 @@ assert.equal(parseMarker('', COORD), null, 'пустой ответ — нет �
 assert.equal(parseMarker('Только текст, JSON не приложил.', COORD), null, 'текст без JSON — нет маркера');
 assert.equal(markerRejectReason(COORD), '', 'дефект не выдумывается, когда JSON нет вовсе');
 assert.equal(
-  parseMarker('Маркер: {"next":"Kernel","note":"6<7, порог не достигнут"}', COORD)?.next,
-  'Kernel',
+  parseMarker('Маркер: {"next":"FixtureExecutor","note":"6<7, порог не достигнут"}', COORD)?.next,
+  'FixtureExecutor',
   'живой текст со знаком «меньше» не отвергается как шаблон',
 );
 

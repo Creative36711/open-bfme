@@ -1,9 +1,9 @@
 // Проба 1.4.74: план по устаревшей очереди не применяется, а вопросы не дублируются.
 //
-// 25.10. Мастер вернул в Ready карточку NAR-2.16, которая висела в Running после
+// 25.10. Мастер вернул в Ready карточку CASEA-2.16, которая висела в Running после
 // съеденной отправки. Скрипт в это время дочитывал ответ Координатора, снятый ДО
-// этой правки: в нём было next: "Tools" — и ушла NAR-2.17, хотя в Ready уже
-// лежала NAR-2.16 с меньшим Sequence. Вопрос «почему 2.16 так и не ушла» имеет
+// этой правки: в нём было next: "Tools" — и ушла CASEA-2.17, хотя в Ready уже
+// лежала CASEA-2.16 с меньшим Sequence. Вопрос «почему 2.16 так и не ушла» имеет
 // ровно этот ответ: транспорт применил решение к другой очереди.
 //
 // Второе: уведомления приходили о том, на что Мастер уже ответил. Причина —
@@ -252,16 +252,16 @@ const same = async () => {
 // 3.5 Тот же ADR другими словами — это повтор, а не новый вопрос (случай 25.10).
 {
   const api = makeAsk({
-    rows: [row('NAR-2.14: принять F3/F4/F5?', 'Решено', 'принять F3–F5')],
+    rows: [row('CASEA-2.14: принять F3/F4/F5?', 'Решено', 'принять F3–F5')],
   });
   const before = api.logs.length;
   const res = await api.askQuestion(
-    { ...question, text: 'Как решить открытый ADR docs/decisions/NAR-2.14.md?' },
+    { ...question, text: 'Как решить открытый ADR docs/decisions/CASEA-2.14.md?' },
     { key: 'm:5' },
   );
   assert.equal(res, null, 'повтор про решённый ADR не создаёт строку');
   const note = api.logs.slice(before).find((l) => l.text);
-  assert.ok(note && note.text.includes('NAR-2.14'), 'назван ADR, по которому уже ответили');
+  assert.ok(note && note.text.includes('CASEA-2.14'), 'назван ADR, по которому уже ответили');
   assert.ok(note && note.text.includes('приёмка уже ответила'), 'сказано, что ответ есть');
   assert.ok(note && note.text.includes('F3'), 'виден прежний ответ');
   assert.notEqual(note.ntfy, 'loud', 'громкого пуша нет');
@@ -269,9 +269,9 @@ const same = async () => {
 
 // 3.6 Явное уточнение по тому же ADR проходит: если вопрос правда другой, Мастера спросят.
 {
-  const api = makeAsk({ rows: [row('NAR-2.14: принять F3/F4/F5?', 'Решено', 'принять')] });
+  const api = makeAsk({ rows: [row('CASEA-2.14: принять F3/F4/F5?', 'Решено', 'принять')] });
   const res = await api.askQuestion(
-    { ...question, text: 'Уточнение по NAR-2.14: что делать с F6 после приёмки F3–F5?' },
+    { ...question, text: 'Уточнение по CASEA-2.14: что делать с F6 после приёмки F3–F5?' },
     { key: 'm:6' },
   );
   assert.ok(res && res.id, 'уточнение не глушится');
@@ -279,9 +279,9 @@ const same = async () => {
 
 // 3.7 Разные ADR не склеиваются.
 {
-  const api = makeAsk({ rows: [row('NAR-2.15: какой предел, 71 680 или 524 288?', 'Решено', '524 288')] });
+  const api = makeAsk({ rows: [row('CASEA-2.15: какой предел, 71 680 или 524 288?', 'Решено', '524 288')] });
   const res = await api.askQuestion(
-    { ...question, text: 'NAR-2.14: записывать ли accepted сейчас?' },
+    { ...question, text: 'CASEA-2.14: записывать ли accepted сейчас?' },
     { key: 'm:7' },
   );
   assert.ok(res && res.id, 'вопрос про другой ADR записывается');
@@ -290,10 +290,10 @@ const same = async () => {
 // 3.8 Тот же ADR, но прежний вопрос ещё ждёт: второй строки нет, а висящая
 // строка передаётся приёмке (1.4.84: «Ждёт» без ответа — не ответ Мастера).
 {
-  const api = makeAsk({ rows: [row('NAR-2.14: принять F3/F4/F5?', 'Ждёт')] });
+  const api = makeAsk({ rows: [row('CASEA-2.14: принять F3/F4/F5?', 'Ждёт')] });
   const before = api.logs.length;
   const res = await api.askQuestion(
-    { ...question, text: 'Как решить открытый ADR docs/decisions/NAR-2.14.md?' },
+    { ...question, text: 'Как решить открытый ADR docs/decisions/CASEA-2.14.md?' },
     { key: 'm:8' },
   );
   assert.ok(res && res.id, 'висящая строка возвращается');
@@ -311,8 +311,8 @@ const { decidedAdrNames } = new Function(
   `${decidedSrc}\nreturn { decidedAdrNames };`,
 )(
   async () => [
-    row('Предел руководства: docs/decisions/NAR-2.15.md держит 294 912', 'Решено', '524 288 байт'),
-    row('NAR-2.14: принять F3/F4/F5?', 'Решено', 'принять'),
+    row('Предел руководства: docs/decisions/CASEA-2.15.md держит 294 912', 'Решено', '524 288 байт'),
+    row('CASEA-2.14: принять F3/F4/F5?', 'Решено', 'принять'),
     row('Вопрос без ответа', 'Решено', ''),
     row('Предложение docs/decisions/0016-capability-registry-boundary.md', 'Решено', 'принять с поправкой'),
   ],
@@ -321,9 +321,9 @@ const { decidedAdrNames } = new Function(
   () => {},
 );
 
-assert.ok((await decidedAdrNames()).has('nar-2.15'), 'решение 2.15 опознано по вопросу');
-assert.ok((await decidedAdrNames()).has('nar-2.14'), 'решение 2.14 опознано по вопросу');
-assert.ok(!(await decidedAdrNames()).has('nar-2.16'), 'решение без ответа не считается принятым');
+assert.ok((await decidedAdrNames()).has('casea-2.15'), 'решение 2.15 опознано по вопросу');
+assert.ok((await decidedAdrNames()).has('casea-2.14'), 'решение 2.14 опознано по вопросу');
+assert.ok(!(await decidedAdrNames()).has('casea-2.16'), 'решение без ответа не считается принятым');
 
 has('const settled = rows.filter((row) => answered.has(adrKeyOf(row.file)));', 'решения с ответом отделяются');
 has('await deliverProposals(pending);', 'нерешённое предложение доходит до приёмки, а не только до счётчика');

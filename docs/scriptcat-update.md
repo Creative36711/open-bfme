@@ -1,42 +1,64 @@
 # ScriptCat для WOTR Remaster
 
-Сейчас **1.16.3** (WOTR-D-014), локальная адаптация upstream 1.16.1.
+Сейчас **1.16.4** (WOTR-D-017), локальная адаптация upstream 1.16.1.
 
-## Источник
+## Источник и граница provenance
 
-- Vault historical tree: `fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6`.
-- Следующий commit `eecb68739dbb66a83a6cd9a3d0dbec9650a78ade` удалил ScriptCat в пользу другого локального контура, поэтому parent является последней полной версией.
-- Предварительно найденный `63486b4d47078b90bd8466d9306b74aefbc20644` старше окончательного snapshot: между ним и parent удаления менялись contract/docs tests.
-- Upstream version: 1.16.1, MIT. Полная provenance: `tools/script-cat/UPSTREAM.md`.
+Точный source repository, imported tree `fe8ec936…`, removal parent
+`eecb687…`, MIT license и команда воспроизведения находятся только в
+`tools/script-cat/UPSTREAM.md`. Это не operational target и не источник
+продуктовых правил. Текущий target задаёт только WOTR profile:
+`Creative36711/open-bfme@main`.
+
+Regression fixtures сохраняют transport-семантику snapshot, но с 1.16.4
+обезличены до `CASE-*`/`fixture-*`: прежние product names, repositories и card
+prefixes не должны попадать ни в prompts, ни в comments/tests/contracts, где их
+может принять за текущие Transport Maintainer.
 
 ## Выпуск 1.16.2 (WOTR-D-008)
 
-Поведение доставки 1.16.1 сохранено. Изменён проектный слой:
-
-- один target repository `Creative36711/open-bfme`;
-- canonical pilot profile `pilot.wotr` и WOTR defaults/examples;
-- WOTR roles, phases 1–8, retail boundary and deterministic/tactical gates in the embedded digest;
-- прежние project-specific history assertions читают frozen fixtures, а operational docs остаются WOTR-only;
-- forbidden legacy project/pre-product wording удалено из runtime and repository docs;
-- source change сопровождается plain-semver bump, rebuilt bundle and complete test gate.
+Поведение доставки upstream 1.16.1 сохранено. Добавлены один WOTR target,
+`pilot.wotr`, WOTR roles/phases/retail/determinism gates и regulation 1.0.
 
 ## Выпуск 1.16.3 (WOTR-D-014)
 
-Transport behavior не меняется. Process/profile refresh:
+Transport protocol не менялся. Regulation 1.1 закрепил Upstream Integrator как
+Executor, единственного Transport Maintainer, declared build/retail Cost gates,
+точные локали `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko` и WOTR
+bootstrap preflight.
 
-- embedded regulation 1.1 классифицирует Upstream Integrator как Executor и оставляет единственного Maintainer транспорта;
-- prompt требует declared `build`/`retail` Cost gate и запрещает самовольные full build/Drive hydration;
-- i18n block фиксирует `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko` и locale-invariant hash;
-- WOTR bootstrap profile просит агента прочитать cost policy до работы;
-- bundle regenerated из source и digest; полный ScriptCat gate обязателен и записан в `docs/evidence/scriptcat-1.16.3.md`.
+## Выпуск 1.16.4 (WOTR-D-017)
+
+Transport protocol остаётся 1.11. Полная WOTR-адаптация source layer:
+
+- embedded regulation 1.2 включает ADR-004 player entry, адаптацию существующего
+  launcher/one-archive pipeline и миссию portable playtest;
+- обязательная B0-репетиция до рабочих карточек каждой миссии закреплена в
+  prompts/regulation;
+- former-project names, repositories и card prefixes удалены из runtime source
+  comments, contracts, tests, browser/regression fixtures;
+- точный imported repository разрешён только в явно неоперационном
+  `tools/script-cat/UPSTREAM.md`;
+- portability guard сканирует всё дерево ScriptCat, включая tests,
+  regression-tests, browser-tests, contracts и sanitized upstream fixtures;
+- bundle regenerated из 45 source files и regulation digest; полный gate и
+  artifact hash записаны в `docs/evidence/scriptcat-1.16.4.md`.
 
 ## Установка
 
-1. Импортировать `tools/script-cat/wotr-project.json` через окно проектов ScriptCat.
-2. Сохранить Notion/GitHub/Gateway connections локально; secrets не входят в profile file.
-3. Зарегистрировать Drive profile `wotr-remaster` только через Gateway flow.
-4. Проверить подключения и разрешить профиль. Автоцикл остаётся выключен до ручного включения.
-5. Userscript устанавливает человек из принятого `tools/script-cat/relay.user.js` после сравнения SHA-256 с build report.
+1. Импортировать `tools/script-cat/wotr-project.json` через окно проектов
+   ScriptCat.
+2. Убедиться, что активная вкладка показывает **War Of The Ring: Remaster**,
+   `Creative36711/open-bfme@main` и Drive folder `wotr-remaster`.
+3. Сохранить Notion/GitHub/Gateway connections локально; secrets не входят в
+   profile file.
+4. Зарегистрировать Drive profile `wotr-remaster` только через Gateway flow.
+5. Проверить подключения и вручную разрешить профиль. Автоцикл остаётся
+   выключен до ручного включения.
+6. Userscript устанавливает человек из принятого
+   `tools/script-cat/relay.user.js` после сравнения SHA-256 с build report.
+7. Старый browser profile можно хранить изолированно, но вкладка WOTR не должна
+   быть открыта под ним; ScriptCat fail-closed не подменяет отсутствующий профиль.
 
 ## Gate
 
@@ -48,8 +70,14 @@ npm run test:scriptcat:regression
 npm run test:scriptcat:tool-limit
 ```
 
-Либо `npm run verify:scriptcat`. Успех: каждый процесс rc 0, Node summary `# fail 0`, bundle version equals runtime fallback, embedded digest equals source and coverage contains all rule IDs.
+Либо `npm run verify:scriptcat`. Успех: каждый процесс rc 0, Node summary
+`# fail 0`, bundle version equals runtime fallback, embedded digest equals source,
+coverage contains all rule IDs, а full-tree guard не находит прежних product/card
+идентификаторов вне строго разрешённой provenance-записи.
 
 ## Обновление
 
-Transport Maintainer changes `src/**` only on a dedicated card. A source change must bump both `@version` and `SCRIPT_VERSION`, add/update decision and regression evidence, run `node tools/script-cat/build.mjs`, then complete the full gate. Browser installation is never performed silently by repository tooling.
+Transport Maintainer changes `src/**` only on a dedicated card. A source change
+must bump both `@version` and `SCRIPT_VERSION`, add/update decision and regression
+evidence, run `node tools/script-cat/build.mjs`, then complete the full gate.
+Browser installation is never performed silently by repository tooling.

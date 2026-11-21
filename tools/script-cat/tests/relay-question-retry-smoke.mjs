@@ -110,13 +110,13 @@ const question = {
   const answered = {
     id: 'row-1',
     properties: {
-      'Вопрос': { title: [{ plain_text: 'NAR-2.15: какой предел, 71 680 или 524 288?' }] },
+      'Вопрос': { title: [{ plain_text: 'CASEA-2.15: какой предел, 71 680 или 524 288?' }] },
       'Статус': { select: { name: 'Решено' } },
       'Ответ': { rich_text: [{ plain_text: '524 288' }] },
     },
   };
   const { queueQuestion, flushQuestionQueue, store, posted, logs } = make({ rows: [answered] });
-  queueQuestion({ ...question, text: 'Как решить открытый ADR docs/decisions/NAR-2.15.md?' }, { key: 'm:9' });
+  queueQuestion({ ...question, text: 'Как решить открытый ADR docs/decisions/CASEA-2.15.md?' }, { key: 'm:9' });
   const saved = await flushQuestionQueue();
   assert.equal(saved, 0, 'повтор про решённый ADR не записан');
   assert.equal(posted.length, 0, 'лишнего POST нет');
@@ -126,13 +126,13 @@ const question = {
 }
 
 // ── 3г. Строка «Ждёт» без ответа — передаётся приёмке, а не глотается ─────
-// 28.10: строка про NAR-5 висела в «Ждёт» с 15:41, а скрипт писал «Мастер уже
+// 28.10: строка про CASEA-5 висела в «Ждёт» с 15:41, а скрипт писал «Мастер уже
 // ответил» и до приёмки её не доносил.
 {
   const waiting = {
     id: 'row-wait',
     properties: {
-      'Вопрос': { title: [{ plain_text: 'NAR-2.15: какой предел руководства действует?' }] },
+      'Вопрос': { title: [{ plain_text: 'CASEA-2.15: какой предел руководства действует?' }] },
       'Статус': { select: { name: 'Ждёт' } },
       'Ответ': { rich_text: [] },
       'По умолчанию': { rich_text: [{ plain_text: 'оставить как есть' }] },
@@ -173,7 +173,7 @@ const question = {
     (text) => text, async () => [], () => '',
   );
   run.queueQuestion(
-    { ...question, text: 'Как решить открытый ADR docs/decisions/NAR-2.15.md?' },
+    { ...question, text: 'Как решить открытый ADR docs/decisions/CASEA-2.15.md?' },
     { roleName: 'Coordinator', key: 'm:11' },
   );
   const saved = await run.flushQuestionQueue();

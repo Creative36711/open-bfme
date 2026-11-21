@@ -82,7 +82,7 @@ const card = (id, minutesAgo, title = `NAR-${id}`) => ({
 
 // ── 2. Ждём ответа по этой карточке: агент может работать хоть три часа ───
 {
-  const expect = { ref: 'c1', sentAt: Date.now(), roleName: 'Kernel', watermark: 'm1' };
+  const expect = { ref: 'c1', sentAt: Date.now(), roleName: 'FixtureExecutor', watermark: 'm1' };
   const h = make({ expect, cards: [card('c1', 180)] });
   await h.releaseStalled({ id: 'm' });
   assert.deepEqual(h.patched, [], 'карточка с живым ожиданием не возвращается в Ready через 3 часа');
@@ -90,7 +90,7 @@ const card = (id, minutesAgo, title = `NAR-${id}`) => ({
 
 // ── 3. Ожидание по другой карточке не защищает брошенную ─────────────────
 {
-  const expect = { ref: 'c2', sentAt: Date.now(), roleName: 'Kernel' };
+  const expect = { ref: 'c2', sentAt: Date.now(), roleName: 'FixtureExecutor' };
   const h = make({ expect, cards: [card('c1', 180), card('c2', 180)] });
   await h.releaseStalled({ id: 'm' });
   assert.deepEqual(h.patched, [{ id: 'c1', name: 'Ready' }], 'брошенная карточка возвращается, живая — нет');
@@ -102,7 +102,7 @@ const card = (id, minutesAgo, title = `NAR-${id}`) => ({
 
 // ── 4. Ожидание без отметки отправки не считается живым ходом ────────────
 {
-  const expect = { ref: 'c1', roleName: 'Kernel' }; // sentAt нет: сообщение не ушло
+  const expect = { ref: 'c1', roleName: 'FixtureExecutor' }; // sentAt нет: сообщение не ушло
   const h = make({ expect, cards: [card('c1', 60)] });
   await h.releaseStalled({ id: 'm' });
   assert.deepEqual(h.patched, [{ id: 'c1', name: 'Ready' }], 'неотправленный ход не держит карточку вечно');

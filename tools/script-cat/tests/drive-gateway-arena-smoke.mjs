@@ -405,7 +405,7 @@ const uuid = () => '00000000-0000-4000-8000-000000000000';
 {
   const drive = makeDrive();
   const { call } = loadGateway(drive);
-  const name = 'SYN-1__K-15__evidence__e19a8d3.txt';
+  const name = 'CASEB-1__K-15__evidence__e19a8d3.txt';
   const res = call({ action: 'saveArtifact', name, content: 'доказательство' });
   assert.equal(res.ok, true, 'имя D-031 принимается');
   const artifacts = drive.root.folders[0].folders.find((f) => f.name === 'artifacts');
@@ -414,36 +414,36 @@ const uuid = () => '00000000-0000-4000-8000-000000000000';
   assert.equal(call({ action: 'saveArtifact', name, content: 'другое' }).ok, false, 'конфликт содержимого D-031');
 
   const pngBytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  const png = 'SYN-P1__P-A__shot__2026-11-04.png';
+  const png = 'CASEB-P1__P-A__shot__2026-11-04.png';
   const pres = call({ action: 'saveArtifact', name: png, content: Buffer.from(pngBytes).toString('base64'), encoding: 'base64' });
   assert.equal(pres.ok, true, 'PNG/base64 принимается');
   const pngFile = drive.getFileById(pres.fileId);
   assert.equal(pngFile.mime, 'image/png');
   assert.deepEqual(Array.from(pngFile.bytes), pngBytes, 'байты PNG сохранены без UTF-8 порчи');
-  assert.equal(call({ action: 'saveArtifact', name: 'SYN-P1__P-A__shot__2026-11-05.png', content: 'not-base64!' }).ok, false, 'не-base64 PNG отклоняется');
+  assert.equal(call({ action: 'saveArtifact', name: 'CASEB-P1__P-A__shot__2026-11-05.png', content: 'not-base64!' }).ok, false, 'не-base64 PNG отклоняется');
 
-  const sub = 'SYN-P1__P-B__report__2026-11-04.md';
-  const sres = call({ action: 'saveArtifact', name: sub, content: '# отчёт', subdir: 'SYN-P1' });
+  const sub = 'CASEB-P1__P-B__report__2026-11-04.md';
+  const sres = call({ action: 'saveArtifact', name: sub, content: '# отчёт', subdir: 'CASEB-P1' });
   assert.equal(sres.ok, true, 'подкаталог миссии принимается');
   const subFile = drive.getFileById(sres.fileId);
-  assert.equal(subFile.parent.name, 'SYN-P1');
+  assert.equal(subFile.parent.name, 'CASEB-P1');
   assert.equal(subFile.parent.parent, artifacts, 'подкаталог — прямой ребёнок artifacts');
   assert.equal(call({ action: 'saveArtifact', name: sub, content: 'x', subdir: 'OTHER' }).ok, false, 'подкаталог должен совпадать с миссией');
-  assert.equal(call({ action: 'saveArtifact', name: sub, content: 'x', subdir: 'SYN-P1/inner' }).ok, false, 'вложенный путь запрещён');
+  assert.equal(call({ action: 'saveArtifact', name: sub, content: 'x', subdir: 'CASEB-P1/inner' }).ok, false, 'вложенный путь запрещён');
   const d = uuid(), r = '11111111-1111-4111-8111-111111111111';
-  assert.equal(call({ action: 'saveArtifact', name: `${d}_${r}__x.md`, content: 'x', subdir: 'SYN-1' }).ok, false, 'legacy-имя не получает подкаталог');
+  assert.equal(call({ action: 'saveArtifact', name: `${d}_${r}__x.md`, content: 'x', subdir: 'CASEB-1' }).ok, false, 'legacy-имя не получает подкаталог');
 
-  for (const bad of ['SYN-1__K-15__evidence.txt', 'SYN-1__K-15__unknown__2026-11-04.txt', 'SYN-1__K-15__evidence__notadate.txt', '../__K-15__evidence__2026-11-04.txt']) {
+  for (const bad of ['CASEB-1__K-15__evidence.txt', 'CASEB-1__K-15__unknown__2026-11-04.txt', 'CASEB-1__K-15__evidence__notadate.txt', '../__K-15__evidence__2026-11-04.txt']) {
     assert.equal(call({ action: 'saveArtifact', name: bad, content: 'x' }).ok, false, `невалидное имя D-031: ${bad}`);
   }
-  assert.equal(call({ action: 'saveArtifact', name: 'SYN-1__K-15__report__2026-11-04__supplement-1.md', content: 'дополнение' }).ok, true, 'supplement разрешён');
+  assert.equal(call({ action: 'saveArtifact', name: 'CASEB-1__K-15__report__2026-11-04__supplement-1.md', content: 'дополнение' }).ok, true, 'supplement разрешён');
 
   assert.equal(call({ action: 'verifyArtifactPlacement', fileId: pres.fileId }).ok, true, 'PNG placement подтверждается');
   assert.equal(call({ action: 'verifyArtifactPlacement', fileId: sres.fileId }).ok, true, 'подкаталог placement подтверждается');
   assert.equal(call({ action: 'read', fileId: sres.fileId }).content, '# отчёт', 'текст из подкаталога читается');
   assert.equal(call({ action: 'read', fileId: pres.fileId }).ok, false, 'PNG не читается как текст');
   const big = Buffer.alloc(262145).toString('base64');
-  assert.equal(call({ action: 'saveArtifact', name: 'SYN-P1__P-C__shot__2026-11-04.png', content: big, encoding: 'base64' }).ok, false, 'байтовый лимит PNG действует');
+  assert.equal(call({ action: 'saveArtifact', name: 'CASEB-P1__P-C__shot__2026-11-04.png', content: big, encoding: 'base64' }).ok, false, 'байтовый лимит PNG действует');
 }
 
 console.log('OK: локальный Apps Script harness Gateway 1.8.0 — Arena/{logs,payloads,artifacts}, saveArtifact (D-031/PNG/подкаталог), placement, valid IDs и idempotency; live Drive не затронут');

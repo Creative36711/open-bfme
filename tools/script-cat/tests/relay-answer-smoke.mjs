@@ -265,8 +265,8 @@ const coordinator = { id: 'coord-1', name: 'Coordinator', url: 'https://arena.ai
 const mission = {
   id: 'mission-1',
   properties: {
-    'Миссия': { title: [{ plain_text: 'NAR-5 · state-ui' }] },
-    'ТЗ URL': { url: 'https://github.com/example/relay-fixture/blob/main/docs/agents/tz-nar-5.md' },
+    'Миссия': { title: [{ plain_text: 'CASEA-5 · state-ui' }] },
+    'ТЗ URL': { url: 'https://github.com/example/relay-fixture/blob/main/docs/agents/tz-CASEA-5.md' },
   },
 };
 
@@ -290,13 +290,13 @@ const question = {
   text: 'Какой исход выбрать для ADR 0015?',
   fullText: 'Какой исход выбрать для предложенного правила в docs/contracts/adr/0015-format-freeze.md?',
   fallback: 'Оставить как есть',
-  options: ['Оставить как есть', 'Принять в NAR-5.10', 'Отклонить ADR 0015'],
+  options: ['Оставить как есть', 'Принять в CASEA-5.10', 'Отклонить ADR 0015'],
 };
 
 // ── 5. Очередь ─────────────────────────────────────────────────────────────
 {
   reset();
-  const item = api.queueAnswer({ id: 'q-1' }, question, { roleName: 'Architect', card: 'NAR-5.1' });
+  const item = api.queueAnswer({ id: 'q-1' }, question, { roleName: 'Architect', card: 'CASEA-5.1' });
   assert.equal(item.id, 'q-1', 'вопрос в очереди');
   assert.equal(api.answerQueue().length, 1, 'ровно один элемент');
   assert.equal(api.answerPending().role, 'Architect', 'кто спросил — видно');
@@ -310,14 +310,14 @@ const question = {
 // ── 6. Промпт ответа ───────────────────────────────────────────────────────
 {
   reset();
-  const item = api.queueAnswer({ id: 'q-1' }, question, { roleName: 'Architect', card: 'NAR-5.1' });
+  const item = api.queueAnswer({ id: 'q-1' }, question, { roleName: 'Architect', card: 'CASEA-5.1' });
   const env = api.answerPrompt(mission, reviewer, item, 'turn-9');
   const text = env.text;
-  assert.match(text, /Миссия: NAR-5 · state-ui/, 'миссия в промпте');
-  assert.match(text, /ТЗ: https:\/\/github\.com\/example\/relay-fixture\/blob\/main\/docs\/agents\/tz-nar-5\.md/, 'оракул ссылкой');
-  assert.match(text, /Вопрос задал: Architect · карточка «NAR-5\.1»/, 'кто и по какой карточке');
+  assert.match(text, /Миссия: CASEA-5 · state-ui/, 'миссия в промпте');
+  assert.match(text, /ТЗ: https:\/\/github\.com\/example\/relay-fixture\/blob\/main\/docs\/agents\/tz-CASEA-5\.md/, 'оракул ссылкой');
+  assert.match(text, /Вопрос задал: Architect · карточка «CASEA-5\.1»/, 'кто и по какой карточке');
   assert.match(text, /0015-format-freeze\.md/, 'полный текст вопроса');
-  assert.match(text, /Варианты: Оставить как есть · Принять в NAR-5\.10/, 'варианты');
+  assert.match(text, /Варианты: Оставить как есть · Принять в CASEA-5\.10/, 'варианты');
   assert.match(text, /Вариант по умолчанию \(работа идёт по нему сейчас\): Оставить как есть/, 'default назван');
   assert.match(text, /вместо Мастера/, 'роль названа');
   assert.match(text, /CF_ANSWER_RESULT \{"question_id":"q-1","turn_id":"turn-9","verdict":"answer","answer"/, 'маркер ответа');
@@ -366,14 +366,14 @@ const question = {
   api.__messages = [
     {
       raw:
-        'CF_ANSWER_RESULT {"question_id":"q-1","turn_id":"t","verdict":"answer","answer":"Принять в NAR-5.10 после зелёных проверок пака и игры-примера; сейчас текст не переписывать."}',
+        'CF_ANSWER_RESULT {"question_id":"q-1","turn_id":"t","verdict":"answer","answer":"Принять в CASEA-5.10 после зелёных проверок пака и игры-примера; сейчас текст не переписывать."}',
     },
   ];
   await runAnswerStep({ watermark: 'w-1', ref: 'q-1', kind: 'answer' });
   assert.equal(calls.patches.length, 1, 'вопрос обновлён');
   assert.equal(calls.patches[0].id, 'q-1', 'правильная строка');
   assert.equal(calls.patches[0].props['Статус'].select.name, 'Решено', 'статус «Решено»');
-  assert.match(calls.patches[0].props['Ответ'].rich_text[0].text.content, /NAR-5\.10/, 'ответ записан');
+  assert.match(calls.patches[0].props['Ответ'].rich_text[0].text.content, /CASEA-5\.10/, 'ответ записан');
   assert.equal(api.answerQueue().length, 0, 'с очереди снят');
   assert.equal(store.get('cfn-expect'), null, 'ожидание снято');
   assert.equal(calls.plans.length, 1, 'ход вернулся Координатору');
@@ -411,12 +411,12 @@ const question = {
   await runAnswerStep({ watermark: 'before-master', ref: 'q-1', kind: 'answer' });
   const pending = store.get('cfn-expect');
   api.__messages = [
-    { id: 'late-answer', raw: 'CF_ANSWER_RESULT {"question_id":"q-1","turn_id":"t","verdict":"answer","answer":"Мастер подтвердил creative-textile, 2026 и MIT."}' },
+    { id: 'late-answer', raw: 'CF_ANSWER_RESULT {"question_id":"q-1","turn_id":"t","verdict":"answer","answer":"Мастер подтвердил example-org, 2026 и MIT."}' },
   ];
   await api.answerStep(reviewer, pending, true);
   assert.equal(calls.patches.length, 1, 'поздний ответ записан автоматически');
   assert.equal(calls.patches[0].props['Статус'].select.name, 'Решено', 'вопрос закрыт после ответа');
-  assert.match(calls.patches[0].props['Ответ'].rich_text[0].text.content, /creative-textile/, 'содержимое позднего ответа сохранено');
+  assert.match(calls.patches[0].props['Ответ'].rich_text[0].text.content, /example-org/, 'содержимое позднего ответа сохранено');
   assert.equal(calls.plans.length, 1, 'после записи ход возвращён Координатору');
   assert.equal(calls.pauses.length, 1, 'новой ложной паузы нет');
 }
@@ -431,7 +431,7 @@ const question = {
   await runAnswerStep({ watermark: 'before-master', ref: 'q-1', kind: 'answer' });
   api.__messages = [];
   api.__rowStatus = 'Решено';
-  api.__rowAnswer = 'Мастер подтвердил creative-textile, 2026 и MIT.';
+  api.__rowAnswer = 'Мастер подтвердил example-org, 2026 и MIT.';
   await api.answerStep(reviewer, store.get('cfn-expect'), true);
   assert.equal(calls.patches.length, 0, 'уже внесённый человеком ответ не перезаписывается');
   assert.equal(store.get('cfn-expect'), null, 'ожидание снято после сверки Notion');

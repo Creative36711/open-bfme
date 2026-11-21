@@ -1,6 +1,6 @@
 // Проба 1.4.40: в журнал хода попадает весь ответ, а не одна строка маркера.
 //
-// История: NAR-1.8, 23.10.2026. Kernel отчитался по делу без маркера, получил
+// История: CASEA-1.8, 23.10.2026. FixtureExecutor отчитался по делу без маркера, получил
 // Техническое напоминание «ответь ровно одной последней строкой» и прислал
 // ровно её. В Drive-журнал записался только маркер, Координатор прочитал его,
 // не увидел работы и поставил Rework при уже слитом PR #32.
@@ -35,7 +35,7 @@ const buildAnswer = new Function(
 const marker = (dispatch, run) =>
   `CF_AGENT_RESULT {"dispatch_id":"${dispatch}","run_id":"${run}","status":"submitted","check":0,"pr":32,"merged":true}`;
 const report =
-  'Изменённые файлы PR #32: docs/decisions/NAR-1.8.md, src/core/engine.ts, src/core/meta.ts. ' +
+  'Изменённые файлы PR #32: docs/decisions/CASEA-1.8.md, src/core/engine.ts, src/core/meta.ts. ' +
   'wc -l src/core/engine.ts = 599. Все 50 smoke зелёные, exit 0. Новые модули: director 243, ' +
   'character 414, checks 374, economy 396, dialogue-runtime 360, encounters 352, meta 221, roguelike 103.';
 
@@ -224,7 +224,7 @@ assert.ok(!/## Ответ \$\{role\.name\}\\n\\n\$\{hit\.text\}/.test(src), 'з�
   let stoppedAtAppend = null;
   try {
     await submitExecutor(
-      { fn: 'Kernel', name: 'Kernel', id: 'role-kernel' },
+      { fn: 'FixtureExecutor', name: 'FixtureExecutor', id: 'role-fixtureExecutor' },
       { kind: 'dispatch', ref: 'd1', runId: 'r1', missionId:'m1', watermark: 'w' },
       false,
     );
@@ -262,15 +262,15 @@ const remind = new Function(
   `${promptShim}\n${src.slice(remindFrom, remindTo)}\nreturn markerReminder;`,
 )({ markerReminders: 2 }, roleContextStub);
 
-const roleKernel = { name: 'Kernel', fn: 'Executor' };
-const expect = { kind: 'dispatch', ref: 'd1', runId: 'r1', title: 'NAR-1.8' };
+const roleFixtureExecutor = { name: 'FixtureExecutor', fn: 'Executor' };
+const expect = { kind: 'dispatch', ref: 'd1', runId: 'r1', title: 'CASEA-1.8' };
 
-const plain = remind(roleKernel, expect, 1, 'CF_AGENT_RESULT').text;
+const plain = remind(roleFixtureExecutor, expect, 1, 'CF_AGENT_RESULT').text;
 assert.match(plain, /не хватило последней строки с CF_AGENT_RESULT/, 'обычное напоминание про маркер');
 assert.match(plain, /пришли ответ целиком/, 'просим отчёт целиком');
 assert.match(plain, /не вместо отчёта/, 'прямой запрет на маркер вместо отчёта');
 
-const thin = remind(roleKernel, expect, 2, 'CF_AGENT_RESULT', 'thin').text;
+const thin = remind(roleFixtureExecutor, expect, 2, 'CF_AGENT_RESULT', 'thin').text;
 assert.match(thin, /Техническое напоминание \(2 из 2;/, 'видно, что отчёта нет');
 assert.match(thin, /пришёл только маркер CF_AGENT_RESULT, без отчёта/, 'причина названа');
 assert.match(thin, /Маркер без фактов не считается ответом/, 'объяснено, почему не принято');

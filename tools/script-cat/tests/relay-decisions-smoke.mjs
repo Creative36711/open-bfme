@@ -29,13 +29,13 @@ const store = new Map();
 const { adrStatusOf, openDecisions, b64Text } = new Function(
   'GM_getValue', `${adrBlock}\nreturn { adrStatusOf, openDecisions, b64Text };`,
 )((key, fallback) => store.has(key) ? store.get(key) : fallback);
-assert.equal(adrStatusOf('Статус: proposed\n# NAR-2.15'), 'proposed');
+assert.equal(adrStatusOf('Статус: proposed\n# CASEA-2.15'), 'proposed');
 assert.equal(adrStatusOf('Статус: accepted'), 'accepted');
 assert.equal(adrStatusOf('Статус: `proposed`'), 'proposed');
 assert.equal(adrStatusOf('**Статус:** proposed'), '');
 assert.equal(adrStatusOf('# нет статуса'), '');
 assert.equal(adrStatusOf(''), '');
-assert.match(b64Text(Buffer.from('Статус: proposed\n# NAR-2.16', 'utf8').toString('base64')), /Статус: proposed/);
+assert.match(b64Text(Buffer.from('Статус: proposed\n# CASEA-2.16', 'utf8').toString('base64')), /Статус: proposed/);
 assert.equal(b64Text(''), '');
 assert.equal(b64Text('не base64!'), '');
 

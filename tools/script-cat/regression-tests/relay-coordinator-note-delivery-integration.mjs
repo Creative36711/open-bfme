@@ -64,10 +64,10 @@ const routing = cut('  function decisionRoute(next,', '  // ──────�
 const norm = (x) => String(x || '').replace(/-/g, '').toLowerCase();
 const decisionRoute = new Function('norm', `${routing}\nreturn decisionRoute;`)(norm);
 const warden = { name: 'Warden', fn: 'Reviewer', id: 'rev-1', status: 'Активна' };
-const kernel = { name: 'Kernel', fn: 'Executor', id: 'exec-1', status: 'Активна' };
+const fixtureExecutor = { name: 'FixtureExecutor', fn: 'Executor', id: 'exec-1', status: 'Активна' };
 const auditor = { name: 'Runtime Auditor', fn: 'Auditor', id: 'audit-1', status: 'Активна' };
 const coordinator = { name: 'Coordinator', fn: 'Coordinator', id: 'coord-1', status: 'Активна' };
-const roles = [coordinator, warden, kernel, auditor];
+const roles = [coordinator, warden, fixtureExecutor, auditor];
 
 const route = decisionRoute('Warden', { roles, directory: roles, readyRoles: ['Warden'] });
 assert.equal(route.kind, 'ask', 'Reviewer по-прежнему не получает карточку');
@@ -77,7 +77,7 @@ assert.match(route.note, /вопросы и предложения/);
 assert.match(route.note, /done/);
 // D-042: конкретика, которой не хватало в бою.
 assert.match(route.note, /«Кому»/, 'названо поле, которое надо исправить');
-assert.match(route.note, /Kernel/, 'названа доступная рабочая роль Executor');
+assert.match(route.note, /FixtureExecutor/, 'названа доступная рабочая роль Executor');
 assert.match(route.note, /Runtime Auditor/, 'названа доступная рабочая роль Auditor');
 assert.match(route.note, /Ready/, 'сказано оставить карточку в Ready');
 assert.match(route.note, /исполнителя/, 'ратификация названа работой исполнителя');
@@ -89,7 +89,7 @@ assert.equal(noWorkers.kind, 'ask');
 assert.match(noWorkers.note, /Executor или Auditor/, 'без рабочих ролей назван класс роли');
 
 // Рабочие роли по-прежнему получают dispatch (фикс не задел нормальный путь).
-assert.equal(decisionRoute('Kernel', { roles, directory: roles, readyRoles: ['Kernel'] }).kind, 'dispatch');
+assert.equal(decisionRoute('FixtureExecutor', { roles, directory: roles, readyRoles: ['FixtureExecutor'] }).kind, 'dispatch');
 assert.equal(decisionRoute('done', { roles, directory: roles }).kind, 'done');
 
 // ── 7. проводка note в compile-контекст coordinatorPrompt (место бага) ─────

@@ -1,6 +1,6 @@
 // Проба хода Координатора: приёмка и выдача — один ответ, а не два.
 //
-// Случай Мастера (2026-10-23, 18:55): Coordinator принял NAR-1.1 и честно
+// Случай Мастера (2026-10-23, 18:55): Coordinator принял CASEA-1.1 и честно
 // ответил next:"Coordinator", оставив очередь пустой. Скрипт 1.4.14 на такое
 // решение падал в паузу «Координатор направил ход в «Coordinator», но
 // Ready-карточки нет» — то есть наказывал за аккуратный ответ.
@@ -16,13 +16,13 @@ const src = readFileSync(new URL('../relay.user.js', import.meta.url), 'utf8');
 
 // ── 1. Промпт: законченный ход, а не «ровно одно действие» (компилятор) ────
 const { PromptCompiler, planRequest } = await import('./helpers/prompt-env.mjs');
-const draftText = 'Черновики: NAR-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
+const draftText = 'Черновики: CASEA-1.10 · Регрессия и отчёт (Build/Release, Sequence 100).';
 const prompt = PromptCompiler.compile(planRequest({ queue: { summary: '0 Submitted, 0 Running, 0 Ready, 0 Rework', draft: draftText } })).text;
 
 assert.match(prompt, /пусто — не ход/, 'пустая очередь — незаконченный ход');
 assert.match(prompt, /next — имя роли выдаваемой карточки или done/, 'next должен называть исполнителя');
 assert.match(prompt, /CF_COORDINATOR_RESULT/, 'маркер на месте');
-assert.match(prompt, /NAR-1\.10 · Регрессия и отчёт/, 'черновики видны Координатору списком');
+assert.match(prompt, /CASEA-1\.10 · Регрессия и отчёт/, 'черновики видны Координатору списком');
 assert.match(prompt, /Нарезка|нарезка/, 'выдача — работа Координатора');
 assert.match(prompt, /Accepted\/Rework\/Ready — ты/, 'Ready — право Координатора');
 assert.match(prompt, /Draft→Ready/, 'черновик можно выдать, а не пересоздавать');
@@ -50,13 +50,13 @@ const cardAt = (id, who, logId, at) => ({
   },
 });
 const submitted = [
-  cardAt('NAR-1.1 · Карта ядра', 'Architect', 'LOG1', '2026-10-23T15:00:00Z'),
-  cardAt('NAR-1.2 · Контекст и страж графа', 'Kernel', 'LOG2', '2026-10-23T16:26:00Z'),
+  cardAt('CASEA-1.1 · Карта ядра', 'Architect', 'LOG1', '2026-10-23T15:00:00Z'),
+  cardAt('CASEA-1.2 · Контекст и страж графа', 'FixtureExecutor', 'LOG2', '2026-10-23T16:26:00Z'),
 ];
 const answerLine = answerLogLine(submitted);
 assert.match(
   answerLine,
-  /^Журнал ответа Kernel \(NAR-1\.2\): https:\/\/drive\.google\.com\/file\/d\/LOG2\/view — прочитай, если нужны детали ответа\.$/,
+  /^Журнал ответа FixtureExecutor \(CASEA-1\.2\): https:\/\/drive\.google\.com\/file\/d\/LOG2\/view — прочитай, если нужны детали ответа\.$/,
   'ссылка ведёт на журнал последнего ответа, а не первого',
 );
 assert.equal(answerLogLine([]), '', 'нет Submitted — нет строки');
@@ -78,7 +78,7 @@ const decisionRoute = new Function(
 const roles = [
   { name: 'Coordinator', fn: 'Coordinator' },
   { name: 'Architect', fn: 'Executor' },
-  { name: 'Kernel', fn: 'Executor' },
+  { name: 'FixtureExecutor', fn: 'Executor' },
 ];
 
 // 2.1. Сам Координатор — не ошибка, а просьба закончить ход.
@@ -92,8 +92,8 @@ const roles = [
 
 // 2.2. Роль есть, карточка готова — отправляем.
 assert.deepEqual(
-  decisionRoute('Kernel', { roles, readyRoles: ['Kernel'] }),
-  { kind: 'dispatch', roleName: 'Kernel' },
+  decisionRoute('FixtureExecutor', { roles, readyRoles: ['FixtureExecutor'] }),
+  { kind: 'dispatch', roleName: 'FixtureExecutor' },
   'карточка Ready — ход уходит исполнителю',
 );
 
@@ -123,7 +123,7 @@ assert.deepEqual(
   const route = decisionRoute('UI/UX', { roles, readyRoles: ['UI/UX'] });
   assert.equal(route.kind, 'ask', 'неактивная роль не отправляется');
   assert.match(route.note, /карточка в Ready есть, но выдать её некому/, 'сказано, в чём дело');
-  assert.match(route.note, /Активные роли: Coordinator, Architect, Kernel/, 'видно, кому выдать можно');
+  assert.match(route.note, /Активные роли: Coordinator, Architect, FixtureExecutor/, 'видно, кому выдать можно');
 }
 
 // 2.5c. Роль есть в базе, но со статусом «Ждёт» и заполненным Agent URL.

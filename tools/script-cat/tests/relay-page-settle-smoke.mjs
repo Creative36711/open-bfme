@@ -5,7 +5,7 @@
 //   17:30:44 «ПАУЗА: Кнопка Send неактивна или не найдена — редактор не принял
 //            текст (поле в документе, в поле 9186 симв., кнопка «send message»,
 //            сообщений 0 → 18, своих 8, панелей 0, активной кнопки Send нет…)»;
-//   карточка NAR-2.12 возвращена в Ready.
+//   карточка CASEA-2.12 возвращена в Ready.
 //
 // Поле и текст были на месте, а кнопка `Send` — ещё `disabled`: транскрипт в
 // этот момент монтировался (сообщений 0 → 18). Скрипт ждал кнопку 1,5 с, потом
@@ -110,7 +110,7 @@ const runWait = async ({ readyAfter, budget = 900, fieldText = '' }) => {
     (x) => String(x || '').replace(/[\s\u00a0]+/g, ' ').trim().toLowerCase(),
     () => fieldText,
   );
-  const btn = await wait({}, 'задание NAR-2.12', budget);
+  const btn = await wait({}, 'задание CASEA-2.12', budget);
   return { btn, ...out };
 };
 
@@ -118,7 +118,7 @@ const slow = await runWait({ readyAfter: 8, budget: 6000 });
 assert.equal(slow.btn, 'SEND', 'кнопка дождалась: страница успела отрисоваться');
 assert.ok(slow.prompts.length > 0, 'пока страница рисуется, текст возвращается в поле');
 assert.ok(
-  slow.prompts.every((t) => t === 'задание NAR-2.12'),
+  slow.prompts.every((t) => t === 'задание CASEA-2.12'),
   'в поле возвращается то же задание, а не пустая строка',
 );
 
@@ -129,7 +129,7 @@ assert.ok(
 // 09.11 в 14:03:27 так прошло 20 с («активной кнопки Send нет за 20 с, поле
 // 8403 симв.»). Число перевставок ограничено, и только пустое поле их разрешает.
 assert.ok(slow.prompts.length <= 2, `перевставок не больше двух (было ${slow.prompts.length})`);
-const full = await runWait({ readyAfter: 99_999, budget: 6000, fieldText: 'задание NAR-2.12' });
+const full = await runWait({ readyAfter: 99_999, budget: 6000, fieldText: 'задание CASEA-2.12' });
 assert.equal(
   full.prompts.length,
   0,

@@ -45,7 +45,7 @@ test('repo нормализуется в точный owner/repo', () => {
 test('bootstrap-пробник не содержит внутренних токенов', () => {
   const { api } = loadCore();
   assert.ok(api.provisionBootstrapClean('Что изображено на картинке test.jpg в репозитории https://github.com/owner/test?'));
-  for (const bad of ['', 'CF_AGENT_RESULT', 'Notion page', 'cortex', 'REGULATION', 'WARDEN', 'DECISIONS', 'ghp_abcdef123456', 'https://app.notion.so/x']) {
+  for (const bad of ['', 'CF_AGENT_RESULT', 'Notion page', 'aux-workspace', 'REGULATION', 'WARDEN', 'DECISIONS', 'ghp_abcdef123456', 'https://app.notion.so/x']) {
     assert.equal(api.provisionBootstrapClean(bad), false, bad);
   }
 });

@@ -1,6 +1,6 @@
 // Проба 1.4.40: id из строки-маркера больше не адресуют запись в Notion.
 //
-// Инцидент 24.10.2026, 13:15 UTC. Kernel выполнил NAR-1.9 и прислал маркер, в
+// Инцидент 24.10.2026, 13:15 UTC. FixtureExecutor выполнил CASEA-1.9 и прислал маркер, в
 // котором uuid карточки был с опечаткой:
 //   было:  4036f0cf-5705-81ba-9f79-ed89959fe3b8
 //   пришло: 4036f0cf-5705-ba9f-79ed-59fe3b8e
@@ -30,7 +30,7 @@ const { isUuid, adoptIds } = new Function(
 )((x) => String(x || '').trim().toLowerCase());
 
 const REAL = '4036f0cf-5705-81ba-9f79-ed89959fe3b8';
-const BROKEN = '4036f0cf-5705-ba9f-79ed-59fe3b8e'; // ровно то, что пришло от Kernel
+const BROKEN = '4036f0cf-5705-ba9f-79ed-59fe3b8e'; // ровно то, что пришло от FixtureExecutor
 const OTHER = '4016f0cf-5705-8197-be3a-c06bf51885ac';
 const RUN = 'e56a3ff8-486d-4c95-a6b8-f913812697ea';
 

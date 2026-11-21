@@ -226,7 +226,7 @@
     collapsed: "cfn-panel-collapsed",
     stateV: "cfn-state-v",
     rolesCache: "cfn-roles-cache",
-    // Эфемерные пилоты SYN-P1: отдельный namespace, НЕ K.pending/K.expect.
+    // Эфемерные пилоты CASEB-P1: отдельный namespace, НЕ K.pending/K.expect.
     pilots: "cfn-pilots-v1",
     pilotWait: "cfn-pilot-wait:",
     pilotTranscript: "cfn-pilot-transcript:",

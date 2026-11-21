@@ -50,7 +50,7 @@ function harness() {
 {
   const { api, env } = harness();
   const live = planRequest({
-    mission: { id: UUID, name: 'SYN-3 · Транспорт', round: 1, reworkLimit: 3 },
+    mission: { id: UUID, name: 'CASEB-3 · Транспорт', round: 1, reworkLimit: 3 },
     role: { name: 'Coordinator', fn: 'Coordinator', zone: 'tools/script-cat/**' },
     queue: {
       summary: '1 Submitted, 0 Running, 2 Ready, 1 Rework',

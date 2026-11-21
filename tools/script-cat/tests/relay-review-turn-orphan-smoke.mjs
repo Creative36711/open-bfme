@@ -274,7 +274,7 @@ const OTHER_TURN = { id: 'm-other', raw: reviewPrompt.text.replaceAll(UUID.turn,
 
 // ── 6. Рабочая карточка Reviewer по-прежнему блокируется ───────────────────
 {
-  const cardText = 'Карточка «SYN-2 · S-7» · dispatch a709d6df-4698-4a98-b111-90d22de42894 · run 8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d\n' +
+  const cardText = 'Карточка «CASEB-2 · S-7» · dispatch a709d6df-4698-4a98-b111-90d22de42894 · run 8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d\n' +
     'Последней строкой: CF_AGENT_RESULT {"dispatch_id":"a709d6df-4698-4a98-b111-90d22de42894","run_id":"8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d"}';
   const workExpect = { kind: 'dispatch', roleId: WARDEN.id, roleName: 'Warden', roleFn: 'Reviewer',
     ref: 'a709d6df-4698-4a98-b111-90d22de42894', runId: '8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d',

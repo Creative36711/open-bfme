@@ -51,8 +51,8 @@ assert.deepEqual(
 
 // 1.4. Маркер в блоке кода и с текстом после него.
 assert.deepEqual(
-  parseMarker('```\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"Kernel"}\n```\nВсё.', NAME),
-  { mission_id: 'm1', next: 'Kernel' },
+  parseMarker('```\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"FixtureExecutor"}\n```\nВсё.', NAME),
+  { mission_id: 'm1', next: 'FixtureExecutor' },
   'блок кода и текст после маркера не мешают',
 );
 
@@ -89,7 +89,7 @@ assert.equal(parseMarker('', NAME), null, 'пустой текст — не ма
 // 1.8. Два маркера: берём последний, шаблонные пропускаем.
 assert.deepEqual(
   parseMarker(
-    'CF_COORDINATOR_RESULT {"mission_id":"old","next":"Kernel"}\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"Architect"}',
+    'CF_COORDINATOR_RESULT {"mission_id":"old","next":"FixtureExecutor"}\nCF_COORDINATOR_RESULT {"mission_id":"m1","next":"Architect"}',
     NAME,
   ),
   { mission_id: 'm1', next: 'Architect' },

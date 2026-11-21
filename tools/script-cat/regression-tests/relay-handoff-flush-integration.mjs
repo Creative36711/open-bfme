@@ -84,7 +84,7 @@ const sendKey = new Function('flat', `${sendKeyBlock}\nreturn sendKey;`)(flat);
   assert.ok(reminder.ok);
   assert.equal(parseIds(reminder.text).dispatch, UUID.dispatch, 'напоминание опознаётся по примеру маркера');
   assert.notEqual(sendKey(reminder.text), sendKey(REAL), 'ключ напоминания не совпадает с ключом исходной выдачи');
-  assert.equal(parseIds('Задача SYN-1 (dispatch a709d6df-4698-4a98-b111-90d22de42894, run 8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d)').run,
+  assert.equal(parseIds('Задача CASEB-1 (dispatch a709d6df-4698-4a98-b111-90d22de42894, run 8abe7712-1111-4a2b-9c3d-4e5f6a7b8c9d)').run,
     UUID.run, 'прежняя скобочная форма плана продолжает работать');
   assert.equal(parseIds('обычный текст без опознавательных строк'), null);
   assert.equal(parseIds(''), null);
@@ -222,7 +222,7 @@ function card(over = {}) {
   return {
     id: UUID.dispatch, url: 'https://notion.so/card',
     properties: {
-      'Запрос': { title: [{ plain_text: 'SYN-1 · K-27' }] },
+      'Запрос': { title: [{ plain_text: 'CASEB-1 · K-27' }] },
       'Dispatch State': { select: { name: 'Running' } },
       'Run ID': rich(UUID.run),
       'Mission ID': rich(UUID.mission),
@@ -235,8 +235,8 @@ function card(over = {}) {
 function makeAdopt({ page = card(), notionFails = false, nodes = [], receipts = [], pendingOver = {}, currentRole = ROLE.id } = {}) {
   const pending = {
     roleId: ROLE.id, roleName: ROLE.name, roleUrl: ROLE.url, roleFn: 'Executor', kind: 'dispatch',
-    ref: UUID.dispatch, runId: UUID.run, missionId: UUID.mission, logId: 'log-1', title: 'SYN-1 · K-27',
-    url: 'https://notion.so/card', sessionRepo: 'example/relay-fixture', targetRepo: 'creative-textile/vault-core',
+    ref: UUID.dispatch, runId: UUID.run, missionId: UUID.mission, logId: 'log-1', title: 'CASEB-1 · K-27',
+    url: 'https://notion.so/card', sessionRepo: 'example/relay-fixture', targetRepo: 'example-org/fixture-source-core',
     targetBranch: 'main', text: REAL, at: Date.now(), ...pendingOver,
   };
   const store = new Map([[K.pending, clone(pending)], [K.expect, null], ['cfn-delivery-receipts-v1', clone(receipts)]]);

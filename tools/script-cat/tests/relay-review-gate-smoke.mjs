@@ -182,8 +182,8 @@ api.reviewStep = async (role, expect, ...rest) => {
 const mission = (over = {}) => ({
   id: over.id || 'mission-1',
   properties: {
-    'Миссия': { title: [{ plain_text: over.name || 'NAR-5 · Контракты' }] },
-    'ТЗ URL': { url: 'https://github.com/example/relay-fixture/blob/main/docs/agents/tz-nar-5.md' },
+    'Миссия': { title: [{ plain_text: over.name || 'CASEA-5 · Контракты' }] },
+    'ТЗ URL': { url: 'https://github.com/example/relay-fixture/blob/main/docs/agents/tz-CASEA-5.md' },
     'Итог': { rich_text: [{ plain_text: over.result ?? 'Сделано 12 карточек, npm run check:contracts = 0.' }] },
     'Круг': { number: over.round ?? 0 },
     'Возвращена': { date: over.returned ? { start: over.returned } : null },
@@ -219,8 +219,8 @@ const reset = () => {
   const m = mission({ round: 1 });
   api.__accepted = [card('5.1', 'Architect', { answer: 'ADR принят', pr: 'https://github.com/x/y/pull/1' }), card('5.2', 'Tools')];
   const text = api.reviewPrompt(m, reviewer, 'turn-9', 1, { summary: '0 Submitted, 0 Running, 0 Ready, 0 Rework, 2 Draft' }, api.__accepted).text;
-  assert.match(text, /Миссия: NAR-5 · Контракты/, 'миссия в промпте');
-  assert.match(text, /ТЗ: https:\/\/github\.com\/example\/relay-fixture\/blob\/main\/docs\/agents\/tz-nar-5\.md/, 'оракул назван ссылкой');
+  assert.match(text, /Миссия: CASEA-5 · Контракты/, 'миссия в промпте');
+  assert.match(text, /ТЗ: https:\/\/github\.com\/example\/relay-fixture\/blob\/main\/docs\/agents\/tz-CASEA-5\.md/, 'оракул назван ссылкой');
   assert.match(text, /Круг: 1 \(предел доработок 3\)/, 'круг и предел видны');
   assert.match(text, /0 Submitted, 0 Running, 0 Ready, 0 Rework, 2 Draft/, 'очередь видна');
   assert.match(text, /5\.1 · Architect · https:\/\/github\.com\/x\/y\/pull\/1 · ответ: ADR принят/, 'принятая карточка с ответом и PR');

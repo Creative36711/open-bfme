@@ -57,7 +57,7 @@ const {
 const waiting = {
   id: 'row-wait',
   properties: {
-    'Вопрос': { title: [{ plain_text: 'NAR-5: как разорвать круг caps.json и caps.ts?' }] },
+    'Вопрос': { title: [{ plain_text: 'CASEA-5: как разорвать круг caps.json и caps.ts?' }] },
     'Статус': { select: { name: 'Ждёт' } },
     'Ответ': { rich_text: [] },
     'По умолчанию': { rich_text: [{ plain_text: 'оставить как есть' }] },
@@ -82,7 +82,7 @@ assert.equal(
 );
 
 const asQuestion = questionFromRow(waiting);
-assert.equal(asQuestion.text, 'NAR-5: как разорвать круг caps.json и caps.ts?', 'вопрос берётся из строки');
+assert.equal(asQuestion.text, 'CASEA-5: как разорвать круг caps.json и caps.ts?', 'вопрос берётся из строки');
 assert.equal(asQuestion.fallback, 'оставить как есть', 'вариант по умолчанию сохранён');
 assert.deepEqual(asQuestion.options, ['A', 'B', 'C'], 'варианты из строки разбираются');
 assert.match(asQuestion.fullText, /Вариант по умолчанию: оставить как есть/, 'полный текст самодостаточен');
@@ -115,7 +115,7 @@ const { adrKeysOf, adrKeyOf, proposalQuestion, deliverProposals } = new Function
   'docs/decisions',
   'proposed',
   async () => ({ id: 'row-new' }),
-  async () => ({ id: 'mission-1', properties: { 'Миссия': { title: [{ plain_text: 'NAR-5' }] } } }),
+  async () => ({ id: 'mission-1', properties: { 'Миссия': { title: [{ plain_text: 'CASEA-5' }] } } }),
   rt,
   () => {},
   async () => [], { done: 'Решено', byDefault: 'Принят дефолт' }, (p) => p?.select?.name || '',
@@ -123,14 +123,14 @@ const { adrKeysOf, adrKeyOf, proposalQuestion, deliverProposals } = new Function
 );
 
 const keys = adrKeysOf(
-  'Предложение docs/decisions/0016-capability-registry-boundary.md и NAR-5.13',
+  'Предложение docs/decisions/0016-capability-registry-boundary.md и CASEA-5.13',
 );
 assert.ok(keys.has('0016-capability-registry-boundary'), 'имя файла — ключ решения');
-assert.ok(keys.has('nar-5.13'), 'номер карточки — тоже ключ');
+assert.ok(keys.has('casea-5.13'), 'номер карточки — тоже ключ');
 assert.ok(adrKeysOf('ORBIT_X-7.19').has('orbit_x-7.19'), 'префикс проекта не зашит');
-assert.equal(adrKeyOf('NAR-5.9.md'), 'nar-5.9', 'ключ файла без расширения');
+assert.equal(adrKeyOf('CASEA-5.9.md'), 'casea-5.9', 'ключ файла без расширения');
 
-const asked = proposalQuestion({ file: '0016-capability-registry-boundary.md', sha: 'a'.repeat(40), content: 'Статус: proposed\n# Полный документ\n' }, 'NAR-5');
+const asked = proposalQuestion({ file: '0016-capability-registry-boundary.md', sha: 'a'.repeat(40), content: 'Статус: proposed\n# Полный документ\n' }, 'CASEA-5');
 assert.match(asked.text, /docs\/decisions\/0016-capability-registry-boundary\.md/, 'в вопросе есть ссылка на файл');
 assert.equal(asked.url, 'https://github.com/example/relay-fixture/blob/main/docs/decisions/0016-capability-registry-boundary.md', 'ссылка на материал ведёт на файл в main');
 assert.ok(asked.fullText.includes(asked.url), 'ссылка доступна приёмке');
@@ -164,7 +164,7 @@ const dedupe = new Function(
 );
 await dedupe.deliverProposals([
   { file: '0016-capability-registry-boundary.md', sha: 'a'.repeat(40), content: 'Статус: proposed\n# Первый документ\n' },
-  { file: 'NAR-5.9.md', sha: 'b'.repeat(40), content: 'Статус: proposed\n# Второй документ\n' },
+  { file: 'CASEA-5.9.md', sha: 'b'.repeat(40), content: 'Статус: proposed\n# Второй документ\n' },
 ]);
 assert.equal(calls.length, 2, 'предложение на файл — один вопрос');
 assert.equal(calls[0].ctx.key, `adr-full:0016-capability-registry-boundary.md:${'a'.repeat(40)}`, 'отметка о передаче по файлу');

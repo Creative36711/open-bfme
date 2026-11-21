@@ -5,6 +5,8 @@
 ## 1. System context
 
 ```text
+WOTR Launcher ──> one signed native game build
+                       │
 Campaign Pack ──> WotrRemaster deterministic core ──> canonical state/save/hash
       │                         │
       │                         ├──> Godot 2.5D map + editor (presentation/input)
@@ -18,7 +20,7 @@ Campaign Pack ──> WotrRemaster deterministic core ──> canonical state/sa
                                          └──────────────> core apply
 ```
 
-Стратегия и editor — продукт WOTR Remaster. OpenBFME — tactical runtime и retail asset provider. Интеграция остаётся нативной внутри одного build; JSON допустим для fixtures/debug export, но не является обязательным runtime IPC. Legacy import/capacity/custom-map contract принят в [ADR-002](architecture/ADR-002-LEGACY-WORLD-IMPORT-AND-TACTICAL-CAPACITY.md), locale baseline — в [ADR-003](architecture/ADR-003-PRODUCT-LOCALES.md).
+Стратегия и editor — продукт WOTR Remaster. OpenBFME — tactical runtime и retail asset provider. Интеграция остаётся нативной внутри одного game build; отдельный launcher только проверяет/обновляет/запускает этот build и не является вторым игровым runtime. JSON допустим для fixtures/debug export, но не является обязательным runtime IPC. Legacy import/capacity/custom-map contract принят в [ADR-002](architecture/ADR-002-LEGACY-WORLD-IMPORT-AND-TACTICAL-CAPACITY.md), locale baseline — в [ADR-003](architecture/ADR-003-PRODUCT-LOCALES.md), player entry и one-archive distribution — в [ADR-004](architecture/ADR-004-PLAYER-ENTRY-AND-DISTRIBUTION.md).
 
 ## 2. Upstream baseline
 
@@ -53,6 +55,8 @@ campaigns/
   fixtures/                          synthetic tiny packs
 art/                                 licensed custom strategic assets only
 docs/                                process, architecture, missions and ADR
+launcher/                            adapted WOTR launcher/updater product flavor
+tools/release/                       audited one-archive and manifest pipeline
 tools/script-cat/                    agent transport (protected)
 ```
 
@@ -182,11 +186,13 @@ Reference kinds are explicit (`retail:`, `pack:`, `custom:` or equivalent accept
 
 A versioned one-way importer may convert the pinned world/ownership/region/location content of `Creative36711/wotr` into this schema. It emits stable IDs, canonical bytes and a source/hash/loss report, but imports no React/Tauri/Win32/OCR runtime. Publication of generated full content or legacy BIG remains blocked until its license/provenance is authorized.
 
-## 8. Retail boundary
+## 8. Player entry and retail boundary
 
-Retail BFME2 1.06 and RotWK 2.01 are user-supplied and read-only. OpenBFME's archive policy validates expected files by size/hash and mounts original archives in a defined order. Product tests receive locations through `BFME2_INSTALL` and `ROTWK_INSTALL` or the runtime's normal install-path configuration.
+WOTR adapts the existing launcher and one-archive pipeline rather than shipping an unchanged upstream binary or writing a second updater. A package contains a WOTR-branded launcher and one native game build. **Play WOTR Remaster** and direct packaged-game start reach the same typed WOTR product entry without developer commands. Launcher update data/settings/logs and WOTR saves are isolated from an upstream OpenBFME installation; repository/channel/signing identity is explicit and fail-closed. The normative route, offline behavior and support claims are ADR-004 and `docs/missions/WOTR-1.2.md`.
 
-No retail binary is added by WOTR product commits or retained in any published reachable ref. Byte-exact transfer tooling is operational support, not a content packaging mechanism. A canary part is verified before any bulk transfer. Engine build and retail hydration follow the tiered policy in `docs/agents/cost-gates.md`; retail is not a default gate for unrelated work.
+Retail BFME2 1.06 and RotWK 2.01 are user-supplied and read-only. OpenBFME's archive policy validates expected files by size/hash and mounts original archives in a defined order. Product tests receive locations through `BFME2_INSTALL` and `ROTWK_INSTALL` only at developer/integration layers; the accepted player path uses normal discovery/folder selection and no environment variables.
+
+No retail binary is added by WOTR product commits, product archives or any published reachable ref. Byte-exact transfer tooling is operational support, not a content packaging mechanism. A canary part is verified before any bulk transfer. Engine build and retail hydration follow the tiered policy in `docs/agents/cost-gates.md`; retail is not a default gate for unrelated work. Public publication additionally requires a clean all-ref retail-history audit and the accepted signing/license gates.
 
 ## 9. Save envelope
 
@@ -218,9 +224,10 @@ Locale is presentation state and is deliberately absent from this envelope and `
 4. Godot headless map/editor smoke.
 5. Retail tactical integration on a known map.
 6. Arena end-to-end walking skeleton with screenshot/log/save/hash artifacts.
-7. Upstream sync gate replaying levels 1–6.
+7. Fresh-profile one-archive player path: unpack → launcher → retail selection → WOTR → battle/return/save, plus offline/tamper/coexistence negatives.
+8. Upstream sync gate replaying levels 1–7 affected by the pin.
 
-The final level cannot be replaced by mocks or serialized hand-written results. Levels are selected by affected boundary: static/focused checks first, a full source build for engine/ABI/upstream handoff, and retail only for retail-sensitive/final integration. The normative selection matrix is `docs/agents/cost-gates.md`.
+The final relevant level cannot be replaced by mocks or serialized hand-written results. Levels are selected by affected boundary: static/focused checks first, a full source build for engine/ABI/upstream/package handoff, and retail only for retail-sensitive/final integration. The normative selection matrix is `docs/agents/cost-gates.md`.
 
 ## 11. Upstream synchronization
 

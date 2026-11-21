@@ -33,7 +33,7 @@ export const UUID = {
 };
 
 export const task = (over = {}) => ({
-  id: UUID.dispatch, runId: UUID.run, title: 'SYN-1.1 · Карта ядра',
+  id: UUID.dispatch, runId: UUID.run, title: 'CASEB-1.1 · Карта ядра',
   intent: 'Понять состав GameEngine и его публичный контракт.',
   invariants: 'В таблице ровно 253 строки; поведение не меняется.',
   acceptance: "grep -cE '^  (async )?[a-zA-Z_]+\\(' src/core/engine.ts = 253",
@@ -41,22 +41,22 @@ export const task = (over = {}) => ({
   payload: '', ...over,
 });
 export const role = (fn, over = {}) => ({ name: `${fn} Core`, fn, zone: 'game/**', ...over });
-export const target = (over = {}) => ({ repo: 'creative-textile/vault-core', baseBranch: 'main', ...over });
+export const target = (over = {}) => ({ repo: 'example-org/fixture-source-core', baseBranch: 'main', ...over });
 
 export const dispatchRequest = (fn = 'Executor', over = {}) => ({
   kind: 'dispatch', role: role(fn), target: target(), task: task(),
-  mission: { id: UUID.mission }, drive: { project: 'vault' }, delivery: { tier: 'full' }, ...over,
+  mission: { id: UUID.mission }, drive: { project: 'fixture-workspace' }, delivery: { tier: 'full' }, ...over,
 });
 export const planRequest = (over = {}) => ({
   kind: 'plan', role: role('Coordinator'),
-  mission: { id: UUID.mission, name: 'SYN-1', round: 0, reworkLimit: 3, tzUrl: 'https://notion.so/tz' },
+  mission: { id: UUID.mission, name: 'CASEB-1', round: 0, reworkLimit: 3, tzUrl: 'https://notion.so/tz' },
   turnId: UUID.turn, queue: { summary: '0 Submitted, 0 Running, 1 Ready' },
   delivery: { tier: 'full' }, ...over,
 });
 export const reviewRequest = (over = {}) => ({
   kind: 'review', role: role('Reviewer', { name: 'Warden' }),
-  mission: { id: UUID.mission, name: 'SYN-1', round: 0, reworkLimit: 3, result: 'Сделано.' },
-  turnId: UUID.turn, queue: { summary: '2 Accepted', acceptedCount: 2, accepted: '- SYN-1.1' },
+  mission: { id: UUID.mission, name: 'CASEB-1', round: 0, reworkLimit: 3, result: 'Сделано.' },
+  turnId: UUID.turn, queue: { summary: '2 Accepted', acceptedCount: 2, accepted: '- CASEB-1.1' },
   delivery: { tier: 'full' }, ...over,
 });
 export const answerRequest = (over = {}) => ({
@@ -72,6 +72,6 @@ export const reminderRequest = (fn = 'Executor', markerName = 'CF_AGENT_RESULT',
 });
 export const pilotRequest = (over = {}) => ({
   kind: 'pilot', role: { fn: 'pilot' },
-  pilot: { brief: 'A. Ты — ИИ-разработчик игр. Сделай 2D выживание на canvas.', repo: 'creative-textile/vault-core', startSha: 'a'.repeat(40) },
+  pilot: { brief: 'A. Ты — ИИ-разработчик игр. Сделай 2D выживание на canvas.', repo: 'example-org/fixture-source-core', startSha: 'a'.repeat(40) },
   delivery: { tier: 'full' }, ...over,
 });

@@ -43,10 +43,10 @@ const makeHolds = new Function(
   `${verifySrc}\nreturn composerHolds;`,
 );
 
-const holds = (text, key = 'Задание 5.4 · NAR-5.4 (dispatch 1fc527ed)') =>
+const holds = (text, key = 'Задание 5.4 · CASEA-5.4 (dispatch 1fc527ed)') =>
   makeHolds(() => ({}), () => text, flat)(key);
 
-assert.equal(holds('Задание 5.4 · NAR-5.4 (dispatch 1fc527ed)'), true, 'текст в поле — отправки не было');
+assert.equal(holds('Задание 5.4 · CASEA-5.4 (dispatch 1fc527ed)'), true, 'текст в поле — отправки не было');
 assert.equal(holds(''), false, 'пустое поле — не признак отправки, но и не запрет');
 assert.equal(
   makeHolds(() => null, () => 'что-то', flat)('ключ'),

@@ -1,6 +1,6 @@
 // Проба 1.4.63: у Rework есть путь назад.
 //
-// 25.10 Координатор поставил NAR-2.5 в Rework за форму ответа: код уже лежал в
+// 25.10 Координатор поставил CASEA-2.5 в Rework за форму ответа: код уже лежал в
 // main, а в отчёте не хватало цитат. Транспорт выдаёт только Ready, поэтому из
 // Rework карточка сама никуда не уходит, — а в промпте стояло «карточку с
 // ответом обратно в Ready не возвращай». Вместе это запирало карточку навсегда:
@@ -35,8 +35,8 @@ assert.ok(block.includes('const staleMarks'), 'staleMarks на месте');
 const card = (over) => ({
   id: over.id || 'card-1',
   properties: {
-    'Запрос': { title: [{ plain_text: over.title || 'NAR-2.5 · Режимы возможностей' }] },
-    'Кому': { select: { name: over.role || 'Kernel' } },
+    'Запрос': { title: [{ plain_text: over.title || 'CASEA-2.5 · Режимы возможностей' }] },
+    'Кому': { select: { name: over.role || 'FixtureExecutor' } },
     'Sequence': { number: over.seq ?? 40 },
     'Ответ': { rich_text: over.answer ? [{ plain_text: over.answer }] : [] },
     'Submitted At': { date: over.submitted ? { start: over.submitted } : null },
@@ -73,8 +73,8 @@ const api = new Function(
   assert.deepEqual(api.staleMarks(rework), ['«Submitted At»', '«PR»', '«Run ID»'], 'три следа названы');
 
   const line = api.reworkLine([rework]);
-  assert.match(line, /NAR-2\.5/, 'карточка названа');
-  assert.match(line, /Kernel/, 'роль названа');
+  assert.match(line, /CASEA-2\.5/, 'карточка названа');
+  assert.match(line, /FixtureExecutor/, 'роль названа');
   assert.match(line, /причина: Rework по форме ответа/, 'причина рядом');
   assert.match(line, /Rework сам не выдаётся/, 'сказано, что сам не уходит');
   assert.match(line, /верни карточку в Ready/, 'путь назад назван');

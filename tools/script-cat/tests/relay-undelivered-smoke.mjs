@@ -29,7 +29,7 @@ const rt = (p) => (p?.rich_text || p?.title || []).map((x) => x.plain_text || x.
 const card = ({ state = 'Running', runId = 'r1', submitted = null, pr = null, logId = 'log1' } = {}) => ({
   id: 'c1',
   properties: {
-    'Запрос': { title: [{ plain_text: 'NAR-1.8 · Крафт' }] },
+    'Запрос': { title: [{ plain_text: 'CASEA-1.8 · Крафт' }] },
     'Dispatch State': { select: { name: state } },
     'Run ID': { rich_text: runId ? [{ plain_text: runId }] : [] },
     'Started At': { date: { start: '2026-10-23T19:01:00.000+00:00' } },

@@ -1,6 +1,6 @@
 # ScriptCat protocol · WOTR Remaster
 
-Transport protocol version: 1.11. ScriptCat release: 1.16.3 (upstream behavior through D-122 plus WOTR project adaptation).
+Transport protocol version: 1.11. ScriptCat release: 1.16.4 (upstream behavior through D-122 plus WOTR project adaptation).
 
 ## 1. Identity
 
