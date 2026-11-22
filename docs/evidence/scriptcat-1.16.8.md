@@ -108,6 +108,29 @@ i.e. it fails on behaviour, at the first replayed incident. The integration suit
 green on 1.16.8. After the experiment the bundle was rebuilt from source, and `scriptcat:check`
 confirms the tree/bundle match.
 
+## Pull request checks
+
+PR #10, head `3dcceb77e1409e0fe2875ddafd9ceb9cdbcdbdfc`, base `main` at
+`ebfea4d2b8263610a5113ff6bb00c634a52fd80d`. 11 of 11 checks `pass`, 0 fail, 0 pending — recorded
+before the merge, on the final head SHA, not from a cache:
+
+| Check | Result | Duration |
+|---|---|---|
+| Workflow lint (actionlint, zizmor) | pass | 7s |
+| Commit gate, public tree audit, Python tests | pass | 10m5s |
+| Reference MP3 fixtures | pass | 39s |
+| Linux engine build and unit tests | pass | 1m52s |
+| macOS arm64 build and unit tests | pass | 3m0s |
+| Windows MSVC build and unit tests (build.bat) | pass | 10m33s |
+| Windows cross build (llvm-mingw, compile only) | pass | 1m3s |
+| Windows tests (the shipped compiler's binaries on real Windows) | pass | 2m49s |
+| Linux address and undefined sanitizer | pass | 3m41s |
+| Linux thread sanitizer | pass | 4m34s |
+| CI (aggregate) | pass | 5s |
+
+Runs: `44997137061` and `44997137036` (workflow `CI`), both completed successfully for this head.
+The macOS job, which flaked on the previous release's docs-only head, passed here on the first run.
+
 ## Release boundary
 
 No Notion, Drive, GitHub or Arena call was made by the release procedure itself: no artifact was
