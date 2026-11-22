@@ -2,6 +2,11 @@
 
 Date: 2026-11-22
 
+> Archive note (2026-11-22): this is release evidence kept as an operational record of Open BFME. The
+> transport itself — source, bundle, tests, gates and future release notes — now lives in
+> `Creative36711/relay-wotr`. Paths named below are read relative to that repository; this record is not
+> edited, and no gate in this repository runs them.
+
 Decision: `WOTR-D-023`. Trigger: the operator ran the loop manually (the `Шаг` button) and a row in
 the «Обратная связь» base stayed `Ждёт` with an empty «Ответ» while `cfn-answer-queue` was empty and
 the journal said nothing. Reading the 1.16.7 bundle showed three independent silence sources in the

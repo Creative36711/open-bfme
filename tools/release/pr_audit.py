@@ -11,7 +11,7 @@ Fails closed: a tree without the public tree's core entries (an empty or truncat
 --base REV (the pull request's own base, e.g. origin/main) attributes every finding: a finding the base tree does not have is the audited
 tree's own, a finding the base tree has too was inherited and belongs to whoever committed it. The audit itself stays red - the exit code
 does not depend on --base - attribution only says whose it is, so a role is never pushed into patching someone else's file to get a green
-tick, and never told a finding is about its own work when it is not (tools/script-cat/preflight.mjs uses this before a push).
+tick, and never told a finding is about its own work when it is not (relay-wotr's tools/script-cat/preflight.mjs uses this before a push).
 """
 from __future__ import annotations
 

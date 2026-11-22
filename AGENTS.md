@@ -1,6 +1,10 @@
 # War Of The Ring: Remaster — agent entry point
 
-This repository is the single source tree for WOTR Remaster, its OpenBFME integration, process documents, and ScriptCat transport.
+This repository is the source tree for WOTR Remaster, its OpenBFME integration and the process
+documents of the project. ScriptCat transport lives in its own technical repository,
+[`Creative36711/relay-wotr`](https://github.com/Creative36711/relay-wotr); this repository remains the
+operational source of truth: missions, roles, regulation, evidence and the acceptance rules for
+transport work too.
 
 Before changing anything, read:
 
@@ -27,7 +31,11 @@ Before changing anything, read:
 
 - Work only on the branch supplied by Arena. Never reset, clean, or overwrite unrelated local changes.
 - `BFME2/`, `RotWK/`, `.retail/`, and `.retail-transfer/` are retail-data areas. Treat them as read-only unless the active card explicitly concerns byte-exact transfer or validation.
-- `tools/script-cat/**` is protected transport code. Changes require a Transport Maintainer card, a version bump, a rebuilt bundle, portability guard, and the complete transport test gate.
+- Transport code (`tools/script-cat/**`, `tools/relay-*.mjs`) is no longer maintained here: it lives in
+  `Creative36711/relay-wotr`, and no branch of this repository may reintroduce a copy. A transport change
+  needs a Transport Maintainer card whose repository is `relay-wotr`, a version bump, a rebuilt bundle,
+  the portability guard and the full transport gate — run there. Warden still writes the technical task,
+  the scope and the acceptance criteria from this repository.
 - Tests and acceptance oracles may be extended, never weakened, skipped, or rewritten to fit an implementation.
 - One card means one coherent change and one evidence trail. Stay inside both the role zone and the card Scope.
 

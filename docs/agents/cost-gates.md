@@ -53,7 +53,7 @@ Cost gate:
 - только Campaign Pack data/schema, если её standalone validator не генерирует/не компилирует C++;
 - только переводы значений каталога при неизменном runtime и актуальных generated files;
 - art source/provenance без изменения importer/runtime;
-- ScriptCat-only карточка: у неё собственный полный transport gate.
+- ScriptCat-only карточка: у неё собственный полный transport gate в `Creative36711/relay-wotr`.
 
 Изменение localization runtime, генератора, plural rules или generated C++ переводит работу минимум в T1; изменение ABI — в T2.
 
@@ -103,7 +103,7 @@ Mock/synthetic путь может закрыть T1, но не retail-крит�
 | Godot presentation | source check + headless focused scene | built extension + opened visual; retail только при retail route |
 | tactical bridge/map/start | focused compile/tests | T2 + T3 |
 | upstream pin | range/conflict report + focused compile | T2 + T3, всегда |
-| ScriptCat | профильные smoke во время итерации | `npm run verify:scriptcat`, без engine/retail |
+| ScriptCat (repo `relay-wotr`) | профильные smoke во время итерации | `npm run verify:scriptcat`, без engine/retail |
 
 ## 7. Evidence
 

@@ -24,7 +24,7 @@
 
 Зона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.
 
-Работай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. `tools/script-cat/**` меняет только Transport Maintainer отдельным выпуском. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.
+Работай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. Транспорт (`tools/script-cat/**`) меняет только Transport Maintainer отдельным выпуском в `Creative36711/relay-wotr`. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.
 
 ## 4. Фазы и ход
 
@@ -43,7 +43,7 @@
 - Godot/editor: headless smoke + deterministic interaction + opened visual artifact + frame/memory facts.
 - Save/schema: round-trip + corruption/unknown-version/migration failures.
 - Upstream: C++/GDExtension build + focused tests + WOTR regressions + retail smoke.
-- ScriptCat: `npm run verify:scriptcat` — build check, portability guard, smoke, regression, tool-limit.
+- ScriptCat (repo `Creative36711/relay-wotr`): `npm run verify:scriptcat` — build check, portability guard, smoke, regression, tool-limit.
 
 Формат финальной строки всегда стоит в самом конце задания; точный marker и IDs задаёт ScriptCat. Финал `WOTR-1.1`: map → real battle → result → save/hash. Финал `WOTR-1.2` на каждой заявленной платформе: fresh profile → unpack one archive → WOTR launcher/retail selection/Play → тот же round-trip/save, offline/update/tamper/coexistence negatives.
 
@@ -60,4 +60,4 @@ Custom asset требует provenance/license/author/hash. Pack не содер
 Секреты и session data не в Git/Notion/Drive/chat. Retail executable не запускать ради проверки данных. Процесс и общение — русский; code/API/schema/commit — English. Обязательные локали: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; English fallback, production — только после coverage/native review/rendering gate. Locale не меняет simulation/save/network hash.
 
 <!-- build:meta -->
-Сборка вшивает текст выше в `relay.user.js`. После изменения: поднять версию только при изменении transport source, выполнить `node tools/script-cat/build.mjs`, затем полный ScriptCat gate. Предел входа — 9000 знаков.
+Сборка вшивает текст выше в `relay.user.js` (в `Creative36711/relay-wotr`, откуда копируются `docs/REGULATION.md` и этот файл). После изменения: поднять версию только при изменении transport source, выполнить `node tools/script-cat/build.mjs`, затем полный ScriptCat gate. Предел входа — 9000 знаков.

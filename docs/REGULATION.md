@@ -2,7 +2,10 @@
 
 Версия 1.2 · 2026-11-20 · владелец: Мастер · хранитель: Warden.
 
-Это полный источник процессных правил. Notion-копия: [«Регламент команды WOTR Remaster»](https://app.notion.com/p/WOTR-Remaster-41e6f0cf57058178ac91c320891b1d7b). Краткий вход для каждого хода лежит в `docs/regulation-digest.md` и вшивается в ScriptCat. Номер краткой и полной копий обязан совпадать; краткая копия не может разрешать запрещённое полной.
+Это полный источник процессных правил. Notion-копия: [«Регламент команды WOTR Remaster»](https://app.notion.com/p/WOTR-Remaster-41e6f0cf57058178ac91c320891b1d7b). Краткий вход для каждого хода лежит в `docs/regulation-digest.md` и вшивается в ScriptCat
+(`Creative36711/relay-wotr`: этот же файл копируется туда, сборка читает свою копию, — правка
+регламента обязывает синхронизировать `docs/regulation-digest.md` и `docs/REGULATION.md` в
+репозитории транспорта и пересобрать бандл). Номер краткой и полной копий обязан совпадать; краткая копия не может разрешать запрещённое полной.
 
 ## 1. Продукт и границы
 
@@ -17,7 +20,7 @@
 | OpenBFME tactical runtime | бой по правилам RotWK/BFME2, retail loader, Godot presentation | синхронизируемый код OpenBFME |
 | Player launcher/package | WOTR identity, retail discovery, signed update, one-archive start | адаптируемые `launcher/**`, `tools/release/**` |
 | Retail data | BFME2 1.06 и RotWK 2.01 пользователя | read-only вне Git-изменений продукта |
-| Agent transport | ScriptCat, relay build/watchdog, профиль проекта | `tools/script-cat/**`, `tools/relay-*.mjs` |
+| Agent transport | ScriptCat, relay build/watchdog, профиль проекта | `Creative36711/relay-wotr`: `tools/script-cat/**`, `tools/relay-*.mjs` (в этом репозитории копий нет) |
 | Process | фазы, миссии, решения, evidence | `docs/**`, четыре базы Notion |
 
 Проект живёт в одном репозитории `Creative36711/open-bfme`. Отдельный orchestration-репозиторий не создаётся. Границы обеспечиваются Scope, зонами ролей, гейтами и независимым аудитом, а не скрытием частей дерева.
@@ -60,7 +63,7 @@
 | **AI & Simulation Engineer** | Executor | simple command-producing AI, autoresolve/simulation within mission scope |
 | **Localization & Cultural QA Engineer** | Executor | required locale catalogs/runtime, fonts/input, cultural review and locale-invariance evidence |
 | **Upstream Integrator** | Executor | specialized pinned OpenBFME synchronization, conflict report and upstream regression gate |
-| **Transport Maintainer** | Maintainer | единственная Maintainer-функция: починка ScriptCat и relay transport |
+| **Transport Maintainer** | Maintainer | единственная Maintainer-функция: починка ScriptCat и relay transport в `Creative36711/relay-wotr` |
 | **Integration Auditor** | Auditor | clean-checkout and Arena end-to-end evidence |
 | **Determinism & Save Auditor** | Auditor | dual-run hashes, save/load/replay, migration failures, RNG audit |
 | **UX & Modding Auditor** | Auditor | map/editor UX, accessibility, Campaign Pack and mod compatibility |
@@ -97,11 +100,13 @@
 
 Параллельные карточки допустимы только с независимыми зонами и явными зависимостями. Зелёная карточка не закрывает миссию: финальный оракул повторяется на собранном SHA.
 
-## 6. Цикл ScriptCat
+## 6. Цикл ScriptCat (транспорт в `relay-wotr`)
 
 1. Warden публикует ТЗ и создаёт строку миссии как `Черновик`.
 2. Coordinator проверяет зависимости, роли, зоны и оракул; переводит карточки `Draft → Ready`.
 3. ScriptCat выдаёт ход, создаёт `dispatch_id`/`run_id`, ведёт append-only лог и меняет только транспортные поля.
+   Код, сборка и гейты транспорта — в `Creative36711/relay-wotr`; карточка на транспорт заводится отсюда, но её
+   `Repository` обязан указывать на `relay-wotr`.
 4. Исполнитель сдаёт факты и завершает ответ точным маркером `CF_AGENT_RESULT`.
 5. Coordinator принимает карточку как `Accepted` либо возвращает `Rework` с конкретной причиной.
 6. Независимые аудиторы воспроизводят критерии на проверяемом SHA.
@@ -113,7 +118,8 @@
 ## 7. Git и upstream
 
 - Рабочая ветка — только выданная Arena; direct push в `main` запрещён.
-- Один PR — одна карточка. Перед push: `tools/script-cat/preflight.mjs --zone "<зона>"` либо эквивалентный зафиксированный gate.
+- Один PR — одна карточка. Перед push: `tools/script-cat/preflight.mjs --zone "<зона>"` (в репозитории транспорта
+  `Creative36711/relay-wotr`) либо эквивалентный зафиксированный gate.
 - Merge делает исполнитель после принятой карточки; Reviewer проверяет факт merge по GitHub. `merged:true` без merge commit запрещён.
 - Источник OpenBFME фиксируется в `OPENBFME_UPSTREAM`. Обновление — отдельная карточка Upstream Integrator.
 - Sync обязан показать старый pin, новый pin, upstream range, конфликтные WOTR-owned paths и результаты build/smoke/round-trip. Молчаливое копирование `main` запрещено.
@@ -143,7 +149,7 @@
 | Legacy importer/maps | byte-stable import + stable-ID/provenance report + invalid-reference/capacity/fallback tests + license gate |
 | OpenBFME pin | C++/GDExtension build + focused upstream tests + WOTR regressions + retail smoke |
 | Launcher/package | one audited archive + fresh-profile unpack/start + retail selection + offline/update/tamper/coexistence/direct-start negatives |
-| ScriptCat | build check + full-tree former-project guard + smoke + regression + tool-limit suites |
+| ScriptCat (repo `relay-wotr`) | build check + full-tree former-project guard + smoke + regression + tool-limit suites |
 
 Финальный gate `WOTR-1.1` выполняется в Arena с доступными retail BFME2/RotWK: strategic map → order → real OpenBFME battle → native result → same campaign state → save/load → equal canonical hash. Зависимый gate `WOTR-1.2` выполняется на каждой заявленной платформе из fresh profile: one archive → WOTR launcher → retail selection → Play → тот же native round-trip/save, плюс offline, signature/tamper и OpenBFME-coexistence negatives.
 
@@ -196,4 +202,4 @@ Drive layout: `Arena/wotr-remaster/{logs,payloads,artifacts}`. Секреты, r
 
 ## 15. Инциденты транспорта
 
-Временный сбой ScriptCat переживает сам в пределах предохранителя. Поломка транспорта выдаётся Transport Maintainer с минимальной телеметрией без переписки и секретов. Изменение `tools/script-cat/src/**` требует новой plain-semver версии в `@version` и `SCRIPT_VERSION`, пересборки `relay.user.js` и полного gate. Установку userscript в браузер выполняет человек после принятия выпуска.
+Временный сбой ScriptCat переживает сам в пределах предохранителя. Поломка транспорта выдаётся Transport Maintainer с минимальной телеметрией без переписки и секретов. Изменение `tools/script-cat/src/**` в `Creative36711/relay-wotr` требует новой plain-semver версии в `@version` и `SCRIPT_VERSION`, пересборки `relay.user.js` и полного gate там же. Установку userscript в браузер выполняет человек после принятия выпуска.
