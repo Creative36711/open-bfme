@@ -99,6 +99,16 @@ Migration steps 2–5 are deliberately left to the owner, because they touch a l
 | `npm run scriptcat:check` (before deletion) | 0 | bundle matched 45 sources; the tree being deleted was self-consistent |
 | `node --test tools/script-cat/tests/*.mjs` (before deletion) | 0 | 179/179 — the copy that was transferred is the accepted, green one |
 
-The Python tooling suite under `tools/` is the project's own gate for this tree and is recorded in the PR thread with
-its final counts; it was run after the deletion, not before, because its subject is exactly the state the cleanup
-leaves behind.
+The Python tooling suite under `tools/` was run after the deletion, because its subject is exactly the state the
+cleanup leaves behind:
+
+```
+python3 -m pytest tools/ -n 2      →  8 failed, 1968 passed, 945 skipped, 16 errors, 94 subtests (1656 s)
+python3 -m pytest <the same 5 files> at the base commit 54e30c2 (a worktree)
+                                   →  8 failed, 44 passed, 3 skipped, 15 errors + 1 collection error
+```
+
+The failing set is identical in both trees and lives in `tools/re`, `tools/save`, `tools/audio`,
+`tools/release/test_nightly.py`: missing `relib` import, absent `lame`/fixture tooling, and a `gh`-dependent credits
+test — sandbox environment, not this cleanup. CI reports 11/11 on the cleanup head, where the same suite runs in the
+`gate` job.
