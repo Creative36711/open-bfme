@@ -16,7 +16,7 @@ godot/wotr_remaster/
 │       ├── wotr_battle_bridge_native.cpp the native tactical bridge
 │       ├── profiles/                     the tactical profiles (product data)
 │       ├── CMakeLists.txt                builds the core + the binding
-│       ├── wotr_core.gdextension         the manifest Godot loads
+│       ├── wotr_core.gdextension.in      the manifest template (the build writes it)
 │       └── build_core_extension.sh       the build command
 ├── battle/                   the strategic -> tactical boundary
 │   ├── wotr_battle_port.gd        the contract
@@ -64,6 +64,13 @@ godot/wotr_remaster/core/native/build_core_extension.sh
 # the automated route, its screenshots and its report
 godot/wotr_remaster/scenario/run_scenario.sh
 ```
+
+The build writes the manifest Godot loads (`wotr_core.gdextension`) next to
+the library it names, into `core/native/bin/`. The manifest is a build output
+on purpose: a tracked manifest whose library is missing would make every
+Godot start of every platform that does not build this extension print
+"GDExtension dynamic library not found". Without the extension the route
+still runs, on the deterministic fixture, and says so in `report.json`.
 
 The runner writes `report.json`, `run.log` and the three screenshots
 (`01-initial.png`, `02-conflict.png`, `03-after-battle.png`) into its output

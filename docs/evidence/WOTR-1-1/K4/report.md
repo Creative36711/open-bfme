@@ -134,6 +134,16 @@ bash godot/wotr_remaster/core/native/build_core_extension.sh          # rc 0
 SHA-256 `e2e00f0bf96a2a25f43f360010b4a0d78e025cc31150be429f48135d9e627303`.
 `build/` and `bin/` are ignored build outputs; the binary is not committed.
 
+The manifest Godot loads is a build output too: the tracked file is the
+template `wotr_core.gdextension.in`, and the build writes the manifest next to
+the library it names (`bin/wotr_core.gdextension`). A *tracked* manifest whose
+library is missing makes every Godot start of every platform that does not
+build this extension print `GDExtension dynamic library not found` — the
+Windows CI runner and the release build never build it — so the manifest and
+the library now appear together or not at all. The import of the project
+without the extension is clean: no error line, and the route falls back to the
+deterministic fixture and says so in `report.json`.
+
 ### 5.3 The headless route (the card's oracle)
 
 ```bash
@@ -267,7 +277,7 @@ Screenshot SHA-256:
 
 ```text
 de266e66a9232c06d3ab96e524b85584eb959470902b45e732b6f3bc28cba2a4  screenshots/01-initial.png
-035ad0bffdb1458af93336fb97caf76dc31cc147fa4c1944a0e80e3eb7e28ca4  screenshots/02-conflict.png
+91c371639704bb1d8b9baf58504f8d531eab6fd71c948b4ad0369ae8d2640185  screenshots/02-conflict.png
 b31c47f3107fe00fcf963d78d905ad786a2d06d916dee92cb67890ed2a90dda7  screenshots/03-after-battle.png
 ```
 
@@ -308,9 +318,9 @@ Measured facts (no release budget is set by this mission):
 | Measure | Run 1 | Run 2 |
 |---|---|---|
 | Frames measured | 60 | 60 |
-| Frame time min / median / avg / max (ms) | 366.53 / 475.74 / 481.96 / 705.06 | 386.62 / 467.34 / 478.38 / 596.93 |
-| Peak RSS of the game process (KiB) | 1,148,396 | 1,126,516 |
-| Engine static memory at the end (bytes) | 57,009,615 | 57,009,579 |
+| Frame time min / median / avg / max (ms) | 253.78 / 272.77 / 275.27 / 315.96 | 261.92 / 269.74 / 272.94 / 314.40 |
+| Peak RSS of the game process (KiB) | 1,154,060 | 1,160,868 |
+| Engine static memory at the end (bytes) | 57,009,635 | 57,009,711 |
 
 The peak RSS is the kernel's high-water mark (`VmHWM`) of the whole game
 process, the retail archives included; the runner script samples it from
