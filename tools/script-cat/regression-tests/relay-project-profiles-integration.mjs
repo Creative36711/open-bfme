@@ -81,8 +81,9 @@ assert.equal(controls.projectHeld(), true);
 const cycleSource = readFileSync(new URL('../src/28-cycle.js', import.meta.url), 'utf8');
 const tickSource = cycleSource.slice(cycleSource.indexOf('  async function tick(fromToggle = false) {'));
 let accidentalRelease = 0;
-const heldTick = new Function('projectApproved','projectHeld','releaseProjectHold','log',
-  `${tickSource}\nreturn tick;`)(() => true, () => true, () => { accidentalRelease++; return true; }, () => {});
+const heldTick = new Function('projectApproved','projectHeld','releaseProjectHold','log','armFeedbackWatch','noteFeedbackPipelineHeld','projectBlockedText',
+  `${tickSource}\nreturn tick;`)(() => true, () => true, () => { accidentalRelease++; return true; }, () => {},
+  () => {}, () => {}, () => '');
 await heldTick(true);
 assert.equal(accidentalRelease, 0, 'отложенный tick(true) не снимает hold');
 assert.equal(controls.releaseProjectHold(), true);
@@ -97,11 +98,13 @@ await assert.rejects(controls.trackProjectTask(Promise.reject(new Error('no'))))
 const bootSource = readFileSync(new URL('../src/29-boot.js', import.meta.url), 'utf8');
 const wrappers = bootSource.slice(0, bootSource.indexOf('  entries = '));
 let approved = true, held = true, qCalls = 0, dCalls = 0;
-const wrapped = new Function('tick','refreshQuestions','refreshDecisions','flushPollJournal','trackProjectTask','projectHeld','projectApproved','openQuestions','openDecisions',
+let heldNotes = 0;
+const wrapped = new Function('tick','refreshQuestions','refreshDecisions','flushPollJournal','trackProjectTask','projectHeld','projectApproved','openQuestions','openDecisions','noteFeedbackPipelineHeld',
   `${wrappers}\nreturn { refreshQuestions, refreshDecisions };`)(async()=>{}, async()=>{qCalls++;return ['q'];}, async()=>{dCalls++;return ['d'];}, async()=>{},
-  (p)=>p, () => held, () => approved, () => ({rows:[]}), () => ({rows:[]}));
+  (p)=>p, () => held, () => approved, () => ({rows:[]}), () => ({rows:[]}), () => { heldNotes++; });
 await wrapped.refreshQuestions(); await wrapped.refreshDecisions(); assert.equal(qCalls + dCalls, 0, 'hold блокирует и фоновые сторожа');
 held = false; approved = false; await wrapped.refreshQuestions(); await wrapped.refreshDecisions(); assert.equal(qCalls + dCalls, 0, 'снятый допуск блокирует сторожа');
+assert(heldNotes > 0, 'но простой очереди не молчит: блокировка записывается в журнал (WOTR-D-023)');
 approved = true; await wrapped.refreshQuestions(); await wrapped.refreshDecisions(); assert.equal(qCalls + dCalls, 2);
 assert.match(bootSource, /GM_getValue\(K\.step, false\) && !projectHeld\(\)/, 'сохранённый автоматический шаг не снимает hold');
 

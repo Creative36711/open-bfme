@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Relay — передача хода между агентами
 // @namespace    https://arena.ai/
-// @version      1.16.7
+// @version      1.16.8
 // @description  Цикл Координатор → исполнитель → Координатор: агент сам коммитит, пушит и мержит PR; ScriptCat ждёт мерж и нажимает Continue.
 // @match        https://arena.ai/*
 // @match        https://www.arena.ai/*
@@ -78,6 +78,12 @@
     // всё равно не ходит. После предела это уже не «очередь подождёт», а
     // потерянная доставка, и пауза `answer-orphan` идёт Transport Maintainer'у.
     answerRehandoffMax: 2,
+    // WOTR-D-023: полный текст вопроса — единственная причина ПОДОЖДАТЬ с
+    // передачей приёмке, и у неё есть срок. `questionBodyHoldMs` — сколько
+    // строка ждёт записи тела, прежде чем уйти адресату по тому, что уже
+    // лежит в базе; `questionBodyMaxTries` — сколько попыток вообще.
+    questionBodyHoldMs: 1800000,
+    questionBodyMaxTries: 3,
     adrCheckMs: 600000, // как часто смотреть docs/decisions на proposed (10 минут)
     pageUrl: "",
     // Краткий регламент вшивается сборкой из docs/regulation-digest.md: агент получает
@@ -86,7 +92,7 @@
     // D-073: отпечаток сборки вшивает build.mjs (SHA-256 источника). Номер версии
     // говорит «какой выпуск», отпечаток — «какая именно сборка»: без него проверка
     // «работает новая версия, а не прежняя под новым номером» невозможна.
-    buildFingerprint: "7350c8761e6ed2ff",
+    buildFingerprint: "66d581c69ee2a333",
     repo: "", // для ссылки на PR из номера
     tickMs: 15000,
     mergeGraceMs: 90000, // сколько ждём мерж, прежде чем нажать кнопки за агента
@@ -362,6 +368,32 @@
   Object.freeze(C);
   const projectApproved = () => !ACTIVE_PROFILE.invalid && !ACTIVE_PROFILE.legacy &&
     GM_getValue("cfn-project-approved", false) === true;
+
+  /**
+   * Почему вкладка не может работать — тремя словами, а не одним. Прежняя
+   * панель отвечала на все три причины одной строкой «проект ещё не разрешён»,
+   * и человек шёл в «Управление проектами» подтверждать допуск, которого там уже
+   * не было: настоящая причина сидела в sessionStorage вкладки (WOTR-D-023).
+   */
+  const projectBlockReason = () => {
+    if (ACTIVE_PROFILE.invalid) return "invalid";
+    if (ACTIVE_PROFILE.legacy) return "legacy";
+    return GM_getValue("cfn-project-approved", false) === true ? "" : "unapproved";
+  };
+  const projectBlockedText = () => {
+    const reason = projectBlockReason();
+    if (reason === "invalid")
+      return "Профиль вкладки повреждён или изменён в другой вкладке: «Управление проектами» → "
+        + "обновите страницу и выберите проект заново. Шаг и очередь обратной связи стоят.";
+    if (reason === "legacy")
+      return "Эта вкладка не выбрала проект (вкладка открыта без профиля либо sessionStorage недоступен): "
+        + "«Управление проектами» → выберите профиль → «Разрешить работу». Шаг и очередь обратной связи стоят.";
+    if (reason === "unapproved")
+      return "Проект ещё не разрешён к работе: «Управление проектами» → «Разрешить работу». "
+        + "Допуск снимается сам при смене Notion, Drive или GitHub-токена в «Подключениях». "
+        + "Шаг и очередь обратной связи стоят.";
+    return "Работа проекта разрешена.";
+  };
 
   const K = {
     notion: "cfn-notion-token",
@@ -751,7 +783,7 @@
 
   const NTFY_BASE = "https://ntfy.sh";
   const SCRIPT_VERSION =
-    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.7";
+    (typeof GM_info !== "undefined" && GM_info?.script?.version) || "1.16.8";
 
   /** «https://ntfy.sh/topic?x=1» и «topic» одинаково дают topic. */
   function normalizeNtfyTopic(raw) {
@@ -1842,7 +1874,10 @@
     };
     document.getElementById(ui.step).onclick = () => {
       if (typeof projectApproved === "function" && !projectApproved()) {
-        log("Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true); return;
+        log(typeof projectBlockedText === "function" ? projectBlockedText()
+          : "Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+        if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+        return;
       }
       const reason = GM_getValue(K.paused, "");
       if (reason && !confirm(`Снять паузу и выполнить один шаг?\n\n${reason}`)) return;
@@ -1872,7 +1907,10 @@
 
   async function toggleAuto() {
     if (typeof projectApproved === "function" && !projectApproved()) {
-      log("Проект не разрешён к работе: откройте «Подключения → Управление проектами» и проверьте его.", true); return;
+      log(typeof projectBlockedText === "function" ? projectBlockedText()
+        : "Проект не разрешён к работе: откройте «Подключения → Управление проектами» и проверьте его.", true);
+      if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+      return;
     }
     const auto = autoOn();
     const reason = GM_getValue(K.paused, "");
@@ -13063,19 +13101,34 @@
       const revision = questionRevision;
       const rows = await questionRows([Q.wait]);
       const closed = new Set();
-      const active = await activeMission().catch(() => null);
-      if (active) {
-        const wanted = rt(active.properties["Миссия"]).trim();
+      // Миссия нужна, чтобы ОТФИЛЬТРОВАТЬ чужие строки и закрыть просроченные.
+      // Она не может быть условием самой передачи: без активной миссии (или
+      // после ошибки её чтения) очередь приёмки стояла молча — строка
+      // остановки транспорта 22.11 не ушла адресату именно так (WOTR-D-023).
+      let wanted = "";
+      {
+        let active = null;
+        try {
+          active = await activeMission();
+        } catch (e) {
+          logThrottled("questions-active-mission", `Активная миссия не прочитана (${e.message}): очередь приёмки идёт без фильтра по миссии.`, true);
+        }
+        if (active) wanted = rt(active.properties["Миссия"]).trim();
         const mine = rows.filter((row) => {
           const value = rt(row.properties["Миссия"]).trim();
-          return !questionClosedAfter(row.id, revision) && (!value || missionSame(value, wanted));
+          // Без миссии-фильтра строки не выбрасываем: «моя» сейчас любая, иначе
+          // сбой чтения Notion молча снял бы с передачи ровно те строки, у
+          // которых миссия заполнена (а их большинство).
+          if (questionClosedAfter(row.id, revision)) return false;
+          if (!active || !value) return true;
+          return missionSame(value, wanted);
         });
         const due = expiredQuestions(mine).filter((row) => rt(row.properties["По умолчанию"]) &&
           !(typeof questionBodyPending === "function" && questionBodyPending(row.id)) &&
           !(typeof questionQueuedForRow === "function" && questionQueuedForRow(row)));
         // Скрываем только реально записанные закрытия: ошибка Notion и ADR,
         // который ждёт фактического решения, остаются видимыми и в очереди.
-        await closeExpired(due, closed);
+        if (active) await closeExpired(due, closed);
         // Строка «Ждёт» без ответа — вопрос, который ещё не передавали
         // приёмке. Проверка идёт при каждой загрузке страницы, поэтому вопрос,
         // созданный прошлой версией (или агентом без очереди), тоже доходит:
@@ -13177,13 +13230,51 @@
   }
 
   let questionsWatch = 0;
+  /** Взведён ли сторож: по нему «Шаг» понимает, надо ли вооружать очередь. */
+  const questionsWatchArmed = () => questionsWatch !== 0;
   function watchQuestions() {
-    if (typeof projectApproved === "function" && !projectApproved()) return;
+    // Интервал ставится и без допуска: вкладка, открытая до «Разрешить
+    // работу», иначе так и не начинала передавать вопросы, а в журнале не
+    // было ни строки (WOTR-D-023).
     if (questionsWatch) return;
     questionsWatch = window.setInterval(() => {
       if (!document.getElementById("cfn-projects")) refreshQuestions().catch(() => {});
     }, C.questionCheckMs);
     refreshQuestions().catch(() => {});
+  }
+
+  /**
+   * Очередь приёмки стоит из-за допуска вкладки — и человек должен это видеть.
+   * Молчаливое `return` в стороже было второй половиной того же сбоя, что и
+   * сообщение «проект ещё не разрешён» на «Шаге»: панель показывала цифру
+   * открытых вопросов, а транспорт их не передавал и не объяснял почему.
+   */
+  function noteFeedbackPipelineHeld() {
+    const held = typeof projectHeld === "function" && projectHeld();
+    const reason = typeof projectBlockReason === "function" ? projectBlockReason() : "";
+    const why = held
+      ? "вкладка держит переключение проекта (нажмите «Шаг» или «Включить» — удержание снимется)"
+      : reason === "invalid"
+        ? "профиль вкладки повреждён или изменён в другой вкладке («Управление проектами» → обновите страницу)"
+        : reason === "legacy"
+          ? "эта вкладка не выбрала проект («Управление проектами» → выберите профиль)"
+          : "работа проекта не разрешена («Управление проектами» → «Разрешить работу»)";
+    logThrottled(
+      "feedback-pipeline-held",
+      `Очередь обратной связи стоит: ${why}. Строки «Ждёт» адресату сейчас не передаются.`,
+      true,
+      3_600_000,
+    );
+  }
+
+  /**
+   * Ручной шаг не обязан ждать монтирования панели: сторож вооружается здесь,
+   * иначе вкладка, открытая до допуска, так и не начинала передавать вопросы.
+   */
+  function armFeedbackWatch() {
+    if (typeof questionsWatchArmed === "function" && !questionsWatchArmed()) watchQuestions();
+    if (typeof decisionsWatchArmed === "function" && typeof watchDecisions === "function" &&
+        !decisionsWatchArmed()) watchDecisions();
   }
 
 
@@ -13582,14 +13673,47 @@
     const items = GM_getValue("cfn-question-bodies", []);
     return Array.isArray(items) ? items : [];
   };
-  const questionBodyPending = (id) => questionBodies().some((item) => item.rowId === id);
+  /*
+   * Тело вопроса держит передачу приёмке ровно `C.questionBodyHoldMs` (WOTR-D-023).
+   * Пока запись тела живёт в очереди, строка «Ждёт» не уходит адресату: так и
+   * должно, приёмка читает полный текст. Но прежнее ожидание не имело срока, и
+   * любая ошибка PATCH (обрезанный ответ Notion, правка человека в теле,
+   * пропавшая сеть) превращала отсрочку в вечную: 22.11 строка остановки
+   * транспорта висела с 09:57, `answerQueue` был пуст, панель помнила только
+   * счётчик. После срока строка передаётся по тому, что уже лежит в базе, и
+   * журнал об этом говорит.
+   */
+  const questionBodyAgeMs = (item) => Date.now() - (Number(item?.at) || Date.now());
+  const questionBodyHoldMs = () =>
+    Math.max(Number(C.questionCheckMs) || 600000, Number(C.questionBodyHoldMs) || 1800000);
+  const questionBodyEntry = (id) => questionBodies().find((item) => item.rowId === id) || null;
+  const questionBodyPending = (id) => {
+    const item = questionBodyEntry(id);
+    if (!item) return false;
+    if (questionBodyAgeMs(item) >= questionBodyHoldMs()) return false;
+    return true;
+  };
+  /** Число записей не растёт бесконечно: после `questionBodyMaxTries` попыток строка отпускается. */
+  const questionBodyTries = (id) => Number(questionBodyEntry(id)?.tries) || 0;
+  const questionBodyMaxTries = () => Math.max(1, Number(C.questionBodyMaxTries) || 3);
   function rememberQuestionBody(row, q, ctx, heading = "") {
     const previous = questionBodies().find((item) => item.rowId === row.id);
     if (previous && JSON.stringify(previous.q) !== JSON.stringify(q))
       throw new Error("Предыдущее дополнение вопроса ещё не записано; новое ждёт своей очереди.");
     const list = questionBodies().filter((item) => item.rowId !== row.id);
-    list.push({ rowId: row.id, q, ctx: ctx || {}, heading: heading || previous?.heading || "" });
+    // `at` и `tries` переходят между попытками: иначе отсрочка никогда не
+    // кончается, потому что возраст считался бы от последней повторной записи.
+    list.push({
+      rowId: row.id, q, ctx: ctx || {}, heading: heading || previous?.heading || "",
+      at: Number(previous?.at) || Date.now(), tries: Number(previous?.tries) || 0,
+    });
     GM_setValue("cfn-question-bodies", list);
+  }
+  function bumpQuestionBodyTry(id) {
+    const list = questionBodies().map((item) =>
+      item.rowId === id ? { ...item, tries: (Number(item.tries) || 0) + 1 } : item);
+    GM_setValue("cfn-question-bodies", list);
+    return questionBodyTries(id);
   }
   function forgetQuestionBody(id) {
     GM_setValue("cfn-question-bodies", questionBodies().filter((item) => item.rowId !== id));
@@ -13621,10 +13745,12 @@
     const chunks = richText(full);
     try {
       const blocks = await questionBlocks(row.id);
+      const sameText = (a, b) =>
+        String(a || "").replace(/\s+/g, " ").trim() === String(b || "").replace(/\s+/g, " ").trim();
       let heading = questionBodies().find((item) => item.rowId === row.id)?.heading || "";
       if (!heading) {
         const main = blocks.findIndex((block) => block.type === "heading_3" && blockText(block) === "Полный текст вопроса");
-        if (main >= 0 && blockText(blocks[main + 1]) === full) {
+        if (main >= 0 && sameText(blockText(blocks[main + 1]), full)) {
           forgetQuestionBody(row.id);
           return true;
         }
@@ -13640,7 +13766,8 @@
       const indexes = blocks.map((block, i) => block.type === "heading_3" && blockText(block) === heading ? i : -1).filter((i) => i >= 0);
       if (indexes.length > 1) throw new Error("У материала два одинаковых заголовка; нужна ручная проверка.");
       if (indexes.length) {
-        if (blockText(blocks[indexes[0] + 1]) !== full) throw new Error("Тело вопроса уже изменено; автоматическую запись не повторяю.");
+        if (!sameText(blockText(blocks[indexes[0] + 1]), full))
+          throw new Error("Тело вопроса уже изменено; автоматическую запись не повторяю.");
       } else {
         await notion("PATCH", `blocks/${row.id}/children`, {
           children: [
@@ -13652,7 +13779,25 @@
       forgetQuestionBody(row.id);
       return true;
     } catch (e) {
+      const tries = bumpQuestionBodyTry(row.id);
       dbg("вопросы: полный текст не записался", e.message);
+      // Ошибка записи тела — это уже не «подождёт», а конкретная задержка
+      // передачи, и она должна быть видна в журнале, а не только в консоли.
+      if (tries >= questionBodyMaxTries()) {
+        forgetQuestionBody(row.id);
+        log(
+          `Полный текст вопроса «${title}» не дописан за ${tries} попытки (${e.message}). ` +
+            "Строку отпускаю приёмке по тому, что есть в базе: дальше очередь не держим.",
+          true, { ntfy: "quiet" },
+        );
+      } else {
+        logThrottled(
+          `question-body:${row.id}`,
+          `Полный текст вопроса «${title}» не записался (${e.message}); попытка ${tries} из ` +
+            `${questionBodyMaxTries()}. Передача приёмке отложена до ${Math.round(questionBodyHoldMs() / 60000)} мин ожидания.`,
+          true,
+        );
+      }
       return false;
     }
   }
@@ -13669,8 +13814,15 @@
 
   async function flushQuestionBodies() {
     for (const item of questionBodies()) {
+      // Одна битая строка не имеет права обрывать весь проход: раньше исключение
+      // из этой петли выходило наружу, и очередь остальных вопросов в этом
+      // цикле не обрабатывалась вообще (WOTR-D-023).
+      try {
       await withQuestionWriteLock(async () => {
-        if (!questionBodyPending(item.rowId)) return;
+        // Не `questionBodyPending` (он гаснет со сроком удержания), а факт
+        // наличия записи: просроченную строку всё равно надо попробовать
+        // дописать, просто она больше не блокирует передачу (WOTR-D-023).
+        if (!questionBodyEntry(item.rowId)) return;
         const saved = await appendQuestionBody({ id: item.rowId }, item.q, item.ctx);
         if (!saved) return;
         // Перед повторной передачей убеждаемся, что вопрос ещё ждёт ответа.
@@ -13687,6 +13839,16 @@
           throw e;
         }
       });
+      } catch (e) {
+        dbg("вопросы: тело строки не дописано", e.message);
+        const tries = bumpQuestionBodyTry(item.rowId);
+        if (tries >= questionBodyMaxTries()) {
+          forgetQuestionBody(item.rowId);
+          log(`Материал вопроса ${item.rowId} не читается за ${tries} попытки (${e.message}); отпускаю строку приёмке по тому, что есть в базе.`, true, { ntfy: "quiet" });
+        } else {
+          logThrottled(`question-body-flush:${item.rowId}`, `Материал вопроса ${item.rowId} не дописан (${e.message}); попытка ${tries} из ${questionBodyMaxTries()}.`, true);
+        }
+      }
     }
   }
 
@@ -14915,8 +15077,8 @@
   }
 
   let decisionsWatch = 0;
+  const decisionsWatchArmed = () => decisionsWatch !== 0;
   function watchDecisions() {
-    if (typeof projectApproved === "function" && !projectApproved()) return;
     if (decisionsWatch) return;
     decisionsWatch = window.setInterval(() => {
       if (!document.getElementById("cfn-projects")) refreshDecisions().catch(() => {});
@@ -21588,9 +21750,16 @@ function reviewPullRequest({ files, pr, zone } = {}) {
 
   async function tick(fromToggle = false) {
     if (typeof projectApproved === "function" && !projectApproved()) {
-      if (fromToggle) log("Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+      if (fromToggle) {
+        log(typeof projectBlockedText === "function" ? projectBlockedText()
+          : "Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+        if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+      }
       return;
     }
+    // Допуск есть — очередь обратной связи обязана жить, даже если панель
+    // монтировалась раньше, чем работа была разрешена (WOTR-D-023).
+    if (typeof armFeedbackWatch === "function") armFeedbackWatch();
     if (typeof projectHeld === "function" && projectHeld()) {
       // fromToggle используется и отложенными автоматическими шагами: право
       // снять удержание есть только у явных кнопок «Шаг»/«Включить».
@@ -22268,7 +22437,8 @@ function reviewPullRequest({ files, pr, zone } = {}) {
   tick = (...args) => trackProjectTask(originalProjectTick(...args));
   const originalProjectQuestions = refreshQuestions;
   refreshQuestions = (...args) => (!projectApproved() || projectHeld())
-    ? Promise.resolve(openQuestions().rows) : trackProjectTask(originalProjectQuestions(...args));
+    ? (noteFeedbackPipelineHeld(), Promise.resolve(openQuestions().rows))
+    : trackProjectTask(originalProjectQuestions(...args));
   const originalProjectDecisions = refreshDecisions;
   refreshDecisions = (...args) => (!projectApproved() || projectHeld())
     ? Promise.resolve(openDecisions().rows) : trackProjectTask(originalProjectDecisions(...args));

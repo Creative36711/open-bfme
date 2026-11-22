@@ -30,6 +30,8 @@ const adrUrl = `https://github.com/${repo}/blob/main/${adrPath}`;
 const config = {
   repo, questions: ds, questionHours: 24, questionLineMax: 3, questionTextMax: 180,
   questionTextFull: 12000, questionDefaultMax: 200, questionCheckMs: 600000, adrCheckMs: 600000,
+  // WOTR-D-023: удержание незаписанного тела ограничено сроком и попытками.
+  questionBodyHoldMs: 1800000, questionBodyMaxTries: 3,
 };
 const K = { qQueue: 'q-queue', answers: 'answers', expect: 'expect', ghToken: 'token' };
 const store = new Map(), db = [], posts = [], bodyWrites = [], blocksByRow = new Map(), patches = [], logs = [], plans = [], sent = [];
@@ -565,8 +567,7 @@ assert(!api.answerQueue().some((item) => item.id === pendingBody.id), 'фоно�
 failBodyPatch = false;
 await api.flushQuestionBodies();
 assert(!api.questionBodyPending(pendingBody.id));
-assert(api.answerQueue().find((item) => item.id === pendingBody.id).fullText.includes(full.trim()));
-assert(blocksByRow.get(pendingBody.id).some((block) => block.type === 'paragraph' && block.paragraph.rich_text.map((x) => x.text.content).join('') === full.trim()));
+assert(api.answerQueue().find((item) => item.id === pendingBody.id).fullText.includes(full.trim()));assert(blocksByRow.get(pendingBody.id).some((block) => block.type === 'paragraph' && block.paragraph.rich_text.map((x) => x.text.content).join('') === full.trim()));
 
 // Ответ на PATCH мог потеряться уже после записи; повтор сначала читает блоки.
 lostBodyResponse = true;
@@ -577,6 +578,7 @@ const patchCount = bodyWrites.length;
 await api.flushQuestionBodies();
 assert.equal(bodyWrites.length, patchCount, 'после потерянного ответа блоки не продублированы');
 assert(!api.questionBodyPending(responseLost.id));
+
 
 // Полный документ уже вручную добавлен к старой строке: watcher проверяет
 // и SHA, и текст, не дублируя содержимое или вопрос, но передаёт его Warden.
@@ -709,4 +711,35 @@ await api.refreshQuestions({ force:true, quiet:true });
 assert(!api.answerQueue().some((item) => item.id === unsupported.id));
 assert.equal(sel(unsupported.properties['Статус']), 'Ждёт');
 
-console.log('OK: единая Notion-очередь, дедупликация, приёмка, повторы и счётчик без гонок');
+// WOTR-D-023: если тело так и не записалось, строка не может висеть вечно.
+// Сюита идёт последней: у мока Notion одноразовые флаги (`lostBodyResponse`) и
+// сквозная дедупликация вопросов по префиксу, поэтому вставка между чужими
+// сценариями ломала их, а не проверяла это.
+// Свежее удержание держит передачу, просроченное — отпускает: приёмка получает
+// то, что лежит в базе, а не молчание (боевой 22.11: «Ждёт» с 09:57 и пустая
+// `answerQueue`).
+{
+  const heldText = `ADR: задержанное тело. ${'Существенный контекст. '.repeat(8)}`;
+  failBodyPatch = true;
+  const held = await api.askQuestion(api.parseQuestion({ text: heldText, default: 'оставить как есть' }),
+    { key: 'notion-body-held', mission: 'TEST-1' });
+  await api.refreshQuestions({ force: true, quiet: true });
+  assert(api.questionBodyPending(held.id), 'свежее удержание активно');
+  assert(!api.answerQueue().some((item) => item.id === held.id), 'пока тело ждёт, приёмка его не зовёт');
+  // Просрочка: возраст записи больше срока удержания.
+  const aged = (store.get('cfn-question-bodies') || []).map((item) =>
+    item.rowId === held.id ? { ...item, at: 1 } : item);
+  store.set('cfn-question-bodies', aged);
+  assert(!api.questionBodyPending(held.id), 'после срока удержание гаснет');
+  await api.refreshQuestions({ force: true, quiet: true });
+  assert(api.answerQueue().some((item) => item.id === held.id),
+    'просроченная строка передаётся приёмке по тому, что есть в базе');
+  // После лимита попыток запись тела исчезает из незавершённых, а не копит попытки.
+  const before = bodyWrites.length;
+  await api.flushQuestionBodies();
+  assert(bodyWrites.length >= before, 'дописывание не заблокировано навсегда');
+  const still = (store.get('cfn-question-bodies') || []).filter((item) => item.rowId === held.id);
+  assert(still.length === 0 || Number(still[0].tries) >= 1, 'попытки считаются');
+}
+
+console.log('OK: единая Notion-очередь, дедупликация, приёмка, повторы, счётчик и bounded-hold без гонок');

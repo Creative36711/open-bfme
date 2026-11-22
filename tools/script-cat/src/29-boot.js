@@ -5,7 +5,8 @@
   tick = (...args) => trackProjectTask(originalProjectTick(...args));
   const originalProjectQuestions = refreshQuestions;
   refreshQuestions = (...args) => (!projectApproved() || projectHeld())
-    ? Promise.resolve(openQuestions().rows) : trackProjectTask(originalProjectQuestions(...args));
+    ? (noteFeedbackPipelineHeld(), Promise.resolve(openQuestions().rows))
+    : trackProjectTask(originalProjectQuestions(...args));
   const originalProjectDecisions = refreshDecisions;
   refreshDecisions = (...args) => (!projectApproved() || projectHeld())
     ? Promise.resolve(openDecisions().rows) : trackProjectTask(originalProjectDecisions(...args));

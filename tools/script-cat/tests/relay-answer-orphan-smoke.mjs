@@ -21,6 +21,8 @@
 //   4. Долгое ожидание свободного слота не было видно в журнале.
 //
 // Проба красная на 1.16.5 (пункты 1–4) и зелёная на 1.16.6.
+// Рядом лежит 1.16.8 (WOTR-D-023): удержание незаписанного тела больше не
+// бессрочное — строка не может зависнуть «Ждёт» из-за молчаливой ошибки PATCH.
 
 import { readFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
@@ -31,8 +33,8 @@ const feedback = readFileSync(new URL('../src/24-feedback.js', import.meta.url),
 const answers = readFileSync(new URL('../src/27-review-answers.js', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../src/01-config.js', import.meta.url), 'utf8');
 
-// ── 0. Выпуск назван ────────────────────────────────────────────────────────
-assert.match(src, /^\/\/ @version\s+1\.16\.7\s*$/m, 'WOTR-сборка 1.16.7 объявлена');
+// ── 0. Выпуск назван (номер меняется каждым релизом транспорта)
+assert.match(src, /^\/\/ @version\s+1\.16\.8\s*$/m, 'WOTR-сборка 1.16.8 объявлена');
 
 // ── 1. Отметка «передано» больше не пожизненная ─────────────────────────────
 {
