@@ -658,7 +658,7 @@ def test_the_ci_script_fails_on_every_non_success(tmp_path):
     body = script.split("<<'EOF'\n", 1)[1].rsplit("EOF", 1)[0]
     f = tmp_path / "ci.py"
     f.write_text(body)
-    names = ("lint", "gate", "fixtures", "linux", "windows", "windows-tests", "msvc", "macos")
+    names = ("lint", "gate", "pytest-2", "pytest-3", "pytest-4", "fixtures", "linux", "windows", "windows-tests", "msvc", "macos")
 
     def ci(results):
         env = {**os.environ, "RESULTS": json.dumps({k: {"result": v, "outputs": {}} for k, v in results.items()})}
@@ -847,6 +847,59 @@ def test_pr_pytest_refuses_an_empty_list(monkeypatch, capfd):
 def test_pr_pytest_lists_real_files():
     import pr_pytest  # noqa: PLC0415
     assert pr_pytest.SUBSET and all((REPO / f).is_file() for f in pr_pytest.SUBSET) and len(set(pr_pytest.SUBSET)) == len(pr_pytest.SUBSET)
+
+
+def test_the_lanes_hold_the_subset_once_and_about_equally():
+    """the lanes split the same list over runners: every file of SUBSET lands in exactly one lane, so no lane can pass by forgetting a
+    file, and the heaviest lane costs at most one file more than an even share (the bound the workflow's comment promises)"""
+    import pr_pytest  # noqa: PLC0415
+    buckets = pr_pytest.lanes(pr_pytest.SHARDS)
+    assert sorted(f for b in buckets for f in b) == sorted(pr_pytest.SUBSET), "a lane drops or repeats a file"
+    total = sum(pr_pytest.cost_of(f) for f in pr_pytest.SUBSET)
+    heaviest = max(pr_pytest.cost_of(f) for f in pr_pytest.SUBSET)
+    for b in buckets:
+        assert pr_pytest.cost_of_lane(b) <= total / pr_pytest.SHARDS + heaviest, b
+    assert len(pr_pytest.lanes(1)) == 1 and pr_pytest.lanes(1)[0] == sorted(pr_pytest.SUBSET)
+
+
+def test_the_lane_costs_name_files_of_the_subset_only():
+    """a measured file that left SUBSET would leave a lane with nothing to balance against: the numbers age, they do not rot"""
+    import pr_pytest  # noqa: PLC0415
+    stale = sorted(set(pr_pytest.COST) - set(pr_pytest.SUBSET))
+    assert not stale, f"COST names files outside SUBSET: {stale}"
+    assert all(c > 0 for c in pr_pytest.COST.values())
+
+
+def test_the_workflow_runs_each_lane_exactly_once():
+    """the workflow and the tool agree on the lanes: every shard of 1..SHARDS/COUNT appears in one step, no step runs the whole list
+    beside them, and no step gets a shard without the runner's four workers"""
+    import pr_pytest  # noqa: PLC0415
+    import yaml  # noqa: PLC0415
+    jobs = yaml.safe_load(PR_YML)["jobs"]
+    specs = [s for j in jobs.values() for s in (j.get("steps") or []) if isinstance(s, dict) and "pr_pytest.py" in s.get("run", "")]
+    assert specs, "no job runs the Python tests at all"
+    got = []
+    for s in specs:
+        assert "pr_pytest.py" in s["run"]
+        shard = re.search(r"--shard (\d+)/(\d+)", s["run"])
+        assert shard and "-n 4" in s["run"], s["run"]
+        got.append(f"{shard.group(1)}/{shard.group(2)}")
+    assert sorted(got) == sorted(f"{i}/{pr_pytest.SHARDS}" for i in range(1, pr_pytest.SHARDS + 1)), got
+    assert len(specs) == pr_pytest.SHARDS, f"{len(specs)} steps run the list for {pr_pytest.SHARDS} lanes"
+
+
+@pytest.mark.parametrize("spec,why", [
+    ("5/4", "has no lane in 1..4"),
+    ("0/4", "has no lane in 1..4"),
+    ("a/b", "wants two integers"),
+    ("2", "wants LANE/COUNT"),
+])
+def test_pr_pytest_refuses_a_lane_it_does_not_have(monkeypatch, capfd, spec, why):
+    import pr_pytest  # noqa: PLC0415
+    monkeypatch.setattr(pr_pytest, "SHARDS", 4)
+    with pytest.raises(SystemExit) as got:
+        pr_pytest.main(["--shard", spec])
+    assert why in str(got.value), got.value
 
 
 def test_a_candidate_that_fails_leaves_its_merges_and_the_next_run_credits_them(world):

@@ -106,9 +106,81 @@ jobs:
             python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}"
           fi
       - name: Python tests that need no game files
-        # four workers (the runner's four CPUs): one process runs them in 12 to 15 minutes, mostly the release flows of
-        # test_autorelease.py and test_community_prs.py
-        run: python3 tools/release/pr_pytest.py -n 4 --durations=15
+        # four workers (the runner's four CPUs), lane 1 of four: the same tests are balanced over four runners by the measured cost per
+        # file (tools/release/pr_pytest.py, COST), so a pull request waits for one lane instead of for all 3407 s of test time. The lane's
+        # cost floor is the heaviest file, test_autorelease.py (2406 s), which is why four lanes, not eight.
+        run: python3 tools/release/pr_pytest.py --shard 1/4 -n 4 --durations=15
+
+  pytest-2:
+    name: Python tests lane 2 of 4
+    # the same SUBSET, another quarter of it by measured cost (tools/release/pr_pytest.py --shard). A lane is not allowed to pass by
+    # running nothing: pr_pytest fails when a file of its lane has no passing test.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pytest, pytest-xdist and PyYAML
+        run: >-
+          python3 -m pip install --disable-pip-version-check --no-input
+          "pytest==9.1.1" "pytest-xdist==3.8.0" "execnet==2.1.2" "PyYAML==6.0.3"
+      - name: Git identity for the tests' throwaway repositories
+        run: |
+          git config --global user.name "pr-checks"
+          git config --global user.email "pr-checks@example.invalid"
+          git config --global init.defaultBranch main
+      - run: python3 tools/release/pr_pytest.py --shard 2/4 -n 4 --durations=15
+
+  pytest-3:
+    name: Python tests lane 3 of 4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pytest, pytest-xdist and PyYAML
+        run: >-
+          python3 -m pip install --disable-pip-version-check --no-input
+          "pytest==9.1.1" "pytest-xdist==3.8.0" "execnet==2.1.2" "PyYAML==6.0.3"
+      - name: Git identity for the tests' throwaway repositories
+        run: |
+          git config --global user.name "pr-checks"
+          git config --global user.email "pr-checks@example.invalid"
+          git config --global init.defaultBranch main
+      - run: python3 tools/release/pr_pytest.py --shard 3/4 -n 4 --durations=15
+
+  pytest-4:
+    name: Python tests lane 4 of 4
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pytest, pytest-xdist and PyYAML
+        run: >-
+          python3 -m pip install --disable-pip-version-check --no-input
+          "pytest==9.1.1" "pytest-xdist==3.8.0" "execnet==2.1.2" "PyYAML==6.0.3"
+      - name: Git identity for the tests' throwaway repositories
+        run: |
+          git config --global user.name "pr-checks"
+          git config --global user.email "pr-checks@example.invalid"
+          git config --global init.defaultBranch main
+      - run: python3 tools/release/pr_pytest.py --shard 4/4 -n 4 --durations=15
 
   fixtures:
     name: Reference MP3 fixtures
@@ -400,7 +472,7 @@ jobs:
     name: CI
     # the one required check: it runs even when a job it needs failed or was cancelled, and passes only when every one succeeded
     if: always()
-    needs: [lint, gate, fixtures, linux, windows, windows-tests, msvc, macos]
+    needs: [lint, gate, pytest-2, pytest-3, pytest-4, fixtures, linux, windows, windows-tests, msvc, macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -411,7 +483,7 @@ jobs:
           python3 - <<'EOF'
           import json, os, sys
           needs = json.loads(os.environ["RESULTS"])
-          want = {"lint", "gate", "fixtures", "linux", "windows", "windows-tests", "msvc", "macos"}
+          want = {"lint", "gate", "pytest-2", "pytest-3", "pytest-4", "fixtures", "linux", "windows", "windows-tests", "msvc", "macos"}
           bad = sorted(f"{k}: {v['result']}" for k, v in needs.items() if v["result"] != "success")
           if set(needs) != want:
               bad.append(f"the jobs are {sorted(needs)}, not {sorted(want)}")
