@@ -98,7 +98,7 @@ jobs:
       - name: Public tree audit (the built-in rules)
         # The audit reads the whole tree this pull request would make, so a finding already in main is reported here too. --base only says
         # whose it is: the exit code does not depend on it, a dirty public tree stays red, and the line names the base's commit that last
-        # touched the path (fetch-depth is 2, so the name is as close as this checkout can get; preflight.mjs has the full history).
+        # touched the path (fetch-depth is 2, so the name is as close as this checkout can get; relay-wotr's preflight.mjs has the full history).
         run: |
           if git cat-file -e 'HEAD^1^{tree}' 2>/dev/null; then
             python3 tools/release/pr_audit.py --tree "$GITHUB_SHA^{tree}" --base 'HEAD^1'

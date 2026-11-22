@@ -2,6 +2,11 @@
 
 Date: 2026-11-20
 
+> Archive note (2026-11-22): this is release evidence kept as an operational record of Open BFME. The
+> transport itself — source, bundle, tests, gates and future release notes — now lives in
+> `Creative36711/relay-wotr`. Paths named below are read relative to that repository; this record is not
+> edited, and no gate in this repository runs them.
+
 Decisions: `WOTR-D-016`, `WOTR-D-017`; architecture input: `ADR-004`
 
 Imported baseline: tree `fe8ec9368fc2f5cb9a78a5cdbc47b66e30c07cf6`

@@ -1611,7 +1611,7 @@ INHERITED:` was already in the base and names the commit that last touched the p
 tree stays red, so nobody publishes over it and the debt cannot be hidden — but the finding is now addressed to the commit that introduced it,
 and per `docs/agents/pr-rules.md` Р5 a foreign file goes back to its owner as a card rather than getting patched by whoever noticed it.
 The step itself passes `--base 'HEAD^1'`: GitHub checks out its merge of the pull request, so the first parent is `main` and the log on the pull
-request page separates "this tree's findings" from "already in main". `node tools/script-cat/preflight.mjs` runs the same audit with
+request page separates "this tree's findings" from "already in main". `node tools/script-cat/preflight.mjs` in `Creative36711/relay-wotr` runs the same audit with
 `--base origin/main` before a push (its Р10 list in `docs/agents/pr-rules.md`), so the person who introduces a finding is the first one told about
 it, with the full history to name the commit and the owner.
 

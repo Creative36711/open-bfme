@@ -13,13 +13,14 @@ tracked in `docs/STOPS.md`. See the architecture records in
 
 ## Agent workflow
 
-This is one repository for product code, OpenBFME integration, process documents,
-and the ScriptCat transport. Start with `AGENTS.md`, `docs/REGULATION.md`,
+This is one repository for product code, OpenBFME integration and process documents.
+Start with `AGENTS.md`, `docs/REGULATION.md`,
 `docs/PHASES.md`, the active specification in `docs/missions/`, and the tiered
 build/retail policy in `docs/agents/cost-gates.md`. Visual cards also follow the
 hybrid Godot/SVG/generated-raster contract in `docs/tooling/ART-PIPELINE.md`.
-ScriptCat 1.16.3 and its WOTR profile live in `tools/script-cat/`; its complete
-local gate is `npm run verify:scriptcat`.
+ScriptCat transport and its WOTR profile live in [`Creative36711/relay-wotr`](https://github.com/Creative36711/relay-wotr)
+(`tools/script-cat/`, gate `npm run verify:scriptcat` there); its project target stays
+`Creative36711/open-bfme@main`. Transport work is planned, scoped and accepted from this repository.
 
 ## Arena bootstrap
 

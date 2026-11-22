@@ -43,7 +43,8 @@ branch=main
 driveFolder=wotr-remaster
 ```
 
-Canonical import file: `tools/script-cat/wotr-project.json`. It contains metadata only. Notion token, GitHub token, Gateway URL/key and all session state are stored locally by ScriptCat and must never be committed.
+Canonical import file: `tools/script-cat/wotr-project.json` in `Creative36711/relay-wotr` (the transport
+repository). It contains metadata only. Notion token, GitHub token, Gateway URL/key and all session state are stored locally by ScriptCat and must never be committed.
 
 ## Authority
 

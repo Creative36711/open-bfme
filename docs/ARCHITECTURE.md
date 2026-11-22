@@ -57,10 +57,12 @@ art/                                 licensed custom strategic assets only
 docs/                                process, architecture, missions and ADR
 launcher/                            adapted WOTR launcher/updater product flavor
 tools/release/                       audited one-archive and manifest pipeline
-tools/script-cat/                    agent transport (protected)
 ```
 
 Фактические пути утверждаются первой карточкой source integration; смысл границ менять нельзя.
+Каталога транспорта в этом дереве нет: ScriptCat (`tools/script-cat/**`, `tools/relay-*.mjs`,
+userscript-бандл и Drive-gateway) живёт в `Creative36711/relay-wotr` и остаётся защищённым —
+правка только карточкой Transport Maintainer с полным transport-гейтом в том репозитории.
 
 ## 4. Deterministic core
 

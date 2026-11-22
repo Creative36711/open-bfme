@@ -2,6 +2,11 @@
 
 Date: 2026-11-21
 
+> Archive note (2026-11-22): this is release evidence kept as an operational record of Open BFME. The
+> transport itself — source, bundle, tests, gates and future release notes — now lives in
+> `Creative36711/relay-wotr`. Paths named below are read relative to that repository; this record is not
+> edited, and no gate in this repository runs them.
+
 Decision: `WOTR-D-019`; incident: Notion «Обратная связь» row
 `41f6f0cf-5705-8139-b90b-c69c24308819` («остановка без автоматического пути»,
 `Роль: Transport`), mission `WOTR-1.1`.

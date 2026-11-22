@@ -32,7 +32,9 @@ Run the exact card oracle and `git diff --check`. Record command, rc, relevant o
 
 ## Р8 · Transport lock
 
-`tools/script-cat/**`, `tools/relay-build.mjs` and `tools/relay-watchdog.mjs` require a Transport Maintainer card. Source changes require a version bump; `relay.user.js` is rebuilt, not hand-edited.
+`tools/script-cat/**`, `tools/relay-build.mjs` and `tools/relay-watchdog.mjs` require a Transport Maintainer
+card — in `Creative36711/relay-wotr`, where those paths now live; this repository keeps no transport copy, so
+adding them here is out of zone. Source changes require a version bump; `relay.user.js` is rebuilt, not hand-edited.
 
 ## Р9 · Merge claim
 
@@ -43,7 +45,7 @@ Create the PR against the card's target repository/base. After acceptance, the e
 Before final push/merge run:
 
 ```bash
-node tools/script-cat/preflight.mjs --zone "<comma-separated role/card paths>"
+node tools/script-cat/preflight.mjs --zone "<comma-separated role/card paths>"   # in the repository that owns the paths
 ```
 
 A pass must cover: non-shallow usable history, no conflict markers, only own zone, coherent decision/contract change, source/version coupling and generated bundle consistency where applicable. Network uncertainty is reported as unknown; it does not authorize bypass.
