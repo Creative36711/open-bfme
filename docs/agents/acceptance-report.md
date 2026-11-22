@@ -8,7 +8,10 @@ Historical upstream release evidence is frozen under
 `tools/script-cat/upstream-fixtures/docs/agents/acceptance-report.md` (transport repository); it is test
 evidence, not WOTR process authority.
 
-Required commands:
+Required commands — run them from a checkout of `Creative36711/relay-wotr`, never from this repository: the
+`scriptcat:*` and `test:scriptcat*` aliases were removed from `package.json` here, so `npm run scriptcat:check` in
+Open BFME can only answer `Missing script`. Record the `relay-wotr` commit SHA and the `open-bfme` card ID in the
+same report.
 
 ```bash
 npm run scriptcat:check
