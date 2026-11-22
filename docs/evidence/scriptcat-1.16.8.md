@@ -110,25 +110,29 @@ confirms the tree/bundle match.
 
 ## Pull request checks
 
-PR #10, head `3dcceb77e1409e0fe2875ddafd9ceb9cdbcdbdfc`, base `main` at
-`ebfea4d2b8263610a5113ff6bb00c634a52fd80d`. 11 of 11 checks `pass`, 0 fail, 0 pending — recorded
-before the merge, on the final head SHA, not from a cache:
+PR #10, base `main` at `ebfea4d2b8263610a5113ff6bb00c634a52fd80d`. Checks were green twice: on the
+code head `3dcceb77e1409e0fe2875ddafd9ceb9cdbcdbdfc` (11/11 `pass`) and, after the evidence commit,
+on the **final** head `901d54c37e11e3a29b28798e8f675cb9a0664083` — 11/11 `pass`, 0 fail, 0 pending.
+The durations below are the final head's, read from `gh pr checks 10` before the merge, not from a
+cache; the release artifact is byte-identical between the two heads (that commit touches only this
+file):
 
 | Check | Result | Duration |
 |---|---|---|
-| Workflow lint (actionlint, zizmor) | pass | 7s |
-| Commit gate, public tree audit, Python tests | pass | 10m5s |
-| Reference MP3 fixtures | pass | 39s |
-| Linux engine build and unit tests | pass | 1m52s |
-| macOS arm64 build and unit tests | pass | 3m0s |
-| Windows MSVC build and unit tests (build.bat) | pass | 10m33s |
-| Windows cross build (llvm-mingw, compile only) | pass | 1m3s |
-| Windows tests (the shipped compiler's binaries on real Windows) | pass | 2m49s |
-| Linux address and undefined sanitizer | pass | 3m41s |
-| Linux thread sanitizer | pass | 4m34s |
+| Workflow lint (actionlint, zizmor) | pass | 8s |
+| Commit gate, public tree audit, Python tests | pass | 10m19s
+| Reference MP3 fixtures | pass | 40s |
+| Linux engine build and unit tests | pass | 2m9s
+| macOS arm64 build and unit tests | pass | 2m54s
+| Windows MSVC build and unit tests (build.bat) | pass | 9m48s
+| Windows cross build (llvm-mingw, compile only) | pass | 1m3s
+| Windows tests (the shipped compiler's binaries on real Windows) | pass | 3m12s
+| Linux address and undefined sanitizer | pass | 3m30s
+| Linux thread sanitizer | pass | 4m36s
 | CI (aggregate) | pass | 5s |
 
-Runs: `44997137061` and `44997137036` (workflow `CI`), both completed successfully for this head.
+Runs for the final head: `44998087257` (Pull request checks) and `44998087276` (Sanitizers), both
+`completed/success`; for `3dcceb7` — `44997137061` and `44997137036`, also `completed/success`.
 The macOS job, which flaked on the previous release's docs-only head, passed here on the first run.
 
 ## Release boundary
