@@ -1,0 +1,19 @@
+{
+  "profile": "vanilla_rotwk_201",
+  "description": "The product's catalog units as the retail RotWK 2.01 stacks the tactical battle fights with. The catalog id is the pack's member kind; the template is the retail ThingTemplate that carries the autoresolve rows (hitpoints, armor, weapon, experience chain) of that stack.",
+  "units": {
+    "wotr.unit.knight": {
+      "template": "GondorKnightHorde",
+      "stack": "Gondor cavalry",
+      "stackSize": 10,
+      "faction": "faction_gondor"
+    },
+    "wotr.unit.orc": {
+      "template": "MordorBlackOrcHorde",
+      "stack": "Mordor black orcs",
+      "stackSize": 12,
+      "faction": "faction_mordor"
+    }
+  },
+  "upgrades": {}
+}

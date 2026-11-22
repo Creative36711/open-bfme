@@ -1,0 +1,14 @@
+[configuration]
+
+entry_symbol = "wotr_core_library_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+
+linux.debug.x86_64 = "res://wotr_remaster/core/native/bin/libwotr_core.so"
+linux.release.x86_64 = "res://wotr_remaster/core/native/bin/libwotr_core.so"
+windows.debug.x86_64 = "res://wotr_remaster/core/native/bin/wotr_core.dll"
+windows.release.x86_64 = "res://wotr_remaster/core/native/bin/wotr_core.dll"
+macos.debug = "res://wotr_remaster/core/native/bin/libwotr_core.dylib"
+macos.release = "res://wotr_remaster/core/native/bin/libwotr_core.dylib"
