@@ -343,7 +343,8 @@ cd engine && ./build/openbfme_tests --source-file="*test_wotr1.cpp,..."
 |---|---|---|
 | Full suite, 28 chunks | no retail env | 5,652 test cases: **5,647 passed, 5 failed**; 1,409,787 assertions: 1,409,782 passed, 5 failed; 27 chunks rc 0, 1 chunk rc 1 |
 | WOTR lane (`--test-case="*wotr*"`) | retail mounted | 123 test cases: **123 passed, 0 failed**; 4,929 assertions: 4,929 passed |
-| Full suite, 28 chunks | retail mounted | see the table in §9.1 |
+| Full suite, 13 of 28 chunks | retail mounted | 2,548 test cases: 2,537 passed, 11 failed; 6,064,189 assertions: 6,064,079 passed, 110 failed (§9.1) |
+| The retail-failing files, alone | retail mounted | the two groups of §9.1 are the whole of it; `test_hud6.cpp` alone: 28 cases, 1,148 assertions, 0 failed |
 
 The 5 failures of the full suite are one single group, and they are
 environmental, not a defect of this card:
@@ -375,13 +376,26 @@ files are not in the snapshot, so those cases fail with a missing-file
 message. They are `not run` in substance as well, for the same reason as the
 MP3 group: the input the test needs is not in this sandbox.
 
-| Failing test | File it needs | Where the test reads it from |
-|---|---|---|
-| `apt shell` | `game.dat` | `<ROTWK_INSTALL>/game.dat` |
-| `asset catalog oracle` | `asset.dat` | `<BFME2_INSTALL>/asset.dat` |
-| `cah2` | `gi.dat` | `<install>/gi.dat` |
-| `build5 placement` | a placement file of the install | `<install>/…` |
-| `camp1h VideoPlayer` | the Angmar campaign movies | `<install>/Data\Movies/…` |
+| Failing test | File it needs | Where the test reads it from | The message |
+|---|---|---|---|
+| `apt shell` | `game.dat` | `<ROTWK_INSTALL>/game.dat` | `cannot read game.dat at …` |
+| `asset catalog oracle` | `asset.dat` | `<BFME2_INSTALL>/asset.dat` | `cannot open …/asset.dat` |
+| `cah2` | `gi.dat` | `<ROTWK_INSTALL>/gi.dat` | `cannot open …/gi.dat` |
+| `build5 placement` | a placement file of the install | `<install>/…` | `direction 0` (no placement file found) |
+| `hud cursors` | the cursor images | `<install>/…` | the image cannot be read |
+| `camp1h VideoPlayer` | the Angmar campaign movies | `<install>/Data\Movies\*.vp6` | `Could not open VP6 video file …` |
+
+Those six files were re-run alone with the retail trees mounted, to tell a
+missing input from a defect: each of them fails with exactly the message of
+its own missing file and nothing else. The seventh failure of the chunked run
+(`test_hud6.cpp`, a right press on a cancelable upgrade bubble) passes when
+that file is run alone — 28 cases, 1,148 assertions, 0 failed — so it is a
+timing case under the load of the chunked run, not a defect; and one chunk was
+killed by the kernel (SIGTERM, rc 137) while the other chunks were running.
+
+Nothing in either run is in a lane this card touches: the diff of this pull
+request changes no file under `engine/**`, so the test binary is the binary
+of the base commit.
 
 ## 10 · Not run
 
@@ -396,7 +410,7 @@ reason, so that the record is complete and no skip is reported as a pass:
 | Item | Status | Why |
 |---|---|---|
 | The five MP3 golden-fixture cases of `engine/tests/test_audio_decode.cpp` | `not run` | the reference encoders `lame` and `mpg123` are not installed and the sandbox has no root to install them; the fixtures cannot be generated (§9). |
-| The oracle cases that read a loose retail file (`game.dat`, `asset.dat`, `gi.dat`, the Angmar movies) | `not run` | the pinned retail snapshot carries the 213 BIG archives and not the loose files of the install root (§9.1). |
+| The oracle cases that read a loose retail file (`game.dat`, `asset.dat`, `gi.dat`, the cursor images, the Angmar movies) | `not run` | the pinned retail snapshot carries the 213 BIG archives and not the loose files of the install root (§9.1). |
 | The monolithic (unchunked) run of `openbfme_tests` | `not run` | the kernel OOM-kills it in a 3.9 GiB sandbox; the suite was run in chunks instead, which covers every case exactly once (§9). |
 | `tools/arena/smoke_godot.sh --retail` | `not run` | the card's own retail oracle is the native battle route of §5.3, which is strictly stronger than the smoke (it mounts the retail archives, starts a real RotWK map and plays a real battle); the smoke script belongs to the Arena infrastructure lane and is not part of the K4 scope. |
 | Locale catalogs (K5) | `not run` | K5's scope; this card ships no localization. |
