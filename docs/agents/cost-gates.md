@@ -57,6 +57,11 @@ Cost gate:
 
 Изменение localization runtime, генератора, plural rules или generated C++ переводит работу минимум в T1; изменение ABI — в T2.
 
+То же правило действует и для CI pull request, и там оно механическое, а не на доверии: job сборки сам сравнивает merge-commit pull request с его базой (`git diff --name-only HEAD^1 HEAD`) и, если весь diff лежит в `docs/**`, отрабатывает один шаг с причиной и
+зелёный статус (`tools/release/pr_scope.py`, `WOTR-D-027`). Корневые `README.md`, `LICENSE`, `NOTICE` в эту полосу не входят: их
+раскладывает в архив `tools/release/build_launcher.sh`, поэтому правка корневой страницы — полная проверка. Ослабления `CI` при этом
+нет: требуемый чек по-прежнему видит `success` от каждого job, а `push` в `main` и merge queue собирают всегда.
+
 ## 4. Когда обязателен retail
 
 T3 обязателен, если изменение затрагивает хотя бы одну из границ:
