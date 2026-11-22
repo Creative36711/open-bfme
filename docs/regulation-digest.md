@@ -1,10 +1,10 @@
 # Регламент WOTR Remaster · краткий вход
 
-Версия 1.2 · 2026-11-20. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
+Версия 1.3 · 2026-11-22. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
 
 ## 1. Архитектура
 
-- Один репозиторий: `Creative36711/open-bfme`.
+- Один репозиторий для продукта и процесса: `Creative36711/open-bfme`; техническая часть ScriptCat — `Creative36711/relay-wotr`.
 - `WotrRemaster` — отдельное детерминированное стратегическое ядро: WEGO commands, canonical state/hash, versioned save. Godot nodes, wall clock, locale, filesystem/unordered iteration и неназванный RNG в simulation запрещены.
 - Godot делает 2.5D hex map, ввод, HUD и Campaign Pack editor.
 - OpenBFME Godot Nightly делает tactical battle и читает retail BFME2/RotWK пользователя напрямую.
@@ -16,13 +16,13 @@
 
 ## 2. Роли
 
-Мастер — направление, доступы, лицензии и платные действия. Warden — ТЗ и финальная приёмка. Coordinator — очередь и карточки, без кода и финальной приёмки. Executors: Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist, AI & Simulation, Localization & Cultural QA, Upstream Integrator. Единственный Maintainer — Transport Maintainer, чинящий транспорт. Auditors: Integration, Determinism & Save, UX & Modding.
+Мастер — направление, доступы, лицензии и платные действия. Warden — любая операционная часть: ТЗ, роли/зоны, регламент, процесс и CI этого репозитория, финальная приёмка. Coordinator — очередь и карточки, без кода и финальной приёмки. Executors: Strategic Core, Tactical Bridge, Godot World, Campaign Editor, Technical Artist, AI & Simulation, Localization & Cultural QA, Upstream Integrator. Единственный Maintainer — Transport Maintainer: любая техническая часть ScriptCat в `relay-wotr` (исходники, бандл, gateway, механика профиля, тесты, CI, выпуск). Операционные решения не за ним, а техническую работу транспорта не делает Warden. Auditors: Integration, Determinism & Save, UX & Modding.
 
 Источник полномочий — строка Notion «Роли». Без строки, активного статуса и Agent URL рабочей роли нет. Исполнитель не принимает себя; Auditor не чинит найденное в том же ходе; Warden не пишет продукт.
 
 ## 3. Зоны и Git
 
-Зона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.
+Зона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. «Зона записи» обязана покрывать всё, что роль обязана менять: непокрытый обязательный путь — дефект реестра, он правится строкой «Роли» карточкой Warden, а не сужением прав и не обходом гейта. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.
 
 Работай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. Транспорт (`tools/script-cat/**`) меняет только Transport Maintainer отдельным выпуском в `Creative36711/relay-wotr`. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.
 

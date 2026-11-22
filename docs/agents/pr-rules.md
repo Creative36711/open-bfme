@@ -45,8 +45,14 @@ Create the PR against the card's target repository/base. After acceptance, the e
 Before final push/merge run:
 
 ```bash
-node tools/script-cat/preflight.mjs --zone "<comma-separated role/card paths>"   # in the repository that owns the paths
+python3 tools/precommit.py                                                     # in Open BFME (this repository)
+node tools/script-cat/preflight.mjs --zone "<comma-separated role/card paths>" # in relay-wotr, the transport repository
 ```
+
+Open BFME has no `tools/script-cat/**`, so a product card never runs `preflight.mjs`: its equivalent fixed gate is
+`python3 tools/precommit.py` plus the tree audit below. Transport cards run `preflight.mjs` in `relay-wotr`. A zone
+string is a comma- or newline-separated list of globs only — prose in a zone turns into patterns that match nothing,
+which is how a role's own mandatory file got declared «вне зоны».
 
 A pass must cover: non-shallow usable history, no conflict markers, only own zone, coherent decision/contract change, source/version coupling and generated bundle consistency where applicable. Network uncertainty is reported as unknown; it does not authorize bypass.
 
