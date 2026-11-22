@@ -1,0 +1,42 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://wotr_remaster/world/wotr_world.gd" id="1_world"]
+[ext_resource type="Script" path="res://wotr_remaster/world/wotr_world_hud.gd" id="2_hud"]
+[ext_resource type="Script" path="res://wotr_remaster/world/wotr_route_view.gd" id="3_route"]
+[ext_resource type="Theme" path="res://wotr_remaster/world/wotr_world_theme.tres" id="4_theme"]
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 1
+background_color = Color(0.055, 0.063, 0.078, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.639, 0.667, 0.733, 1)
+ambient_light_energy = 1.45
+
+[node name="WotrWorld" type="Node3D"]
+theme = ExtResource("4_theme")
+script = ExtResource("1_world")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.829, 0.559, 0, -0.559, 0.829, 0, 6.8, 10.6)
+fov = 40.0
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.936, -0.317, 0.149, -0.00015, -0.4266, -0.9066, 0.35, 0.85, -0.4, 0, 12, 6)
+light_energy = 1.5
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
+
+[node name="Routes" type="Node3D" parent="."]
+script = ExtResource("3_route")
+
+[node name="Hud" type="CanvasLayer" parent="."]
+
+[node name="Root" type="Control" parent="Hud"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_hud")

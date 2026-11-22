@@ -729,6 +729,11 @@ PCK_RULES = [
     (re.compile(r"^project\.binary$"), "ecfg"),
     (re.compile(r"^openbfme\.gdextension$"), "text"),
     (re.compile(r"^tests/[\w.-]+\.txt$"), "text"),
+    # lane WOTR-1.1-K4: the Remaster world (godot/wotr_remaster/**) is part of the game project: its scripts, its scene and its
+    # resources ship as the game's own text resources, like scripts/ and scenes/ above.
+    (re.compile(r"^wotr_remaster/[\w/.-]+\.gd$"), "text"),
+    (re.compile(r"^wotr_remaster/[\w/.-]+\.tscn$"), "scene"),
+    (re.compile(r"^wotr_remaster/[\w/.-]+\.(tres|json|gdextension)$"), "text"),
 ]
 # the launcher's pack (launcher/export_presets.cfg): its scripts and scene as text, the project settings, the UID and class caches and the
 # build information build_launcher.sh writes; no tests, no GDExtension
