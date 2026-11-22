@@ -184,9 +184,16 @@
 
   async function tick(fromToggle = false) {
     if (typeof projectApproved === "function" && !projectApproved()) {
-      if (fromToggle) log("Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+      if (fromToggle) {
+        log(typeof projectBlockedText === "function" ? projectBlockedText()
+          : "Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+        if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+      }
       return;
     }
+    // Допуск есть — очередь обратной связи обязана жить, даже если панель
+    // монтировалась раньше, чем работа была разрешена (WOTR-D-023).
+    if (typeof armFeedbackWatch === "function") armFeedbackWatch();
     if (typeof projectHeld === "function" && projectHeld()) {
       // fromToggle используется и отложенными автоматическими шагами: право
       // снять удержание есть только у явных кнопок «Шаг»/«Включить».

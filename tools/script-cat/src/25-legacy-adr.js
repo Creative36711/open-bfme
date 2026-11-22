@@ -508,8 +508,8 @@
   }
 
   let decisionsWatch = 0;
+  const decisionsWatchArmed = () => decisionsWatch !== 0;
   function watchDecisions() {
-    if (typeof projectApproved === "function" && !projectApproved()) return;
     if (decisionsWatch) return;
     decisionsWatch = window.setInterval(() => {
       if (!document.getElementById("cfn-projects")) refreshDecisions().catch(() => {});

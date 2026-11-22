@@ -64,7 +64,13 @@ assert.match(body, /const chunks = richText\(full\);/, 'куски режет о
 assert.match(src, /function richText\(value, step = 1900\)/, 'шаг 1900 — меньше предела 2000');
 assert.match(src, /parts\.length < 100/, 'не больше 100 частей — предел массива Notion');
 assert.match(body, /heading_3/, 'тело подписано заголовком');
-assert.match(body, /catch \(e\) \{\s*\n\s*dbg\([\s\S]*?return false/, 'ошибка сохраняет тело в очереди');
+assert.match(body, /catch \(e\) \{\s*\n\s*const tries = bumpQuestionBodyTry\(row\.id\);\s*\n\s*dbg\([\s\S]*?return false/,
+  'ошибка сохраняет тело в очереди и считает попытку');
+// WOTR-D-023: удержание имеет срок и предел попыток — иначе ошибка PATCH
+// превращала отсрочку в вечное молчание (строка «Ждёт» не доезжала до приёмки).
+assert.match(body, /tries >= questionBodyMaxTries\(\)/, 'после предела попыток строка отпускается');
+assert.match(body, /forgetQuestionBody\(row\.id\);\s*\n\s*log\(/, 'отпускание объявлено в журнале');
+assert.match(body, /const sameText = /, 'сравнение тела нормализует переводы строк');
 assert.match(body, /rememberQuestionBody\(row, q, ctx\)/, 'очередь сохраняется до записи');
 assert.match(body, /notion\("PATCH", `blocks\//, 'используется append blocks API');
 assert.match(body, /await questionBlocks\(row.id\)/, 'перед повтором проверяются уже записанные блоки');

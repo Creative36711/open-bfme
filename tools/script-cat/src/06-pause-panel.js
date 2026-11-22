@@ -709,7 +709,10 @@
     };
     document.getElementById(ui.step).onclick = () => {
       if (typeof projectApproved === "function" && !projectApproved()) {
-        log("Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true); return;
+        log(typeof projectBlockedText === "function" ? projectBlockedText()
+          : "Проект ещё не разрешён к работе: проверьте его в управлении проектами.", true);
+        if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+        return;
       }
       const reason = GM_getValue(K.paused, "");
       if (reason && !confirm(`Снять паузу и выполнить один шаг?\n\n${reason}`)) return;
@@ -739,7 +742,10 @@
 
   async function toggleAuto() {
     if (typeof projectApproved === "function" && !projectApproved()) {
-      log("Проект не разрешён к работе: откройте «Подключения → Управление проектами» и проверьте его.", true); return;
+      log(typeof projectBlockedText === "function" ? projectBlockedText()
+        : "Проект не разрешён к работе: откройте «Подключения → Управление проектами» и проверьте его.", true);
+      if (typeof noteFeedbackPipelineHeld === "function") noteFeedbackPipelineHeld();
+      return;
     }
     const auto = autoOn();
     const reason = GM_getValue(K.paused, "");

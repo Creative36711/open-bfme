@@ -29,6 +29,12 @@
     // всё равно не ходит. После предела это уже не «очередь подождёт», а
     // потерянная доставка, и пауза `answer-orphan` идёт Transport Maintainer'у.
     answerRehandoffMax: 2,
+    // WOTR-D-023: полный текст вопроса — единственная причина ПОДОЖДАТЬ с
+    // передачей приёмке, и у неё есть срок. `questionBodyHoldMs` — сколько
+    // строка ждёт записи тела, прежде чем уйти адресату по тому, что уже
+    // лежит в базе; `questionBodyMaxTries` — сколько попыток вообще.
+    questionBodyHoldMs: 1800000,
+    questionBodyMaxTries: 3,
     adrCheckMs: 600000, // как часто смотреть docs/decisions на proposed (10 минут)
     pageUrl: "",
     // Краткий регламент вшивается сборкой из docs/regulation-digest.md: агент получает

@@ -14,11 +14,34 @@ ScriptCat distinguishes registered editor input from fallback DOM text. Let the 
 
 ## Arena says “Something went wrong” or tool limit
 
-A rejected submission and a tool-call limit are different continuation reasons. Both preserve IDs, but the continuation prompt names the real cause. The tool-call limit has no attempt counter: a turn that keeps producing substantive work is continued as many times as it runs (1.16.7, WOTR-D-021). A pause comes from a real refusal only — no new substantive message after a continuation, a continuation that cannot be compiled or sent, or a live Reviewer card with no continuation template.
+A rejected submission and a tool-call limit are different continuation reasons. Both preserve IDs, but the continuation prompt names the real cause. The tool-call limit has no attempt counter: a turn that keeps producing substantive work is continued as many times as it runs (1.16.8, WOTR-D-021). A pause comes from a real refusal only — no new substantive message after a continuation, a continuation that cannot be compiled or sent, or a live Reviewer card with no continuation template.
 
 ## Running card has no live turn
 
 Do not manually mint a run ID. Recovery compares durable local state, Notion and Arena page identity; an orphan can return to Ready only through the transport's guarded path.
+
+## Feedback row stays in `Ждёт` while the cycle runs
+
+Since 1.16.8 (WOTR-D-023) a stalled delivery is always named in the journal; silence is a
+bug, not a state. Read the panel log first, then check the three places that can hold a row:
+
+- `feedback-pipeline-held` — the tab is not approved, its profile is broken, or the tab still
+  holds a project switch. `Проект/Шаг` now prints the exact reason (`projectBlockedText()`):
+  approving is `Управление проектами` → check the project, a broken profile needs a reload,
+  a held tab needs one manual step. Approving is revoked automatically whenever Notion, Drive
+  or GitHub credentials change in `Подключения` — that is intentional, re-run the check.
+- `question-body:<rowId>` — the full-text body of the row is still being written, so the
+  trimmed row is deliberately not sent. The hold is bounded by `C.questionBodyHoldMs` and
+  `C.questionBodyMaxTries`; after the edge the row is released with a journal error line.
+- `questions-active-mission` — the active mission could not be read. Since 1.16.8 the row is
+  still handed to acceptance (without the mission filter); before that release an unreadable
+  mission silently froze the whole answer queue.
+
+The watchdogs no longer un-arm themselves because of the approval flag, so a tab mounted
+before approval starts forwarding after `Разрешить работу` (or on the next manual step).
+Manual mode is supported: one `Шаг` runs `refreshQuestions`, which flushes bodies, flushes the
+question queue and adopts every `Ждёт` row without an answer. Never assume "the answer will
+come with the next prompt" — the queue is transport's debt, not the human's.
 
 ## Merge cannot be verified
 

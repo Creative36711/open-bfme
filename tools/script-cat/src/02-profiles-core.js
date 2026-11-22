@@ -185,6 +185,32 @@
   const projectApproved = () => !ACTIVE_PROFILE.invalid && !ACTIVE_PROFILE.legacy &&
     GM_getValue("cfn-project-approved", false) === true;
 
+  /**
+   * Почему вкладка не может работать — тремя словами, а не одним. Прежняя
+   * панель отвечала на все три причины одной строкой «проект ещё не разрешён»,
+   * и человек шёл в «Управление проектами» подтверждать допуск, которого там уже
+   * не было: настоящая причина сидела в sessionStorage вкладки (WOTR-D-023).
+   */
+  const projectBlockReason = () => {
+    if (ACTIVE_PROFILE.invalid) return "invalid";
+    if (ACTIVE_PROFILE.legacy) return "legacy";
+    return GM_getValue("cfn-project-approved", false) === true ? "" : "unapproved";
+  };
+  const projectBlockedText = () => {
+    const reason = projectBlockReason();
+    if (reason === "invalid")
+      return "Профиль вкладки повреждён или изменён в другой вкладке: «Управление проектами» → "
+        + "обновите страницу и выберите проект заново. Шаг и очередь обратной связи стоят.";
+    if (reason === "legacy")
+      return "Эта вкладка не выбрала проект (вкладка открыта без профиля либо sessionStorage недоступен): "
+        + "«Управление проектами» → выберите профиль → «Разрешить работу». Шаг и очередь обратной связи стоят.";
+    if (reason === "unapproved")
+      return "Проект ещё не разрешён к работе: «Управление проектами» → «Разрешить работу». "
+        + "Допуск снимается сам при смене Notion, Drive или GitHub-токена в «Подключениях». "
+        + "Шаг и очередь обратной связи стоят.";
+    return "Работа проекта разрешена.";
+  };
+
   const K = {
     notion: "cfn-notion-token",
     gwUrl: "cfn-gw-url",
