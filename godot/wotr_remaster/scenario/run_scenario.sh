@@ -48,9 +48,40 @@ set +e
 "$GODOT_RUN" --display-driver offscreen --rendering-driver vulkan \
     --path "$REPO/godot" --resolution "$RESOLUTION" \
     --script res://wotr_remaster/scenario/wotr_headless_scenario.gd \
-    -- --pack="$PACK" --out="$OUT" --seed="$SEED" 2>&1 | tee "$OUT/run.log"
-status=${PIPESTATUS[0]}
+    -- --pack="$PACK" --out="$OUT" --seed="$SEED" > "$OUT/run.log" 2>&1 &
+godot_pid=$!
+
+# The peak resident set of the whole game process (the retail archives are
+# mapped into it). The kernel keeps the high-water mark in /proc/<pid>/status
+# (VmHWM), so the last sample of the run is the peak; the sample is taken
+# here, in the shell, because the shipped GDScript starts no process.
+peak_rss_kb=0
+while kill -0 "$godot_pid" 2>/dev/null; do
+    hwm=$(awk '/^VmHWM:/{print $2}' "/proc/$godot_pid/status" 2>/dev/null)
+    if [ -n "$hwm" ] && [ "$hwm" -gt "$peak_rss_kb" ]; then
+        peak_rss_kb=$hwm
+    fi
+    sleep 0.2
+done
+wait "$godot_pid"
+status=$?
 set -e
+
+cat "$OUT/run.log"
+
+if [ -f "$OUT/report.json" ] && [ "$peak_rss_kb" -gt 0 ]; then
+    python3 - "$OUT/report.json" "$peak_rss_kb" <<'PYEOF'
+import json, sys
+path, peak = sys.argv[1], int(sys.argv[2])
+with open(path, encoding="utf-8") as handle:
+    report = json.load(handle)
+memory = report.setdefault("memory", {})
+memory["peak_rss_kb"] = peak
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(report, handle, indent=2)
+    handle.write("\n")
+PYEOF
+fi
 
 echo "==> rc=$status"
 echo "==> report: $OUT/report.json"

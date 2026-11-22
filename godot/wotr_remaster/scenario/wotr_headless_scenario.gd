@@ -181,9 +181,14 @@ func _run() -> void:
 	# ---- the measured facts ------------------------------------------------
 	var frames := await _measure_frames(MEASURE_FRAMES)
 	report["frames"] = frames
+	# The memory this process holds. The kernel's peak resident set of the
+	# whole process (the retail archives included) is sampled by the runner
+	# script, which reads /proc; the engine's own counter is what the
+	# process can report about itself, and the script reads no file and
+	# starts no process of its own.
 	report["memory"] = {
-		"peak_rss_kb": _proc_status_kb("VmHWM:"),
-		"rss_kb": _proc_status_kb("VmRSS:"),
+		"static_bytes": int(Performance.get_monitor(Performance.MEMORY_STATIC)),
+		"static_bytes_os": int(OS.get_static_memory_usage()),
 	}
 	_finish(report, out_dir)
 
@@ -267,39 +272,6 @@ func _measure_frames(count: int) -> Dictionary:
 		"max_ms": largest,
 		"total_ms": total,
 	}
-
-
-## The peak (VmHWM) and the current (VmRSS) resident set of this process, in
-## kibibytes.
-##
-## /proc files have no size, so Godot's FileAccess cannot read them; the
-## values are copied into a scratch file by the shell first. The number is the
-## first whitespace-separated token after the field name ("VmHWM:\t 12345 kB").
-func _proc_status_kb(field: String) -> int:
-	var scratch := "user://wotr-k4-memory.txt"
-	var scratch_path := ProjectSettings.globalize_path(scratch)
-	var pid := OS.get_process_id()
-	OS.execute("/bin/sh", ["-c", "grep -E '^(VmHWM|VmRSS):' /proc/%d/status > '%s' 2>/dev/null" % [pid, scratch_path]])
-	var file := FileAccess.open(scratch, FileAccess.READ)
-	if file == null:
-		return -1
-	var text := file.get_as_text()
-	file.close()
-	DirAccess.remove_absolute(scratch_path)
-	for line in text.split("\n"):
-		if not line.begins_with(field):
-			continue
-		var rest := line.substr(field.length()).strip_edges()
-		var number := ""
-		for character in rest:
-			if character >= "0" and character <= "9":
-				number += character
-			elif not number.is_empty():
-				break
-		if number.is_empty():
-			return -1
-		return int(number)
-	return -1
 
 
 func _sha256(text: String) -> String:

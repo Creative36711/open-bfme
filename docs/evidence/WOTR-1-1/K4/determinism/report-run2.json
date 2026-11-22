@@ -22,12 +22,12 @@
   },
   "failures": [],
   "frames": {
-    "avg_ms": 649.8151,
+    "avg_ms": 478.384866666667,
     "count": 60,
-    "max_ms": 1261.38,
-    "median_ms": 583.396,
-    "min_ms": 450.787,
-    "total_ms": 38988.906
+    "max_ms": 596.927,
+    "median_ms": 467.344,
+    "min_ms": 386.624,
+    "total_ms": 28703.092
   },
   "hashes": {
     "after_battle": "5113b2c602f2a1d1f86a72e87af19b504ba86f107b548ad1dec0c813674ba2c5",
@@ -36,8 +36,9 @@
     "initial": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73"
   },
   "memory": {
-    "peak_rss_kb": 1126044,
-    "rss_kb": 1085152
+    "static_bytes": 57009579,
+    "static_bytes_os": 57009579,
+    "peak_rss_kb": 1126516
   },
   "out_dir": "/tmp/wotr-k4-native-2",
   "pack": "campaigns/fixtures/wotr_1_1/pack.json",

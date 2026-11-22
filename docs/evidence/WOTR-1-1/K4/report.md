@@ -267,9 +267,15 @@ Screenshot SHA-256:
 
 ```text
 de266e66a9232c06d3ab96e524b85584eb959470902b45e732b6f3bc28cba2a4  screenshots/01-initial.png
-b727ec85130f8027f0d7ec3a429d7a74fa9ddf9da66954f0c2bef5d09dedd16d  screenshots/02-conflict.png
+035ad0bffdb1458af93336fb97caf76dc31cc147fa4c1944a0e80e3eb7e28ca4  screenshots/02-conflict.png
 b31c47f3107fe00fcf963d78d905ad786a2d06d916dee92cb67890ed2a90dda7  screenshots/03-after-battle.png
 ```
+
+The first and the third frame are byte-identical in two runs; the conflict
+frame is not, because the conflict ring pulses with the frame clock
+(`world/wotr_cell_view.gd`: `_pulse = fmod(_pulse + delta * 2.0, TAU)`). The
+state those frames show is deterministic — the hashes, the battle statistics
+and the save bytes of §8 are equal in both runs.
 
 ## 8 · Hashes, determinism, memory and frame time
 
@@ -302,12 +308,18 @@ Measured facts (no release budget is set by this mission):
 | Measure | Run 1 | Run 2 |
 |---|---|---|
 | Frames measured | 60 | 60 |
-| Frame time min / median / avg / max (ms) | 425.70 / 550.59 / 566.71 / 814.00 | 442.49 / 592.52 / 597.91 / 892.36 |
-| Peak RSS (KiB) | 1,179,004 | 1,146,896 |
-| RSS at the end (KiB) | 1,179,004 | 1,108,680 |
+| Frame time min / median / avg / max (ms) | 366.53 / 475.74 / 481.96 / 705.06 | 386.62 / 467.34 / 478.38 / 596.93 |
+| Peak RSS of the game process (KiB) | 1,148,396 | 1,126,516 |
+| Engine static memory at the end (bytes) | 57,009,615 | 57,009,579 |
 
-The frame times were measured with the engine test suite running in parallel
-on the same two-core sandbox, so they are an upper bound of the map's cost; the
+The peak RSS is the kernel's high-water mark (`VmHWM`) of the whole game
+process, the retail archives included; the runner script samples it from
+`/proc` while the run lives, because the shipped GDScript starts no process
+of its own (the network guard of the release lane refuses `OS.execute` in the
+game's scripts). The engine's own counter is the second row.
+
+The frame times were measured on a two-core sandbox with the engine test suite
+running in parallel, so they are an upper bound of the map's cost; the
 scenario discards five warm-up frames before sampling.
 
 ## 9 · The engine test suite (T2)
@@ -402,3 +414,9 @@ reason, so that the record is complete and no skip is reported as a pass:
   pack path repository-relative.
 * No weakening of an existing test or oracle: the K2 engine tests and the
   upstream tactical tests are untouched and run green.
+* One file outside the card's zone, `tools/release/public_binaries.txt`: the
+  three screenshots are images, and the public tree is text only, so the
+  release lane's own list of the binaries the tree may hold has to name them
+  (path, sha256, reason). It is the mechanism the repository provides for
+  exactly this case, and it is three lines. Nothing else outside
+  `godot/wotr_remaster/**` and `docs/evidence/WOTR-1-1/K4/**` is touched.
