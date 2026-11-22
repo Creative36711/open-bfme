@@ -652,6 +652,34 @@ def test_the_ci_check_needs_every_other_job():
     assert len(set(names)) == len(names) and names.count("CI") == 1
 
 
+def test_the_build_jobs_obey_the_scope_the_fixtures_job_computes():
+    """PUBLICSCOPE-1: a build job may only leave its work undone when the run itself proved the pull request cannot reach a binary. The
+    proof is computed once, in the job every build job already needs, from the merge commit's own diff -- never from a label, a name or
+    a `paths:` filter (a filtered job reports skipped, and the aggregate CI needs success). So the guard must sit on every step of every
+    build job, and the one step that is allowed to run always must be the step that says why nothing else did"""
+    import yaml  # noqa: PLC0415
+    jobs = yaml.safe_load(PR_YML)["jobs"]
+    fixtures = jobs["fixtures"]
+    assert fixtures["outputs"] == {"engine": "${{ steps.scope.outputs.engine }}"}
+    steps = fixtures["steps"]
+    compute = [s for s in steps if s.get("id") == "scope"]
+    assert len(compute) == 1 and "pr_scope.py" in compute[0].get("run", "") and "if" not in compute[0], \
+        "the scope must be computed once, unconditionally"
+    assert any(s.get("uses", "").startswith("actions/checkout@") and s.get("with", {}).get("fetch-depth") == 2 for s in steps), \
+        "the checkout has to hold the pull request's base commit, or the answer is always 'build'"
+    for job in ("linux", "windows", "windows-tests", "msvc", "macos"):
+        guard = "needs.fixtures.outputs.engine == 'yes'"
+        reason = [s for s in jobs[job]["steps"] if s.get("if") == "needs.fixtures.outputs.engine != 'yes'"]
+        assert len(reason) == 1 and "run" in reason[0], (job, "exactly one step explains the skip")
+        for s in jobs[job]["steps"]:
+            if s is reason[0]:
+                continue
+            assert guard in str(s.get("if")), (job, s.get("name") or s.get("uses"), s.get("if"))
+    for job in ("lint", "gate", "pytest-2", "pytest-3", "pytest-4", "ci"):
+        for s in jobs[job]["steps"]:
+            assert "fixtures.outputs.engine" not in str(s.get("if")), f"{job} must not obey the scope: its checks read the tree"
+
+
 def test_the_ci_script_fails_on_every_non_success(tmp_path):
     import yaml
     script = yaml.safe_load(PR_YML)["jobs"]["ci"]["steps"][0]["run"]

@@ -186,17 +186,34 @@ jobs:
     name: Reference MP3 fixtures
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # the build jobs already need this job, so the scope is published from here
+    outputs:
+      engine: ${{ steps.scope.outputs.engine }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: What this pull request can reach
+        id: scope
+        # the answer comes from the pull request's own diff (tools/release/pr_scope.py); the steps below are guarded by it, so an
+        # out-of-scope job still runs, still says why, and still succeeds -- CI keeps needing "success" from every job and sees it
+        run: python3 tools/release/pr_scope.py --base 'HEAD^1' --github-output "$GITHUB_OUTPUT"
+      - name: Documents only, nothing to generate
+        if: steps.scope.outputs.engine != 'yes'
+        run: >-
+          echo "this pull request changes only docs/: the reference streams feed the engine's tests, not its sources, so they are
+          byte-identical to what the base commit already had (tools/release/pr_scope.py)"
       - name: Install the reference audio tools
+        if: steps.scope.outputs.engine == 'yes'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends lame mpg123
       - name: Generate and verify the reference streams
+        if: steps.scope.outputs.engine == 'yes'
         run: python3 tools/audio/gen_mp3_fixtures.py --out workspace/audio_fixtures
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.scope.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures/*.mp3.bin
@@ -215,40 +232,52 @@ jobs:
       CCACHE_NOHASHDIR: "1"
       OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
     steps:
+      - name: Outside this pull request's scope
+        if: needs.fixtures.outputs.engine != 'yes'
+        run: >-
+          echo "documents only: the merge's engine inputs are identical to the base commit's, and main builds and tests that commit on
+          every push, so this job would rebuild and re-run exactly what it already proved (tools/release/pr_scope.py)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           persist-credentials: false
       - name: Install the build tools
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends ninja-build ccache
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures
       - name: Restore the compiler cache
+        if: needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-linux-${{ github.sha }}
           restore-keys: ccache-linux-
       - name: Configure
+        if: needs.fixtures.outputs.engine == 'yes'
         run: >-
           cmake -S engine -B engine/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBFME_BUILD_GODOT=OFF
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           ccache -z
           cmake --build engine/build
           ccache -s
       - name: Save the compiler cache (pushes only)
         # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-linux-${{ github.sha }}
       - name: Unit tests (the tests that need the game skip)
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           engine/build/openbfme_tests
 
@@ -268,36 +297,47 @@ jobs:
       JOBS: "4"
       OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
     steps:
+      - name: Outside this pull request's scope
+        if: needs.fixtures.outputs.engine != 'yes'
+        run: >-
+          echo "documents only: the merge's engine inputs are identical to the base commit's, and main builds and tests that commit on
+          every push, so this job would rebuild and re-run exactly what it already proved (tools/release/pr_scope.py)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           persist-credentials: false
       - name: Install the build tools
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends ninja-build ccache
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures
       - name: Restore the compiler cache
+        if: needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-windows-${{ github.sha }}
           restore-keys: ccache-windows-
       - name: Build
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           ccache -z
           tools/release/build_windows.sh --no-export
           ccache -s
       - name: Save the compiler cache (pushes only)
         # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-windows-${{ github.sha }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: windows-binaries
           path: |
@@ -317,21 +357,31 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Outside this pull request's scope
+        if: needs.fixtures.outputs.engine != 'yes'
+        run: >-
+          echo "documents only: the merge's engine inputs are identical to the base commit's, and main builds and tests that commit on
+          every push, so this job would rebuild and re-run exactly what it already proved (tools/release/pr_scope.py)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           python-version: "3.13"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: windows-binaries
           path: .
       - name: Give the build's paths a home
+        if: needs.fixtures.outputs.engine == 'yes'
         # the tests hold the Linux build's absolute paths (test data, helper executables): on Windows those name this drive's root
         shell: pwsh
         env:
@@ -341,8 +391,10 @@ jobs:
           New-Item -ItemType Directory -Force $target | Out-Null
           New-Item -ItemType Junction -Path "$target\$env:REPO" -Target "$PWD" | Out-Null
       - name: Unit tests (the tests that need the game skip)
+        if: needs.fixtures.outputs.engine == 'yes'
         run: build/windows/build/openbfme_tests.exe
       - name: Download Godot 4.7.2 (its SHA512-SUMS.txt hash)
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           mkdir -p "$RUNNER_TEMP/godot"
           cd "$RUNNER_TEMP/godot"
@@ -350,8 +402,10 @@ jobs:
           echo "83decd58fdf67b9d657958a1ae6bf1929c20785315a81effe245874cdc57acb709bf868e00778a96984338c1b29dafdb453c6847747694621c6ecf5da2259993  godot.zip" | sha512sum -c --strict
           unzip -q godot.zip
       - name: Install pytest
+        if: needs.fixtures.outputs.engine == 'yes'
         run: python -m pip install --disable-pip-version-check --no-input "pytest==9.1.1"
       - name: Godot scripts that need no game files
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           GODOT="$(cygpath -w "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_win64_console.exe")" python -m pytest -q -rs tools/test_gdscript.py
 
@@ -372,14 +426,22 @@ jobs:
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
       OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}\workspace\audio_fixtures
     steps:
+      - name: Outside this pull request's scope
+        if: needs.fixtures.outputs.engine != 'yes'
+        run: >-
+          echo "documents only: the merge's engine inputs are identical to the base commit's, and main builds and tests that commit on
+          every push, so this job would rebuild and re-run exactly what it already proved (tools/release/pr_scope.py)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           persist-credentials: false
           submodules: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           python-version: "3.13"
       - name: Download ccache 4.14.2 (the SHA-256 its release page publishes)
+        if: needs.fixtures.outputs.engine == 'yes'
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/ccache"
@@ -389,16 +451,19 @@ jobs:
           unzip -q -j ccache.zip
           cygpath -w "$PWD" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures
       - name: Restore the compiler cache
+        if: needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-msvc-${{ github.sha }}
           restore-keys: ccache-msvc-
       - name: Build (build.bat)
+        if: needs.fixtures.outputs.engine == 'yes'
         shell: pwsh
         run: |
           ccache -z
@@ -407,12 +472,13 @@ jobs:
           ccache -s
       - name: Save the compiler cache (pushes only)
         # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-msvc-${{ github.sha }}
       - name: Unit tests (the tests that need the game skip)
+        if: needs.fixtures.outputs.engine == 'yes'
         shell: bash
         run: engine/build/openbfme_tests.exe
 
@@ -429,40 +495,52 @@ jobs:
       CCACHE_NOHASHDIR: "1"
       OPENBFME_AUDIO_FIXTURES: ${{ github.workspace }}/workspace/audio_fixtures
     steps:
+      - name: Outside this pull request's scope
+        if: needs.fixtures.outputs.engine != 'yes'
+        run: >-
+          echo "documents only: the merge's engine inputs are identical to the base commit's, and main builds and tests that commit on
+          every push, so this job would rebuild and re-run exactly what it already proved (tools/release/pr_scope.py)"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           persist-credentials: false
           submodules: true
       - name: Install the build tools
+        if: needs.fixtures.outputs.engine == 'yes'
         run: brew install ninja ccache
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.fixtures.outputs.engine == 'yes'
         with:
           name: mp3-reference-fixtures
           path: workspace/audio_fixtures
       - name: Restore the compiler cache
+        if: needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
           restore-keys: ccache-macos-
       - name: Configure
+        if: needs.fixtures.outputs.engine == 'yes'
         run: >-
           cmake -S engine -B engine/build-macos -G Ninja -DCMAKE_BUILD_TYPE=Release -DOPENBFME_BUILD_TESTS=ON -DOPENBFME_BUILD_GODOT=ON
           -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build the GDExtension and unit test executable
+        if: needs.fixtures.outputs.engine == 'yes'
         run: |
           ccache -z
           cmake --build engine/build-macos --target openbfme openbfme_tests
           ccache -s
       - name: Save the compiler cache (pushes only)
         # a push to main saves the cache pull requests restore; a ci/** branch's cache is visible to that branch only
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && needs.fixtures.outputs.engine == 'yes'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .ccache
           key: ccache-macos-${{ github.sha }}
       - name: Unit tests (the tests that need the game skip)
+        if: needs.fixtures.outputs.engine == 'yes'
         # includes the console filter tests: the real macOS /dev/null sink, privacy filtering and bounded shutdown
         # without three files of network timing tests that fail in about a quarter of the runs on this runner; Linux and Windows still run them
         run: |
