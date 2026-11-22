@@ -58,6 +58,24 @@ A pass must cover: non-shallow usable history, no conflict markers, only own zon
 
 Since 1.16.6 the pass also covers the public tree audit (`tools/release/pr_audit.py --tree HEAD^{tree} --base origin/main`), because that CI step reads the whole tree the pull request would make, not its diff: a finding already in `main` is reported on every later pull request and looks like the newcomer's defect. A finding attributed to the base is not this pull request's blocker and never justifies editing another role's file (Р5); it is named to its owner with the commit that introduced it. A finding of your own tree is fixed in your own PR, before push.
 
+## Р11 · Transport docs mirror
+
+`docs/**` of `Creative36711/relay-wotr` is a one-way mirror of this repository, and the recipe is a subtraction, not a
+list: every file under `docs/` is copied byte-for-byte **except** `docs/DECISIONS.md` (the transport's own `D-###`
+journal) and its transport-only files (`docs/scriptcat-update.md`, `docs/DECISIONS-UPSTREAM.md`). The copy of this
+repository's journal lives over there in `docs/DECISIONS-UPSTREAM.md` verbatim, which is what keeps the transport
+preflight pattern `^##\s+D-\d+` a real check instead of a decoration: WOTR keys are `## WOTR-D-###` and never enter the
+transport's journal, and loosening that pattern to accommodate them is refused (Р6). A file list as the recipe was
+tried first and is what lost `docs/missions/TEMPLATE.md` — absent in `relay-wotr` for a whole mission.
+
+Mirrored files are not hand-edited over there: the edit is invisible here, the next sync erases it, and an audit that
+says «24 files equal, 2 files always different» no longer proves anything. A transport-local rule goes into a
+transport-only file. A regulation edit moves `docs/REGULATION.md` and `docs/regulation-digest.md` in one transport
+commit, because `build.mjs` refuses when the two declare different versions, and the rebuilt bundle hash is recorded in
+`docs/scriptcat-update.md`. Adding `.github/**` to the transport follows Р10 as well: a CI checkout that cannot see
+`origin/main` cannot satisfy the «non-shallow usable history» precondition of its own preflight, so the step fetches
+full history (`fetch-depth: 0`) instead of turning a green tree red.
+
 ## Commit shape
 
 Commit subject is English and states the product change. Stage explicit files. Generated/build/cache/retail artifacts are not committed unless the specification names an exact fixture and license/provenance permits it.
