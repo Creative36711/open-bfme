@@ -4,7 +4,7 @@ IDs and URLs: `docs/setup/notion-ids.md`. ScriptCat uses data source IDs.
 
 ## Роли
 
-Source of role authority. Human-managed: role title, Status, Agent URL, Agent Admin and archive/delete. Warden/approved planning may define Function, write zone, gate and repository for non-admin roles. Agent State `запрошен` asks provisioning; it does not activate a role by itself.
+Source of role authority. Human-managed: role title, Status, Agent URL, Agent Admin and archive/delete. Warden/approved planning may define Function, write zone, gate and repository for non-admin roles. A «Зона записи» that misses a mandatory path of its role is a registry defect: Warden fixes the row — including its own row — as a Warden decision (REGULATION §4, rule `R-ZONES`), editing only the zone/gate/function/repository fields and never the human-managed ones. Agent State `запрошен` asks provisioning; it does not activate a role by itself.
 
 A working row needs exact Function understood by ScriptCat (`Executor`, `Auditor`, `Coordinator`, `Reviewer`, `Maintainer`), repository `Creative36711/open-bfme`, an explicit zone/gate, `Активна`, and a valid Arena URL. Only Warden is an admin/reviewer role for mission acceptance; engineering roles never receive that privilege by name.
 
