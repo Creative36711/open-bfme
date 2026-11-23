@@ -1,0 +1,38 @@
+{
+  "format": "wotr-relay-pin",
+  "version": 1,
+  "project": {
+    "name": "War Of The Ring: Remaster",
+    "repo": "Creative36711/open-bfme",
+    "branch": "main"
+  },
+  "transport": {
+    "repo": "Creative36711/relay-wotr",
+    "kind": "commit",
+    "ref": "main",
+    "commit": "ad2e68412339a9df32f4fc855bff53621b069c62",
+    "userscriptVersion": "1.16.9",
+    "contractVersion": "1.11",
+    "snapshot": {
+      "url": "https://codeload.github.com/Creative36711/relay-wotr/tar.gz/ad2e68412339a9df32f4fc855bff53621b069c62",
+      "sha256": "4ad55a149667360d857ec0d80688d5b404cc1688d5cdd2d1d92d76b0a9fc601f"
+    },
+    "artifact": {
+      "path": "tools/script-cat/relay.user.js",
+      "sha256": "89bee68f6c3f5685ccc48ca0b636ddbeeeb35c8aee4a749dec59a219643defca",
+      "regulationVersion": "1.4"
+    }
+  },
+  "inputs": {
+    "digest": "docs/regulation-digest.md",
+    "regulation": "docs/REGULATION.md",
+    "profile": "tools/relay/project-profile.json"
+  },
+  "output": {
+    "dir": "build/relay",
+    "bundle": "build/relay/relay.user.js",
+    "coverage": "build/relay/prompt-coverage.json",
+    "manifest": "build/relay/build-manifest.json"
+  },
+  "notes": "kind=commit потому, что транспорт ещё не публикует GitHub Releases (ни release, ни tag). Смысл пина не в способе скачивания, а в том, что проект выбирает версию транспорта сам и проверяет её по двум хешам. Когда Transport Maintainer выпустит release, kind меняется на 'release' с asset url, и трогать придётся только скачивание. Номера здесь — единственное место, где наш CI знает о транспорте что-то, кроме контракта."
+}

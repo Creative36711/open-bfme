@@ -1,0 +1,16 @@
+{
+  "format": "wotr-relay-deploy",
+  "version": 1,
+  "artifact": "build/relay/relay.user.js",
+  "coverage": "build/relay/prompt-coverage.json",
+  "manifest": "build/relay/build-manifest.json",
+  "profile": "tools/relay/project-profile.json",
+  "target": {
+    "kind": "google-apps-script",
+    "projectName": "wotr-remaster-relay",
+    "appsscriptManifest": "берётся из запиненного снимка: tools/script-cat/appsscript.json",
+    "gatewayDriveFolder": "wotr-remaster"
+  },
+  "installBy": "человек (Мастер) после принятия выпуска: регламент §15",
+  "notes": "Идентификатор GAS-проекта и любые токены здесь не хранятся: это файл репозитория, а не локальная настройка (правило §13). Он отвечает только на два вопроса — какой файл куда попадает и чей профиль при этом действует. Проверка согласованности с pin.json — в tools/relay/relay_test.mjs."
+}
