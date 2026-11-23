@@ -191,7 +191,7 @@ mission row «ТЗ SHA» and only after `B0` is `Accepted`.
 
 ### K5 · Localization and cultural QA
 
-- Every phase-1 user-facing string is an English source ID; all exact required locale catalogs are present, validate and regenerate byte-identically.
+- Every phase-1 user-facing string is an English source ID; all exact required locale catalogs are present, validate and regenerate byte-identically (`python3 tools/l10n/l10n.py check` green on `en`, `ru`, `de`, `fr`, `es`, `it`; `es`/`it` are new catalog files). The previous set stays readable as data: `pt-BR` moves to the community tier and `zh-Hans`/`ja`/`ko` are parked with a recorded disposition - no catalog file is deleted here, and historical evidence under `docs/evidence/**` is never rewritten.
 - English per-message fallback is proven for missing partial translations; retail `zh`/`pt` install aliases never replace the exact public tag of a catalog that is present, including `pt-BR`.
 - A repeated fixture under each locale produces the same canonical state/save/request/result hashes as English.
 - Target screenshots or headless geometry reports cover long text, Cyrillic and Latin glyphs including accented `es`/`it` output, shaping, clipping and input. A locale remains `partial` and is not called production-ready without 100% coverage plus native/cultural review.
@@ -247,7 +247,10 @@ Acceptance record includes:
 - `engine/src/GameLogic/WotrRemaster/**` and focused tests for K2;
 - narrow OpenBFME/Godot adapter points named by K3;
 - `godot/wotr_remaster/**` for K4;
-- `tools/l10n/catalog/**`, generated catalog outputs and narrow locale runtime/tests for K5;
+- `tools/l10n/**` (catalog, `REQUIRED_LOCALES`, tool tests), the generated catalog outputs
+  `launcher/scripts/l10n/catalog.gd` and `godot/scripts/l10n/catalog.gd` - written only by
+  `python3 tools/l10n/l10n.py generate`, the locale runtime `launcher/scripts/l10n/l10n.gd` with its
+  `godot/scripts/l10n/l10n.gd` copy, and `launcher/tests/l10n_test.gd` for K5;
 - `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**` for the tiny pack;
 - additive test/evidence documents explicitly named by audit cards.
 
@@ -284,13 +287,13 @@ a machine. The rules below are normative for slicing.
 | `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**`, `docs/evidence/WOTR-1-1/K2/**` | Strategic Core Engineer | K2 |
 | `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**`, `engine/CMakeLists.txt`, `engine/cmake/WotrRemaster1.cmake`, `docs/evidence/WOTR-1-1/K3/**` | Tactical Bridge Engineer | K3 |
 | `godot/wotr_remaster/**`, `docs/evidence/WOTR-1-1/K4/**` | Godot World Engineer | K4 |
-| `tools/l10n/**`, `godot/wotr_remaster/l10n/**`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
+| `tools/l10n/**`, `launcher/scripts/l10n/**`, `godot/scripts/l10n/**`, `launcher/tests/l10n_test.gd`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
 | `docs/evidence/WOTR-1-1/A1/**` | Determinism & Save Auditor | A1 |
 | `docs/evidence/WOTR-1-1/A2/**` | UX & Modding Auditor | A2 |
 | `docs/evidence/WOTR-1-1/A3/**` | Integration Auditor | A3, `B0` (read-only, no repo writes) |
 
 A nested zone (`…/Bridge/**` inside `WotrRemaster/**`, `…/l10n/**` inside
-`godot/wotr_remaster/**`) is not a licence for parallel work: the dependency graph of
+`launcher/scripts/` and `godot/scripts/`) is not a licence for parallel work: the dependency graph of
 `§7` keeps K3 after K2 and K5 after K4. `B0` reports per item `ready-now`,
 `future-card-ready` or `blocked`, and names any path of this table that no active role
 row owns; such a row is corrected in «Роли» by decision of приёмка, not by an executor.
