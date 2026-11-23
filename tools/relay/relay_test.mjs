@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
@@ -24,6 +24,7 @@ import {
   regulationVersion, sha256File, sha256Text, snapshotUsable, transportInputPath, validatePin,
   validateProfile, verifyBundle, verifyNeutralBundle, verifyPinnedArtifact, verifyArtifact,
 } from './build.mjs';
+import * as buildModule from './build.mjs';
 
 const RELAY_DIR = dirname(fileURLToPath(import.meta.url));
 const PROJECT = resolve(RELAY_DIR, '..', '..');
@@ -499,6 +500,23 @@ test('рабочий каталог изолирован: подстановка
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('в снимок не кладётся ничего: старый stageInputs не вернётся, docs/ — не цель записи', () => {
+  // Пункт 5 приёмки RELAY-REPIN-1: «тест, что наш билд больше ничего не пишет в docs/ снимка».
+  // Проверяем это как запрет на возврат механизма, а не как надежду: снимок read-only по построению,
+  // если в модуле нет ни функций подстановки, ни записи по пути внутри снимка.
+  const moduleKeys = Object.keys(buildModule);
+  for (const gone of ['stageInputs', 'snapshotDocs', 'readSnapshotDocs', 'docsCoincide']) {
+    assert.ok(!moduleKeys.includes(gone), `${gone} удалён вместе с подстановкой docs — он не должен вернуться`);
+  }
+  const src = readFileSync(join(PROJECT, 'tools/relay/build.mjs'), 'utf8');
+  assert.ok(!/copyFileSync\s*\(/.test(src), 'копирование файлов в чужое дерево — только copyToWorkDir для изоляции кэша');
+  assert.ok(!/writeFileSync\s*\([^)]*docs\//.test(src), 'ни одна запись не должна целиться в docs/ снимка');
+  // Единственный путь, который мы вообще передаём их сборке, лежит в НАШЕМ дереве:
+  const input = transportInputPath({ root: PROJECT, pin: PIN });
+  assert.ok(input.startsWith(PROJECT + sep) && !input.includes('relay-wotr'), 'вход — наш файл, а не файл снимка');
+  assert.ok(existsSync(input), 'запиненный вход обязан существовать до первого скачивания');
 });
 
 test('узел транспорта обязан быть в снимке: без него доверять нечему', () => {
