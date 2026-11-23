@@ -1,0 +1,66 @@
+# Бандл ScriptCat собирается здесь (WOTR-D-033)
+
+# Транспорт (Creative36711/relay-wotr) не хранит наших документов и не читает наше дерево:
+# подстановку краткого регламента делает этот репозиторий. Проверки транспорта при этом
+# остаются ЕГО: фиксированный список запускается его узлом tools/relay-build.mjs, так что
+# подмена проверок в манифесте ничего не изменит.
+name: Relay bundle
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tools/relay/**"
+      - "docs/REGULATION.md"
+      - "docs/regulation-digest.md"
+      - ".github/workflows/relay-bundle.yml"
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bundle:
+    name: Relay bundle (pinned transport, our regulation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require node 20+ (the transport build needs it; the runner ships it)
+        run: |
+          node --version
+          node -e "const major = Number(process.versions.node.split('.')[0]); if (major < 20) { console.error('нужен node 20+, найден ' + process.versions.node); process.exit(1); }"
+
+      - name: Unit tests of the build node (pin, profile, digest и отказные ветки)
+        run: node --test tools/relay/relay_test.mjs
+
+      - name: Build twice and compare bytes (determinism + pinned release + our digest)
+        # Никакого редиректа в файл дерева: артефакты живут в build/relay/, и лишний
+        # незаигнорированный файл на root только просился бы в коммит.
+        run: node tools/relay/build.mjs --check
+
+      - name: Re-verify the artifact that will be deployed
+        run: node tools/relay/build.mjs --verify build/relay/relay.user.js
+
+      - name: Report the artifact identity
+        run: |
+          sha256sum build/relay/relay.user.js build/relay/prompt-coverage.json build/relay/build-manifest.json
+          node -e "const m=require('./build/relay/build-manifest.json'); console.log('transport ' + m.transport.userscriptVersion + ' @ ' + m.transport.commit.slice(0, 7) + ', regulation ' + m.project.regulationVersion + ', docsCoincide ' + m.project.docsCoincide + ', fingerprint ' + m.artifact.fingerprint);"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: relay-bundle
+          path: build/relay/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,6 +1,6 @@
 # Регламент WOTR Remaster · краткий вход
 
-Версия 1.4 · 2026-11-23. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
+Версия 1.5 · 2026-11-23. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
 
 ## 1. Архитектура
 
@@ -24,7 +24,7 @@
 
 Зона роли — постоянная граница, Scope карточки — граница хода. Чужое только читать. «Зона записи» обязана покрывать всё, что роль обязана менять: непокрытый обязательный путь — дефект реестра, он правится строкой «Роли» карточкой Warden, а не сужением прав и не обходом гейта. Оракул можно усиливать, но нельзя удалять, ослаблять, skip/todo или подгонять. Перед правкой зафиксируй branch, BASE_SHA и `git status --short`; чужие локальные изменения не reset/clean/stash/overwrite.
 
-Работай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. Транспорт (`tools/script-cat/**`) меняет только Transport Maintainer отдельным выпуском в `Creative36711/relay-wotr`. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.
+Работай только в ветке Arena. Один PR — одна карточка. Direct push в `main` запрещён. Клон может быть shallow: пустой merge-base не доказательство. `merged:true` только после фактического merge. OpenBFME sync — отдельная карточка Upstream Integrator по pin `OPENBFME_UPSTREAM` с range/conflict report и полным regression gate. Транспорт (`tools/script-cat/**`) меняет только Transport Maintainer отдельным выпуском в `Creative36711/relay-wotr`; правка `docs/REGULATION.md` задач там не заводит — бандл пересобирается здесь: `node tools/relay/build.mjs` из запиненного выпуска `tools/relay/pin.json`. History rewrite retail — отдельная destructive Master-approved операция из full mirror clone, не продуктовая карточка.
 
 ## 4. Фазы и ход
 
@@ -60,4 +60,4 @@ Custom asset требует provenance/license/author/hash. Pack не содер
 Секреты и session data не в Git/Notion/Drive/chat. Retail executable не запускать ради проверки данных. Процесс и общение — русский; code/API/schema/commit — English. Product локали: `en`, `ru`, `de`, `fr`, `es`, `it`; community tier с фазы 6: `pl`, `sv`, `tr`, `da`, `no`, `pt-BR`; `zh-Hans`/`ja`/`ko` вне плана (`WOTR-D-032`); English fallback, production — только после coverage/native review/rendering gate. Locale не меняет simulation/save/network hash.
 
 <!-- build:meta -->
-Сборка вшивает текст выше в `relay.user.js` (в `Creative36711/relay-wotr`, откуда копируются `docs/REGULATION.md` и этот файл). После изменения: поднять версию только при изменении transport source, выполнить `node tools/script-cat/build.mjs`, затем полный ScriptCat gate. Предел входа — 9000 знаков.
+Текст выше вшивает в бандл этот репозиторий: `node tools/relay/build.mjs` скачивает запиненный выпуск транспорта (`tools/relay/pin.json`), кладёт эти две копии docs в каталог `docs/` развернутого снимка и проверяет результат по sha256. Правка регламента не создаёт задач в `Creative36711/relay-wotr`. Предел входа — 9000 знаков.
