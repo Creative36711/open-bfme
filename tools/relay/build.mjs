@@ -5,21 +5,32 @@
 // должна хранить ни байта проектных документов: ровно поэтому правка `docs/REGULATION.md`
 // больше не порождает карточку в `Creative36711/relay-wotr`. Но бандл по-прежнему обязан
 // нести краткий регламент внутри — агент получает правила вместе с заданием. Значит
-// подстановку делает проект: здесь берётся запиненный выпуск транспорта, в него
-// вставляется НАШ `docs/regulation-digest.md`, и результат проверяется по хешам.
+// подстановку делает проект: здесь берётся запиненный выпуск транспорта, ЕГО же сборке
+// передаётся НАШ `docs/regulation-digest.md`, и результат проверяется по хешам.
+//
+// С D-003 (их main c38ac37, userscript 1.17.0) вход — параметр `--digest <путь>`: их
+// `build.mjs` принимает только `[--check] [--digest <путь>]`, каталога `docs/` в дереве
+// транспорта больше нет, и каждая сборка пишет `contracts/build-manifest.json` с шапкой
+// и sha256 переданного входа (либо `digest: null` для нейтральной сборки). Поэтому узел
+// делает две сборки в двух копиях снимка: нейтральную — чтобы доказать, что запиненный
+// артефакт воспроизводится байт-в-байт, и с `--digest` — чтобы получить бандл для агентов.
+// Одной копии не хватает: их узел вызывает `build.mjs --check` без входа (список
+// проверок фиксирован в их коде), и на дереве с вшитым регламентом он обязан
+// отказаться. Профиль проекта в сборку не передаётся: он — импорт-файл рантайма
+// ScriptCat, а не вход сборки; здесь он сверяется только с тем, что это наш проект.
 //
 // Три правила, ради которых этот файл написан, а не заменён `curl`:
 //
 //  1. **Никакого доверия на слово.** Скачанный снимок сверяется с `pin.json` по sha256
-//     архива, а собранный бандл — по sha256 запиненного артефакта, когда наши копии docs
-//     с ним совпадают. Не совпало — сборка не допускается, а не «продолжаем с
-//     предупреждением». Тот же подход, что у узла транспорта (`tools/relay-build.mjs`):
-//     непроверенный бандл к установке не проходит.
+//     архива; нейтральная сборка — по sha256 запиненного артефакта; вшитый регламент — по
+//     sha256 нашего входа в их `build-manifest.json`. Не совпало — сборка не допускается,
+//     а не «продолжаем с предупреждением». Тот же подход, что у узла транспорта
+//     (`tools/relay-build.mjs`): непроверенный бандл к установке не проходит.
 //  2. **Мы не переписываем транспорт.** Сборку делает ЕГО `build.mjs`, а фиксированные
 //     проверки — ЕГО узел `relay-build.mjs`: список проверок не дублируется у нас и не
 //     зависит от того, что напишут в манифесте. Единственный разрешённый способ подать
-//     регламент — положить наши две копии в `docs/` развернутого снимка. Это временный
-//     каталог: репозиторий транспорта не меняется ни на байт.
+//     регламент — передать путь его же сборке. Это временный каталог: репозиторий
+//     транспорта не меняется ни на байт, и в его снимок мы не пишем ничего.
 //  3. **Детерминизм важнее удобства.** Никаких меток времени в манифесте: два запуска на
 //     одном пине обязаны дать байт-в-байт одинаковые `relay.user.js`,
 //     `prompt-coverage.json` и `build-manifest.json`. Иначе сверять установленный бандл
@@ -39,7 +50,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -96,11 +107,19 @@ export const display = (path, root = REPO) => {
   return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path;
 };
 
-/** Текст для промпта: всё до маркера служебных заметок (то же правило, что у их оракула). */
+/**
+ * Текст для промпта: ровно то, что отдаёт их `regulation-oracle.promptDigest` —
+ * правила сверяются по одному образцу, иначе «вшитый регламент» и «наш регламент»
+ * разошлись бы на служебных строках. Служебные HTML-комментарии (в том числе строка
+ * `<!-- build:meta -->`) вырезаются, три и больше пустых строки схлопываются.
+ */
 export function promptDigest(markdown) {
-  const source = String(markdown || '').replace(/\r\n/g, '\n');
-  const at = source.indexOf(META_MARKER);
-  return (at === -1 ? source : source.slice(0, at)).trim();
+  return String(markdown || '')
+    .split(/\r?\n/)
+    .filter((line) => !line.includes(META_MARKER) && !line.trim().startsWith('<!--'))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** Номер регламента из строки «Версия N.N»; без неё файл не считается регламентом. */
@@ -149,7 +168,11 @@ export function validatePin(pin) {
   need(/^https:\/\/[^\s]+$/.test(String(t.snapshot?.url || '')), 'pin.json: transport.snapshot.url — https без пробелов');
   need(String(t.artifact?.path || '').startsWith(`${SC_DIR}/`), `pin.json: transport.artifact.path должен лежать в ${SC_DIR}/`);
   need(HEX64.test(String(t.artifact?.sha256 || '')), 'pin.json: transport.artifact.sha256 — 64 hex');
-  need(REG_VERSION.test(String(t.artifact?.regulationVersion || '')), 'pin.json: transport.artifact.regulationVersion — N.N');
+  // С D-003 артефакт транспорта обязан быть проект-нейтральным: поле говорит, вшит ли в
+  // него чей-то регламент. `true` означало бы, что запиненный выпуск несёт проектный текст,
+  // и такой пин не проходит: нейтральность проверяется сборкой, а не обещанием в JSON.
+  need(t.artifact?.embedsRegulation === false,
+    'pin.json: transport.artifact.embedsRegulation обязан быть false — с D-003 выпуск транспорта не несёт регламента');
   const i = pin.inputs || {};
   for (const key of ['digest', 'regulation', 'profile']) {
     const value = i[key];
@@ -276,16 +299,60 @@ export function embeddedDigest(bundleText) {
 }
 
 /**
- * Совпадают ли наши входы с текстами, из которых транспорт запёк свой артефакт.
- * `true` — наша сборка обязана дать ровно запиненный файл (значит узел верен);
- * `false` — обязана дать другой (значит подстановка сработала, а не проигнорирована).
+ * Их `contracts/build-manifest.json` — единственное, чем транспорт отвечает, какой
+ * регламент он принял. Файл пишется каждой сборкой, поэтому «манифеста нет» означает
+ * «сборка не дошла до записи», а не «сверять нечем»: это отказ (2), не пропуск.
  */
-export function docsCoincide({ ours, theirs }) {
-  return ours.digestSha256 === theirs.digestSha256 && ours.regulationSha256 === theirs.regulationSha256;
+export function readTransportManifest({ snapshotRoot }) {
+  const path = join(snapshotRoot, SC_DIR, 'contracts', 'build-manifest.json');
+  if (!existsSync(path)) {
+    fail(2, `сборка транспорта не оставила ${SC_DIR}/contracts/build-manifest.json: принят ли наш вход — неизвестно`);
+  }
+  const text = readFileSync(path, 'utf8');
+  let manifest;
+  try {
+    manifest = JSON.parse(text);
+  } catch (error) {
+    fail(2, `${SC_DIR}/contracts/build-manifest.json не разобран как JSON: ${error.message}`);
+  }
+  if (!manifest || typeof manifest !== 'object' || !('digest' in manifest)) {
+    fail(2, 'в build-manifest транспорта нет поля digest: сверять вшитый регламент нечем');
+  }
+  return { manifest, text };
 }
 
-/** Проверки собранного бандла: контракт, номер регламента, след подстановки, хеш артефакта. */
-export function verifyBundle({ pin, bundleText, digestMd, regulationMd, snapshotDocsText, nodeReport }) {
+/**
+ * Нейтральная сборка (без `--digest`) обязана дать ровно запиненный артефакт: это наша
+ * замена проверке «наше зеркало совпадает с их docs». Если байты разошлись — пин описывает
+ * не ту сборку, и никакой последующий бандл с вшитым регламентом этому не аргумент.
+ */
+export function verifyNeutralBundle({ pin, bundleText, manifest }) {
+  const problems = [];
+  const facts = readBundleFacts(bundleText);
+  const bundleSha256 = sha256Text(bundleText);
+  if (bundleSha256 !== pin.transport.artifact.sha256) {
+    problems.push(`нейтральная сборка не равна запиненному артефакту (${bundleSha256.slice(0, 12)}… ≠ `
+      + `${pin.transport.artifact.sha256.slice(0, 12)}…): выпуск транспорта не воспроизводится его же сборкой на запиненном коммите`);
+  }
+  if (facts.version !== pin.transport.userscriptVersion) {
+    problems.push(`@version в нейтральной сборке ${facts.version || '—'}, в пине ${pin.transport.userscriptVersion}`);
+  }
+  if (manifest.digest !== null) {
+    problems.push('build-manifest нейтральной сборки сообщает digest, хотя вход не передавался: '
+      + 'их сборка читает регламент из дерева, а не из параметра — D-003 нарушен');
+  }
+  if (facts.hasDigestField) {
+    const embedded = embeddedDigest(bundleText);
+    if (embedded !== '') {
+      problems.push(`в проект-нейтральном артефакте транспорта лежит регламент (${embedded.length} зн.) — `
+        + 'пин ждёт пустой блок (transport.artifact.embedsRegulation: false)');
+    }
+  }
+  return { problems, bundleSha256, facts };
+}
+
+/** Проверки собранного бандла: контракт, номер регламента, след подстановки, manifest транспорта. */
+export function verifyBundle({ pin, bundleText, digestMd, regulationMd, transportManifest, nodeReport }) {
   const facts = readBundleFacts(bundleText);
   const problems = [];
   if (facts.version !== pin.transport.userscriptVersion) {
@@ -296,7 +363,12 @@ export function verifyBundle({ pin, bundleText, digestMd, regulationMd, snapshot
   }
   if (!facts.fingerprint) problems.push('в бандле нет отпечатка сборки (buildFingerprint)');
   const version = checkDigest(digestMd, regulationMd).version;
-  const embedded = embeddedDigest(bundleText);
+  let embedded = '';
+  try {
+    embedded = embeddedDigest(bundleText);
+  } catch (error) {
+    problems.push(error.message);
+  }
   const expected = promptDigest(digestMd);
   if (embedded !== expected) {
     problems.push(`вшитый регламент не равен ${pin.inputs.digest}: подстановка не сработала `
@@ -309,25 +381,30 @@ export function verifyBundle({ pin, bundleText, digestMd, regulationMd, snapshot
   if (nodeReport && !nodeReport.allowed) {
     problems.push(`узел транспорта не допустил сборку (проверка ${nodeReport.failedCheck || 'неизвестная'})`);
   }
-  const coincide = docsCoincide({
-    ours: { digestSha256: sha256Text(digestMd), regulationSha256: sha256Text(regulationMd) },
-    theirs: {
-      digestSha256: sha256Text(snapshotDocsText.digest),
-      regulationSha256: sha256Text(snapshotDocsText.regulation),
-    },
-  });
-  const bundleSha256 = sha256Text(bundleText);
-  if (coincide) {
-    if (bundleSha256 !== pin.transport.artifact.sha256) {
-      problems.push('наши копии docs совпадают с текстами транспорта, но собранный бандл не равен '
-        + `запиненному артефакту (${bundleSha256.slice(0, 12)}… ≠ ${pin.transport.artifact.sha256.slice(0, 12)}…): `
-        + 'сборка проекта воспроизводит транспорт иначе, чем он сам');
+  // Сверка с их build-manifest: транспорт обязан подтвердить и номер, и байты входа.
+  const recorded = transportManifest && transportManifest.digest;
+  const inputSha256 = sha256Text(digestMd);
+  if (!recorded) {
+    problems.push('build-manifest транспорта сообщает digest: null — наш вход не был передан их '
+      + 'сборке, вшитый регламент подтвердить нечем');
+  } else {
+    if (recorded.version !== version) {
+      problems.push(`build-manifest транспорта зафиксировал регламент ${recorded.version}, наш вход — ${version}`);
     }
-  } else if (bundleSha256 === pin.transport.artifact.sha256) {
-    problems.push('наши копии docs отличаются от текстов транспорта, а бандл совпал с запиненным: '
-      + 'значит регламент в бандле — чужой, из выпуска транспорта, а не наш');
+    if (recorded.sha256 !== inputSha256) {
+      problems.push(`sha256 входа в build-manifest транспорта ${recorded.sha256?.slice(0, 12)}… ≠ хешу `
+        + `${pin.inputs.digest} ${inputSha256.slice(0, 12)}…: файл менялся после сборки`);
+    }
   }
-  return { problems, facts, coincide, bundleSha256, digestVersion: version, embeddedDigest: embedded };
+  const bundleSha256 = sha256Text(bundleText);
+  if (bundleSha256 === pin.transport.artifact.sha256) {
+    problems.push('бандл с вшитым регламентом совпал с запиненным нейтральным артефактом: '
+      + 'значит подстановка не изменила байты, а не изменила их незаметно');
+  }
+  return {
+    problems, facts, bundleSha256, digestVersion: version, digestSha256: inputSha256,
+    transportManifest: recorded || null, embeddedDigest: embedded,
+  };
 }
 
 const cacheName = (pin) => `${(pin.transport.repo.split('/')[1] || 'transport')}-${pin.transport.commit.slice(0, 12)}`;
@@ -465,9 +542,11 @@ export async function obtainPristineSnapshot({ pin, cacheDir, offline = false, f
 }
 
 /**
- * Рабочий каталог — копия чистого снимка, в которой подставляются docs и идёт сборка.
- * Отдельная копия нужна дважды: кэш остаётся эталоном для сверки хеша, а две сборки
- * проекта (агент и CI) не затирают друг друга.
+ * Рабочий каталог — копия чистого снимка, в которой идёт сборка. Отдельная копия нужна
+ * дважды: кэш остаётся эталоном для сверки хеша, а две сборки проекта (агент и CI) не
+ * затирают друг друга. Внутри одного запуска копий тоже две — нейтральной сборке и
+ * сборке с `--digest` нельзя сидеть в одном дереве: их узел проверяет дерево вызовом
+ * `build.mjs --check` без входа, и на дереве с вшитым регламентом он отказал бы.
  */
 export function copyToWorkDir(snapshotDir) {
   const scratch = mkdtempSync(join(tmpdir(), 'relay-work-'));
@@ -476,48 +555,20 @@ export function copyToWorkDir(snapshotDir) {
   return { dir, scratch, cleanup: () => rmSync(scratch, { recursive: true, force: true }) };
 }
 
-/** Их сборка ищет каталог docs вверх от комплекта (их findDocs) — идём тем же правилом. */
-export function snapshotDocs(snapshotRoot) {
-  let dir = snapshotRoot;
-  for (let depth = 0; depth < 5; depth += 1) {
-    if (existsSync(join(dir, 'docs', 'regulation-digest.md'))) return join(dir, 'docs');
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return join(snapshotRoot, 'docs');
+/** Вход сборки: наш файл лежит в НАШЕМ репозитории, их сборка получает абсолютный путь. */
+export function transportInputPath({ root, pin, field = 'digest' }) {
+  const path = resolve(root, pin.inputs[field]);
+  if (!existsSync(path)) fail(3, `нет входа сборки: ${display(path, root)}`);
+  return path;
 }
 
-/** Что транспорт несёт в своих docs на запиненной ревизии — читается ДО подстановки. */
-export function readSnapshotDocs({ snapshotRoot, pin }) {
-  const docs = snapshotDocs(snapshotRoot);
-  const read = (name) => {
-    const path = join(docs, name);
-    return existsSync(path) ? readFileSync(path, 'utf8') : '';
-  };
-  return { docs, digest: read('regulation-digest.md'), regulation: read('REGULATION.md') };
-}
-
-/** Точка подстановки: наши две копии кладутся в каталог docs развернутого снимка. */
-export function stageInputs({ snapshotRoot, pin, root }) {
-  const digestSource = resolve(root, pin.inputs.digest);
-  const regulationSource = resolve(root, pin.inputs.regulation);
-  for (const path of [digestSource, regulationSource]) {
-    if (!existsSync(path)) fail(3, `нет входа сборки: ${display(path, root)}`);
-  }
-  const docs = snapshotDocs(snapshotRoot);
-  mkdirSync(docs, { recursive: true });
-  copyFileSync(digestSource, join(docs, 'regulation-digest.md'));
-  copyFileSync(regulationSource, join(docs, 'REGULATION.md'));
-  return {
-    docs,
-    ours: { digestSha256: sha256File(digestSource), regulationSha256: sha256File(regulationSource) },
-  };
-}
-
-/** Сборку делает транспорт своим `build.mjs`; мы только подали ему свои docs. */
-export function runTransportBuild(snapshotRoot) {
-  const out = run(process.execPath, [join(snapshotRoot, SC_DIR, 'build.mjs')], { cwd: join(snapshotRoot, SC_DIR) });
+/**
+ * Сборку делает транспорт своим `build.mjs`; мы только подаём ему регламент входом.
+ * Без `digestPath` сборка нейтральная — ею и сверяется запиненный артефакт.
+ */
+export function runTransportBuild(snapshotRoot, { digestPath = null } = {}) {
+  const args = digestPath === null ? [] : ['--digest', digestPath];
+  const out = run(process.execPath, [join(snapshotRoot, SC_DIR, 'build.mjs'), ...args], { cwd: join(snapshotRoot, SC_DIR) });
   if (out.status !== 0) {
     fail(2, `сборка транспорта не прошла (rc ${out.status}):\n${lastLines(out.stderr || out.stdout)}`);
   }
@@ -535,8 +586,9 @@ export function runTransportNode(snapshotRoot) {
 }
 
 /**
- * Один полный цикл: снимок → подстановка → сборка → проверки → артефакты проекта.
- * `outDir` позволяет второй запуск ради сверки байт-в-байт; `write:false` ничего не пишет.
+ * Один полный цикл: снимок → нейтральная сборка и узел транспорта → сборка с `--digest` →
+ * проверки → артефакты проекта. `outDir` позволяет второй запуск ради сверки байт-в-байт;
+ * `write:false` ничего не пишет.
  */
 export async function buildOnce(options = {}) {
   const {
@@ -552,29 +604,47 @@ export async function buildOnce(options = {}) {
     fail(2, `профиль указывает на ${profile.profile.repo}, пин — на ${pin.project.repo}: это разные проекты`);
   }
   const snapshot = await obtainPristineSnapshot({ pin, cacheDir, offline, fetchImpl });
+  const digestPath = transportInputPath({ root, pin, field: 'digest' });
+  // (1) Нейтральная сборка на запиненном коммите: она доказывает, что пин описывает
+  // воспроизводимый выпуск (запиненный артефакт = его же сборка без входа), и только на
+  // таком дереве осмысленен его фиксированный список проверок.
+  const neutral = copyToWorkDir(snapshot.dir);
+  let nodeReport = null;
+  let neutralCheck = null;
+  try {
+    runTransportBuild(neutral.dir);
+    const neutralManifest = readTransportManifest({ snapshotRoot: neutral.dir });
+    const neutralBundle = readFileSync(join(neutral.dir, SC_DIR, 'relay.user.js'), 'utf8');
+    neutralCheck = verifyNeutralBundle({ pin, bundleText: neutralBundle, manifest: neutralManifest.manifest });
+    if (neutralCheck.problems.length) {
+      fail(2, `транспорт не воспроизводит запиненный артефакт (fail closed):\n  - ${neutralCheck.problems.join('\n  - ')}`);
+    }
+    nodeReport = runTransportNode(neutral.dir);
+  } finally {
+    neutral.cleanup();
+  }
+  // (2) Та же сборка, но регламент подан входом `--digest`: в дерево транспорта мы не
+  // пишем ничего, его каталог docs с D-003 не существует ни у нас, ни в снимке.
   const work = copyToWorkDir(snapshot.dir);
   let result;
   try {
-    const snapshotTexts = readSnapshotDocs({ snapshotRoot: work.dir, pin });
-    if (!snapshotTexts.digest) fail(3, `в снимке транспорта нет ${pin.inputs.digest}: подставлять регламент некуда`);
-    const staged = stageInputs({ snapshotRoot: work.dir, pin, root });
-    const buildLine = runTransportBuild(work.dir);
-    const nodeReport = runTransportNode(work.dir);
+    const buildLine = runTransportBuild(work.dir, { digestPath });
+    const transportManifest = readTransportManifest({ snapshotRoot: work.dir });
     const bundleText = readFileSync(join(work.dir, SC_DIR, 'relay.user.js'), 'utf8');
     const coveragePath = join(work.dir, SC_DIR, 'contracts', 'prompt-coverage.json');
-    if (!existsSync(coveragePath)) fail(2, 'узел транспорта не оставил contracts/prompt-coverage.json: покрытие не проверено');
+    if (!existsSync(coveragePath)) fail(2, 'сборка транспорта не оставила contracts/prompt-coverage.json: покрытие не проверено');
     const coverageText = readFileSync(coveragePath, 'utf8');
     const check = verifyBundle({
       pin, bundleText, digestMd, regulationMd,
-      snapshotDocsText: snapshotTexts,
+      transportManifest: transportManifest.manifest,
       nodeReport,
     });
     if (check.problems.length) fail(2, `бандл не допущен (fail closed):\n  - ${check.problems.join('\n  - ')}`);
-    result = { bundleText, coverageText, check, staged, buildLine, nodeReport };
+    result = { bundleText, coverageText, check, buildLine };
   } finally {
     work.cleanup();
   }
-  const { bundleText, coverageText, check, staged, buildLine, nodeReport } = result;
+  const { bundleText, coverageText, check, buildLine } = result;
   const manifest = {
     schema: 'wotr-relay-manifest/1',
     transport: {
@@ -585,18 +655,23 @@ export async function buildOnce(options = {}) {
       contractVersion: pin.transport.contractVersion,
       snapshotSha256: pin.transport.snapshot.sha256,
       pinnedArtifactSha256: pin.transport.artifact.sha256,
+      // Хеш нейтральной сборки: он обязан совпасть с pinnedArtifactSha256 — этим
+      // доказывается, что пин описывает воспроизводимый выпуск, а не чужой артефакт.
+      neutralBundleSha256: neutralCheck.bundleSha256,
       // fromCache и refetched в манифест НЕ пишутся: они меняются от запуска к запуску,
       // а манифест обязан быть байт-стабильным — иначе «детерминизм» проверялся бы по шуму.
     },
     project: {
       repo: pin.project.repo,
       regulationVersion: check.digestVersion,
-      digestSha256: staged.ours.digestSha256,
-      regulationSha256: staged.ours.regulationSha256,
+      digestSha256: sha256File(digestPath),
+      regulationSha256: sha256File(resolve(root, pin.inputs.regulation)),
       profileSha256: sha256File(resolve(root, pin.inputs.profile)),
       profileId: profile.profile.id,
       profileName: profile.profile.name,
-      docsCoincide: check.coincide,
+      // Что транспорт сам записал о принятом входе (их build-manifest): version + sha256.
+      // Это то, чем `--verify` сверяет артефакт без сети и без скачивания.
+      transportManifest: check.transportManifest,
     },
     artifact: {
       bundle: pin.output.bundle,
@@ -658,6 +733,27 @@ export function verifyArtifact({ bundlePath, pinPath = DEFAULT_PIN, root = REPO 
     if (manifest?.transport?.commit !== pin.transport.commit) {
       problems.push(`манифест собран на коммите ${manifest?.transport?.commit || '—'}, пин — ${pin.transport.commit}`);
     }
+    // Две опоры, которые появились вместе с D-003: транспорт сам записал, какой регламент
+    // он принял (иначе «вшитый текст» ничем не подтверждён), и нейтральная сборка этого
+    // запуска совпала с запиненным артефактом (иначе пин описывает невоспроизводимый выпуск).
+    const recorded = manifest?.project?.transportManifest;
+    if (!recorded) {
+      problems.push('в build-manifest.json нет project.transportManifest: артефакт собран до D-003, '
+        + 'когда транспорт не подтверждал вход — пересоберите бандл');
+    } else {
+      if (recorded.version !== digest.version) {
+        problems.push(`транспорт зафиксировал регламент ${recorded.version || '—'}, в ${pin.inputs.regulation} — ${digest.version}`);
+      }
+      if (recorded.sha256 !== sha256Text(digestMd)) {
+        problems.push('sha256 входа в build-manifest транспорта ≠ хешу текущего '
+          + `${pin.inputs.digest}: артефакт собран из другой копии регламента`);
+      }
+    }
+    if (manifest?.transport?.neutralBundleSha256
+        && manifest.transport.neutralBundleSha256 !== pin.transport.artifact.sha256) {
+      problems.push('манифест собран из нейтральной сборки, не совпавшей с запиненным артефактом: '
+        + 'воспроизводимость выпуска не подтверждена');
+    }
   }
   return {
     ok: problems.length === 0, problems, facts, bundlePath: relative(root, bundlePath) || bundlePath,
@@ -702,7 +798,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     console.log('node tools/relay/build.mjs [--check | --verify [ФАЙЛ]] [--json] [--offline] [--pin ФАЙЛ] [--cache КАТАЛОГ] [--out КАТАЛОГ]');
-    console.log('Собирает бандл ScriptCat из запиненного выпуска транспорта, вшивая наш docs/regulation-digest.md.');
+    console.log('Сверяет нейтральную сборку запиненного выпуска с пином и собирает бандл: наш');
+    console.log('docs/regulation-digest.md передаётся его же сборке флагом --digest, сверка по contracts/build-manifest.json.');
     console.log('Коды: 0 — допущено, 1 — неверный запуск или негодный пин, 2 — проверка не пройдена, 3 — источники не получены.');
     return 0;
   }

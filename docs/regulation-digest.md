@@ -1,6 +1,6 @@
 # Регламент WOTR Remaster · краткий вход
 
-Версия 1.5 · 2026-11-23. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
+Версия 1.6 · 2026-11-23. Полный источник: `docs/REGULATION.md` и одноимённая страница Notion из профиля. Этот текст уже пришёл в задании; повторно открывать регламент не нужно.
 
 ## 1. Архитектура
 
@@ -59,5 +59,4 @@ Custom asset требует provenance/license/author/hash. Pack не содер
 
 Секреты и session data не в Git/Notion/Drive/chat. Retail executable не запускать ради проверки данных. Процесс и общение — русский; code/API/schema/commit — English. Product локали: `en`, `ru`, `de`, `fr`, `es`, `it`; community tier с фазы 6: `pl`, `sv`, `tr`, `da`, `no`, `pt-BR`; `zh-Hans`/`ja`/`ko` вне плана (`WOTR-D-032`); English fallback, production — только после coverage/native review/rendering gate. Locale не меняет simulation/save/network hash.
 
-<!-- build:meta -->
-Текст выше вшивает в бандл этот репозиторий: `node tools/relay/build.mjs` скачивает запиненный выпуск транспорта (`tools/relay/pin.json`), кладёт эти две копии docs в каталог `docs/` развернутого снимка и проверяет результат по sha256. Правка регламента не создаёт задач в `Creative36711/relay-wotr`. Предел входа — 9000 знаков.
+<!-- build:meta --> Служебная строка (вырезается из промпта и нашим `promptDigest`, и их оракулом): регламент в бандл вшивает этот репозиторий — `node tools/relay/build.mjs` скачивает запиненный выпуск транспорта (`tools/relay/pin.json`), сверяет его нейтральную сборку с запиненным артефактом по sha256, передаёт наш файл их же сборке флагом `--digest` и сверяет запись в их `contracts/build-manifest.json`. Правка регламента не создаёт задач в `Creative36711/relay-wotr`. Предел входа — 9000 знаков.

@@ -43,9 +43,11 @@ branch=main
 driveFolder=wotr-remaster
 ```
 
-Canonical import file: `tools/relay/project-profile.json` in this repository. Until WOTR-D-033 (step 1) it lived
-in `Creative36711/relay-wotr` as `tools/script-cat/wotr-project.json`; project values belong to the project, so the
-transport no longer holds them. It contains metadata only. Notion token, GitHub token, Gateway URL/key and all
+Canonical import file: `tools/relay/project-profile.json` in this repository. It used to live in
+`Creative36711/relay-wotr` as `tools/script-cat/wotr-project.json`; that path was deleted by their `D-003`, because
+project values belong to the project and the transport holds none of them. The build does not take the profile as
+an input at all - it is a ScriptCat runtime import file; the only project input of the bundle build is
+`docs/regulation-digest.md`, passed to the transport build as `--digest`. It contains metadata only. Notion token, GitHub token, Gateway URL/key and all
 session state are stored locally by ScriptCat and must never be committed. The transport release the bundle is built
 from is pinned separately, in `tools/relay/pin.json`.
 

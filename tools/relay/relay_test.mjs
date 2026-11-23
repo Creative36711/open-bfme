@@ -1,7 +1,8 @@
 // Тесты узла сборки бандла (WOTR-D-033). Запуск: node --test tools/relay/*.mjs
 //
 // Что здесь проверяется и почему именно это. узел ничего не изобретает: он скачивает
-// запиненный выпуск, подставляет наши docs и передаёт сборку инструменту транспорта.
+// запиненный выпуск, сверяет его нейтральную сборку с пином и передаёт наш регламент его
+// сборке флагом --digest, а список фиксированных checks оставляет инструменту транспорта.
 // Значит ценны не «счастливые» прогоны, а отказ: негодный пин, чужие байты, проглоченная
 // подстановка, отчёт без проверок. Каждый случай ниже — то, что иначе молча дало бы
 // допущенную сборку с неверным регламентом внутри.
@@ -18,10 +19,10 @@ import { test } from 'node:test';
 
 import {
   DEFAULT_PIN, DEFAULT_CACHE, META_MARKER, SC_DIR, BUILD_NODE, DIGEST_MAX_CHARS, REPO_ROOT,
-  checkDigest, copyToWorkDir, docsCoincide, embeddedDigest, obtainPristineSnapshot, obtainSnapshot,
-  parseNodeReport, promptDigest, readBundleFacts, readPin, readProfile, regulationVersion,
-  sha256File, sha256Text, snapshotUsable, validatePin, validateProfile, verifyBundle,
-  verifyPinnedArtifact, verifyArtifact,
+  checkDigest, copyToWorkDir, embeddedDigest, obtainPristineSnapshot, obtainSnapshot,
+  parseNodeReport, promptDigest, readBundleFacts, readPin, readProfile, readTransportManifest,
+  regulationVersion, sha256File, sha256Text, snapshotUsable, transportInputPath, validatePin,
+  validateProfile, verifyBundle, verifyNeutralBundle, verifyPinnedArtifact, verifyArtifact,
 } from './build.mjs';
 
 const RELAY_DIR = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +32,7 @@ const realDigest = readFileSync(join(PROJECT, PIN.inputs.digest), 'utf8');
 const realRegulation = readFileSync(join(PROJECT, PIN.inputs.regulation), 'utf8');
 
 /** Бандл-заглушка: те же якоря, что читает узел, без 1.5 МБ настоящего файла. */
-function fakeBundle({ version = '1.16.9', runtime = version, digest = 'x', fingerprint = 'a'.repeat(16) } = {}) {
+function fakeBundle({ version = PIN.transport.userscriptVersion, runtime = version, digest = 'x', fingerprint = 'a'.repeat(16) } = {}) {
   return [
     '// ==UserScript==',
     `// @version      ${version}`,
@@ -69,6 +70,8 @@ test('пин: битые хеши, чужой kind и побег из репоз
     [{ inputs: { ...PIN.inputs, digest: '../../etc/passwd' } }, 'выход за репозиторий'],
     [{ inputs: { ...PIN.inputs, profile: '/abs/path' } }, 'абсолютный путь'],
     [{ output: { ...PIN.output, bundle: 'engine/relay.user.js' } }, 'артефакт вне build/'],
+    [{ transport: { ...PIN.transport, artifact: { ...PIN.transport.artifact, embedsRegulation: true } } }, 'выпуск несёт регламент'],
+    [{ transport: { ...PIN.transport, artifact: { path: PIN.transport.artifact.path, sha256: PIN.transport.artifact.sha256 } } }, 'нет поля embedsRegulation'],
     [{ format: 'other' }, 'чужой format'],
     [{ version: 2 }, 'неподдержанная version'],
   ];
@@ -128,36 +131,89 @@ test('вшитый регламент читается из бандла и от
   assert.equal(embeddedDigest(bundle), text);
   relayError(2, () => embeddedDigest('// @version 1.0.0\nнет поля регламента'));
   const facts = readBundleFacts(bundle);
-  assert.equal(facts.version, '1.16.9');
+  assert.equal(facts.version, PIN.transport.userscriptVersion);
   assert.equal(facts.fingerprint, 'a'.repeat(16));
   assert.ok(facts.hasDigestField);
 });
 
-test('docsCoincide: сравнение входов, а не надежда', () => {
-  const ours = { digestSha256: sha256Text('наш digest'), regulationSha256: sha256Text('наш регламент') };
-  assert.ok(docsCoincide({ ours, theirs: { ...ours } }), 'одинаковые входы должны узнаваться как одинаковые');
-  assert.ok(!docsCoincide({ ours, theirs: { ...ours, regulationSha256: sha256Text('иной') } }),
-    'расхождение полной копии — это уже другой набор входов');
-  assert.ok(!docsCoincide({ ours, theirs: { digestSha256: '', regulationSha256: '' } }),
-    'пустые тексты в снимке не считаются совпадением');
+test('promptDigest: их правило нормализации, а не наше', () => {
+  // Их `regulation-oracle` вырезает строки-комментарии и строку `build:meta`, а не «всё до
+  // маркера». Если разойдёмся — «вшитый регламент» и «наш регламент» перестанут равняться,
+  // и отказ наступит на каждом CI. Проверяем правило на синтетике, а не на вкусовщине.
+  const sample = ['Версия 9.9 · раз', '', '  <!-- hidden -->', 'тело', '<!-- build:meta --> хвост', '', '', '', 'x  '].join('\n');
+  assert.equal(promptDigest(sample), 'Версия 9.9 · раз\n\nтело\n\nx');
+  assert.ok(!promptDigest(realDigest).includes(META_MARKER), 'служебные заметки не должны попадать в промпт');
+  // Служебная строка нашего digest'а — одна строка с маркером: она вырезается, а не обрезает
+  // всё после себя (так было до D-003), поэтому порядок разделов в файле не может потерять текст.
+  assert.ok(promptDigest(realDigest).endsWith('Locale не меняет simulation/save/network hash.'),
+    'последнее правило промпта обязано остаться в теле');
 });
 
-test('verifyBundle: верная подстановка, проглоченная подстановка и чужой регламент', () => {
+test('их build-manifest: отсутствие файла и отсутствие поля digest — отказ, а не пропуск', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'relay-tmanifest-'));
+  try {
+    const contracts = join(dir, SC_DIR, 'contracts');
+    mkdirSync(contracts, { recursive: true });
+    relayError(2, () => readTransportManifest({ snapshotRoot: dir }));
+    writeFileSync(join(contracts, 'build-manifest.json'), '{ broken');
+    relayError(2, () => readTransportManifest({ snapshotRoot: dir }));
+    writeFileSync(join(contracts, 'build-manifest.json'), JSON.stringify({ schema: 'scriptcat-build-manifest', version: 1 }));
+    relayError(2, () => readTransportManifest({ snapshotRoot: dir }));
+    // `digest: null` — валидное состояние «сборка без входа»: это читает verifyNeutralBundle.
+    writeFileSync(join(contracts, 'build-manifest.json'), JSON.stringify({ digest: null }));
+    assert.equal(readTransportManifest({ snapshotRoot: dir }).manifest.digest, null);
+    const recorded = { digest: { version: '1.6', sha256: 'a'.repeat(64) } };
+    writeFileSync(join(contracts, 'build-manifest.json'), JSON.stringify(recorded));
+    assert.equal(readTransportManifest({ snapshotRoot: dir }).manifest.digest.version, '1.6');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('нейтральная сборка обязана воспроизвести запиненный артефакт', () => {
+  const neutral = fakeBundle({ digest: '' });
+  const pin = {
+    ...PIN,
+    transport: { ...PIN.transport, artifact: { ...PIN.transport.artifact, sha256: sha256Text(neutral) } },
+  };
+  assert.deepEqual(verifyNeutralBundle({ pin, bundleText: neutral, manifest: { digest: null } }).problems, []);
+  // Чужие байты — отказ: пин описывает не эту сборку.
+  const other = { ...PIN, transport: { ...PIN.transport, artifact: { ...PIN.transport.artifact, sha256: 'b'.repeat(64) } } };
+  assert.ok(verifyNeutralBundle({ pin: other, bundleText: neutral, manifest: { digest: null } })
+    .problems.some((problem) => problem.includes('не равна запиненному артефакту')));
+  // Другой @version — отдельная причина.
+  assert.ok(verifyNeutralBundle({ pin: { ...other, transport: { ...other.transport, userscriptVersion: '9.9.9' } } , bundleText: neutral, manifest: { digest: null } })
+    .problems.some((problem) => problem.includes('в нейтральной сборке')));
+  // Если их сборка без входа сама нашла регламент — D-003 нарушен, и это отказ.
+  assert.ok(verifyNeutralBundle({ pin, bundleText: neutral, manifest: { digest: { version: '1.6', sha256: 'a'.repeat(64) } } })
+    .problems.some((problem) => problem.includes('D-003 нарушен')));
+  // Проектный текст в «нейтральном» артефакте — третий отдельный случай.
+  assert.ok(verifyNeutralBundle({ pin, bundleText: fakeBundle({ digest: 'Версия 1.4 · чужое' }), manifest: { digest: null } })
+    .problems.some((problem) => problem.includes('лежит регламент')));
+});
+
+test('вход сборки: путь обязана существовать, иначе «источники не получены» (3)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'relay-input-'));
+  try {
+    const pin = { ...PIN, inputs: { ...PIN.inputs, digest: 'docs/absent-for-test.md' } };
+    relayError(3, () => transportInputPath({ root: PROJECT, pin }));
+    assert.equal(transportInputPath({ root: PROJECT, pin: PIN }), join(PROJECT, PIN.inputs.digest));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('verifyBundle: подстановка, чужой регламент, их manifest и «тот же бандл, что запинен»', () => {
   const embedded = promptDigest(realDigest);
-  const snapshot = { digest: realDigest, regulation: realRegulation };
+  const goodManifest = { digest: { version: regulationVersion(realDigest), sha256: sha256Text(realDigest) } };
   const base = {
     pin: PIN,
     digestMd: realDigest,
     regulationMd: realRegulation,
-    snapshotDocsText: snapshot,
+    transportManifest: goodManifest,
     nodeReport: { allowed: true, checks: [{ id: 'x', code: 0 }], failedCheck: null, gates: {} },
   };
-  // Входы совпали с текстами снимка → сверка с запиненным артефактом обязательна, и
-  // подставленный вручную бандл этой сверки не проходит: тихого «ну и ладно» нет.
-  const coinciding = verifyBundle({ ...base, bundleText: fakeBundle({ digest: embedded }) });
-  assert.ok(coinciding.problems.some((problem) => problem.includes('не равен запиненному артефакту')),
-    'при совпадающих docs сверка с запиненным артефактом обязательна');
-  assert.equal(coinciding.coincide, true);
+  assert.deepEqual(verifyBundle({ ...base, bundleText: fakeBundle({ digest: embedded }) }).problems, []);
   // Регламент в бандле остался чужой (плейсхолдер не подставлен) — это отказ.
   const notSubstituted = verifyBundle({ ...base, bundleText: fakeBundle({ digest: '@@REGULATION_DIGEST@@' }) });
   assert.ok(notSubstituted.problems.some((problem) => problem.includes('подстановка не сработала')));
@@ -177,6 +233,27 @@ test('verifyBundle: верная подстановка, проглоченна�
     nodeReport: { allowed: false, checks: [{ id: 'test:scriptcat', code: 1 }], failedCheck: 'test:scriptcat', gates: {} },
   });
   assert.ok(nodeRefused.problems.some((problem) => problem.includes('не допустил сборку')));
+  // Транспорт не подтвердил вход (digest: null) — отказ, а не «ну и сверять нечего».
+  const noInput = verifyBundle({ ...base, bundleText: fakeBundle({ digest: embedded }), transportManifest: { digest: null } });
+  assert.ok(noInput.problems.some((problem) => problem.includes('не был передан их сборке')));
+  // Подтвердил другой номер или другие байты — две отдельные причины.
+  const otherVersion = verifyBundle({
+    ...base, bundleText: fakeBundle({ digest: embedded }),
+    transportManifest: { digest: { ...goodManifest.digest, version: '0.1' } },
+  });
+  assert.ok(otherVersion.problems.some((problem) => problem.includes('зафиксировал регламент 0.1')));
+  const otherBytes = verifyBundle({
+    ...base, bundleText: fakeBundle({ digest: embedded }),
+    transportManifest: { digest: { ...goodManifest.digest, sha256: 'c'.repeat(64) } },
+  });
+  assert.ok(otherBytes.problems.some((problem) => problem.includes('файл менялся после сборки')));
+  // Бандл «с регламентом», совпавший с запиненным нейтральным артефактом, — это подмена.
+  const pinned = fakeBundle({ digest: embedded });
+  const sameAsPinned = verifyBundle({
+    ...base, bundleText: pinned,
+    pin: { ...PIN, transport: { ...PIN.transport, artifact: { ...PIN.transport.artifact, sha256: sha256Text(pinned) } } },
+  });
+  assert.ok(sameAsPinned.problems.some((problem) => problem.includes('совпал с запиненным нейтральным артефактом')));
 });
 
 test('отчёт узла транспорта: пустой список проверок и чужие пути — отказ', () => {
@@ -347,7 +424,7 @@ function fakeTransportSnapshot(dir, { artifact = 'ARTEFACT\n', digest = 'Вер�
       ...PIN.transport,
       commit: '1'.repeat(40),
       snapshot: { url: 'https://example.invalid/snapshot.tar.gz', sha256: sha256File(archive) },
-      artifact: { path: `${SC_DIR}/relay.user.js`, sha256: sha256Text(artifact), regulationVersion: '9.9' },
+      artifact: { path: `${SC_DIR}/relay.user.js`, sha256: sha256Text(artifact), embedsRegulation: false },
     },
   };
   const bytes = readFileSync(archive);
