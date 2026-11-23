@@ -43,8 +43,11 @@ branch=main
 driveFolder=wotr-remaster
 ```
 
-Canonical import file: `tools/script-cat/wotr-project.json` in `Creative36711/relay-wotr` (the transport
-repository). It contains metadata only. Notion token, GitHub token, Gateway URL/key and all session state are stored locally by ScriptCat and must never be committed.
+Canonical import file: `tools/relay/project-profile.json` in this repository. Until WOTR-D-033 (step 1) it lived
+in `Creative36711/relay-wotr` as `tools/script-cat/wotr-project.json`; project values belong to the project, so the
+transport no longer holds them. It contains metadata only. Notion token, GitHub token, Gateway URL/key and all
+session state are stored locally by ScriptCat and must never be committed. The transport release the bundle is built
+from is pinned separately, in `tools/relay/pin.json`.
 
 ## Authority
 

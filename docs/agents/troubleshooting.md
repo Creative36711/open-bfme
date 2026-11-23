@@ -49,16 +49,20 @@ Check GitHub connection, target repo/base, PR URL, merge state and merge commit.
 
 ## Digest/build mismatch
 
-Run in `Creative36711/relay-wotr` (the transport repository; `docs/REGULATION.md` and
-`docs/regulation-digest.md` are copied there from Open BFME, so a regulation change needs a sync commit
-and a rebuild on that side):
+Run in this repository: since WOTR-D-033 the project builds its own bundle from a pinned transport release,
+so a regulation change needs neither a sync commit nor a rebuild in `Creative36711/relay-wotr` (the transport
+stores no copy of these documents any more).
 
 ```bash
-node tools/script-cat/build.mjs
-node tools/script-cat/build.mjs --check
+node tools/relay/build.mjs            # pinned transport snapshot + our docs -> build/relay/relay.user.js
+node tools/relay/build.mjs --check    # determinism: two builds are byte-identical
+node tools/relay/build.mjs --verify   # re-check the built artifact without network access
 ```
 
-Confirm `docs/REGULATION.md` and `docs/regulation-digest.md` declare the same `Версия N.N`, the digest is ≤9000 characters and `@version` equals runtime `SCRIPT_VERSION`.
+`tools/relay/pin.json` is the only place in this repository that names a transport version. When its
+`artifact.sha256` or `artifact.regulationVersion` stops matching, the fix is the pin (point it at the newly
+accepted transport release and re-record the hashes) — never the cache and never the check itself.
+Confirm `docs/REGULATION.md` and `docs/regulation-digest.md` declare the same `Версия N.N`, the digest is ≤9000 characters and `@version` equals runtime `SCRIPT_VERSION`; the build node enforces all three and refuses on any mismatch.
 
 ## Portability guard fails
 
