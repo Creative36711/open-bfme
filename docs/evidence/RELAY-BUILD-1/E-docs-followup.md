@@ -43,3 +43,19 @@
 прошёл (`Relay bundle … pass`, 32 с): `node --test`, `--check`, `--verify`, `sha256sum` и загрузка артефакта —
 см. `A-build.md`. При `push` в `main` и `workflow_dispatch` фильтр `paths:` не действует, так что сборка
 воспроизводится на main в любом случае.
+## Попутная сверка: пин `actions/upload-artifact` в новом workflow
+
+Открытый вопрос прошлой правки был таким: не опечатка ли `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2`
+в `relay-bundle.yml`, если `pr.yml` пинован на `ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2`. Проверено по тегам
+upstream-репозиториев (`gh api .../git/ref/tags/<v>`):
+
+| Пин | Что это на самом деле | Где используется у нас |
+|---|---|---|
+| `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | `actions/upload-artifact` **v7.0.2** (тег существует, SHA совпадает) | `relay-bundle.yml`, `release.yml`, `release-package.yml` (×3) |
+| `9000827ccba6bdab643e8b6fd33ac0654aef8333` | `actions/download-artifact` **v8.0.2** | `release.yml` (×3) |
+| `ea165f8d65b6e75b540449e92b4886f43607fa02` | `actions/upload-artifact` v4.6.2 | `pr.yml` (×2) |
+| `d3f86a106a0bac45b974a628896c90dbdf5c8093` | `actions/download-artifact` v4.3.0 | `pr.yml` (×6) |
+
+Вывод: в репозитории два поколения пинов — `pr.yml` на v4-линейке, релизные workflow на v7/v8; `relay-bundle.yml`
+взял пин у релизной пары, и он верен. Расхождения «SHA не из этого action» или «комментарий враньё» нет, поэтому
+`pr.yml` под эту карточку не правится (его поколение — не наша зона и не наш риск).
