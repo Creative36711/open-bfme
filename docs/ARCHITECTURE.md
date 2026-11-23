@@ -63,6 +63,9 @@ tools/release/                       audited one-archive and manifest pipeline
 Каталога транспорта в этом дереве нет: ScriptCat (`tools/script-cat/**`, `tools/relay-*.mjs`,
 userscript-бандл и Drive-gateway) живёт в `Creative36711/relay-wotr` и остаётся защищённым —
 правка только карточкой Transport Maintainer с полным transport-гейтом в том репозитории.
+Свой узел сборки бандла здесь всё же лежит: `tools/relay/**` собирает `build/relay/relay.user.js` из запиненного
+выпуска транспорта и наших `docs/**` (WOTR-D-033); это не копия транспорта, а проектный вход в него, и транспорт
+этого дерева не читает.
 
 ## 4. Deterministic core
 
