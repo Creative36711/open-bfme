@@ -24,7 +24,7 @@ Before changing anything, read:
 - Retail files are never transformed or copied into product commits or reachable published history. Campaign Packs may reference retail content and may contain licensed custom content.
 - Import legacy world data from `Creative36711/wotr` only through the accepted versioned one-way importer with stable IDs/provenance; do not adopt its React/Tauri/Win32 runtime or publish its dataset/BIG before license authorization.
 - Count tactical capacity by opposed sides: allies share a start; side overflow uses a declared compatible fallback map or deterministic autoresolve. New maps are licensed content-addressed Campaign Pack overlays.
-- Product locales are exactly `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; locale must never alter canonical state or hashes.
+- Product locales are `en`, `ru`, `de`, `fr`, `es`, `it`, with a community tier (`pl`, `sv`, `tr`, `da`, `no`, `pt-BR`) from Phase 6 and `zh-Hans`/`ja`/`ko` out of plan (`WOTR-D-032`); locale must never alter canonical state or hashes.
 - UI structure is Godot `Control`/`Container`/`Theme`; SVG supplies precise geometry, while generated raster art supplies material and atmosphere. Never ship a whole screen as one image or bake text into generated assets. Follow `docs/tooling/ART-PIPELINE.md`.
 
 ## Repository safety
