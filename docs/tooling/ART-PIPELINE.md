@@ -16,7 +16,8 @@
   отбор изображений, SVG-источники, chromakey/alpha cleanup, 9-slice margins,
   provenance, import/budget report.
 - **Localization & Cultural QA Engineer**: шрифты, shaping, переполнение и
-  читаемость для `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`.
+  читаемость для product-набора `en`, `ru`, `de`, `fr`, `es`, `it` (community-набор — с
+  фазы 6, `WOTR-D-032`).
 - **UX & Modding Auditor**: независимо открывает реальные Godot renders и
   проверяет цельность, scale, focus, контраст, края, локали и pack boundary.
 

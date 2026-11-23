@@ -216,7 +216,7 @@ WotrSave {
 
 Mid-battle saves additionally carry immutable `BattleRequest` identity and the tactical save reference required by OpenBFME. On return, result identity must match both.
 
-Locale is presentation state and is deliberately absent from this envelope and `state_bytes`. Required product catalogs are `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`; English is source/per-message fallback. Campaign Pack display text uses localization IDs. Exact locale tags, completeness and cultural/rendering gates are specified by ADR-003 and `docs/L10N.md`.
+Locale is presentation state and is deliberately absent from this envelope and `state_bytes`. Required product catalogs are `en`, `ru`, `de`, `fr`, `es`, `it`; `pl`, `sv`, `tr`, `da`, `no`, `pt-BR` are community tier from Phase 6 and `zh-Hans`, `ja`, `ko` are out of plan (`WOTR-D-032`). English is source/per-message fallback. Campaign Pack display text uses localization IDs. Exact locale tags, completeness and cultural/rendering gates are specified by ADR-003 and `docs/L10N.md`.
 
 ## 10. Testing pyramid
 

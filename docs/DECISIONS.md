@@ -80,7 +80,7 @@ World/locations/regions/ownership/content из `Creative36711/wotr@fd12e3a3a52ad
 
 ## WOTR-D-013 · Eight-locale product baseline
 
-**Дата:** 2026-11-20 · **Статус:** принято · **ADR:** `docs/architecture/ADR-003-PRODUCT-LOCALES.md`.
+**Дата:** 2026-11-20 · **Статус:** принято; состав набора пересмотрен `WOTR-D-032` (2026-11-23) · **ADR:** `docs/architecture/ADR-003-PRODUCT-LOCALES.md`.
 
 Обязательные product locales: `en`, `ru`, `zh-Hans`, `ja`, `pt-BR`, `de`, `fr`, `ko`. Английский — source/per-message fallback; production support требует 100% coverage, native-language/cultural review, rendering/font/input evidence и locale-invariant canonical hash. Добавляется Executor-specialization `Localization & Cultural QA Engineer`; независимую проверку выполняет UX & Modding Auditor.
 
@@ -423,3 +423,36 @@ rc 0 за **58 min 40 s** при `-j2` на 2 vCPU, артефакты `openbfme
 
 Цена. До появления INFRA-карточки агенты платят полную сборку на финальном SHA; 58 min 40 s — это ширина песочницы
 (`-j2` на 2 vCPU), а не верхняя цена кода, и сравнивать кандидата надо с этой базой.
+
+## WOTR-D-032 · Product-локали: шесть языков с фазы 1, community-набор с фазы 6, CJK вне плана
+
+**Дата:** 2026-11-23 · **Статус:** принято; пересматривает `WOTR-D-013` (состав набора) · **ADR:** `docs/architecture/ADR-003-PRODUCT-LOCALES.md`.
+
+Мастер подтвердил состав. Product baseline фаз 1–3: `en` (source, per-message fallback), `ru`, `de`, `fr`, `es`, `it`. Community tier с фазы 6:
+`pl`, `sv`, `tr`, `da`, `no`, `pt-BR`. Исключены из плана: `zh-Hans`, `ja`, `ko`. Возврат любого из них — только новой записью здесь.
+Распределение по фазам — решение Warden, оно зафиксировано в `docs/PHASES.md` (общий гейт 6 и текст фазы 6).
+
+Что это и чем не является. Сокращение скоупа, а не ослабление гейта: для каждой product-локали сохраняются 100% coverage,
+placeholder/plural parity, native-language/cultural review, rendering/font/input gate, locale-invariant canonical hash и
+независимая проверка UX & Modding Auditor. Community-локаль не может быть заявлена production-supported: её статус
+`partial`/`community` остаётся видимым в селекторе. «Есть в дереве, но молча частичная» — по-прежнему не проходит.
+
+Замер цены (по текущему коду, правок которого эта запись не делает).
+`tools/l10n/catalog/` содержит `de en fr ja ko pt-BR ru zh-Hans`: для product-набора не хватает `es` и `it`, для
+community — `pl sv tr da no`. Правила плюрализации (`PLURAL_CATEGORIES` в `tools/l10n/l10n.py:38` и те же таблицы в
+`l10n.gd`/`OpenBFMEText.cpp`) уже есть для `es it pl sv no pt-BR` и отсутствуют для `tr` и `da`; `DECIMAL_COMMA`
+(`launcher/scripts/l10n/l10n.gd:19`) тоже не содержит `tr`/`da`; `RETAIL_LANGUAGES` не имеет алиасов danish/turkish,
+поэтому «Automatic» для них принципиально не сработает — только ручной выбор. Вывод: product-набор дешевеет
+(CJK-шрифты, shaping и line breaking уходят из обязательной приёмки, `es`/`it` используют уже настроенные правила),
+а `tr`/`da` — единственные две позиции, которые требуют правки C++ и поэтому карточки с `build: focused`.
+
+Судьба данных. Каталоги `zh-Hans`, `ja`, `ko` и retail-алиасы `chinese`/`korean` не удаляются этой записью:
+их состояние (оставить как `sample` вне обязательного набора или удалить вместе с mapping) решает карточка
+`Localization & Cultural QA Engineer` и фиксирует в своём отчёте, чтобы решение обратимо было по данным, а не по
+переписанной истории. `pt-BR` остаётся в дереве, переходя в community tier.
+
+Что проверяется после. `tools/l10n/l10n.py:28 REQUIRED_LOCALES` и `launcher/tests/l10n_test.gd:42` переводятся на
+product-набор той же карточкой; до неё оракул строже плана (требует прежние восемь), и это намеренно: ни одна проверка
+не выключается и ни один `not run` не становится pass. Правки реестра, `docs/REGULATION.md` и
+`docs/regulation-digest.md` до версии 1.4 обязывают транспорт пересобрать бандл и обновить зеркала
+(`WOTR-D-029`), иначе preflight `relay-wotr` законно упадёт на расхождении номера регламента.
