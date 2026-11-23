@@ -64,8 +64,9 @@ tools/release/                       audited one-archive and manifest pipeline
 userscript-бандл и Drive-gateway) живёт в `Creative36711/relay-wotr` и остаётся защищённым —
 правка только карточкой Transport Maintainer с полным transport-гейтом в том репозитории.
 Свой узел сборки бандла здесь всё же лежит: `tools/relay/**` собирает `build/relay/relay.user.js` из запиненного
-выпуска транспорта и наших `docs/**` (WOTR-D-033); это не копия транспорта, а проектный вход в него, и транспорт
-этого дерева не читает.
+выпуска транспорта (WOTR-D-033), передавая ему наш `docs/regulation-digest.md` флагом `--digest`; это не копия
+транспорта, а проектный вход в него. Транспорт этого дерева не читает и своих копий наших docs не хранит (их
+`D-003`): зеркало удалено, сверка идёт по их `contracts/build-manifest.json`.
 
 ## 4. Deterministic core
 

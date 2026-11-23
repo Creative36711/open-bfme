@@ -142,7 +142,7 @@ If OpenBFME cannot currently produce a field, the DTO still represents it with e
 | `WOTR-1.1-K2` | Strategic Core Engineer / Executor | K1 | full | none | pack loader, state/commands, deterministic conflict, DTOs, canonical save/hash and pure tests |
 | `WOTR-1.1-K3` | Tactical Bridge Engineer / Executor | K1,K2 | full | hydrate¹ | adapter to native OpenBFME start/result capture and focused bridge tests |
 | `WOTR-1.1-K4` | Godot World Engineer / Executor | K2,K3 | full | hydrate¹ | minimal 2.5D interaction and automated route through battle/return/save |
-| `WOTR-1.1-K5` | Localization & Cultural QA Engineer / Executor | K4 | full | none | exact eight-locale catalogs/fallback, generated tables, hash-invariance and target-screen evidence |
+| `WOTR-1.1-K5` | Localization & Cultural QA Engineer / Executor | K4 | full | none | exact six product-locale catalogs (`en`,`ru`,`de`,`fr`,`es`,`it` per `WOTR-D-032`) with fallback, generated tables, hash-invariance and target-screen evidence |
 | `WOTR-1.1-A1` | Determinism & Save Auditor / Auditor | K2,K4 | focused | none | independent dual-run and corruption/transactionality report |
 | `WOTR-1.1-A2` | UX & Modding Auditor / Auditor | K4,K5 | focused | none | opened locale visuals plus independent pack/reference/cultural boundary report |
 | `WOTR-1.1-A3` | Integration Auditor / Auditor | K1–K5,A1,A2 | full | hydrate¹ | clean-checkout Arena retail end-to-end evidence |
@@ -214,7 +214,7 @@ On one accepted SHA, from a clean checkout in Arena:
 
 1. Verify exact OpenBFME pin and clean source tree.
 2. Configure/build the C++ GDExtension and focused tests.
-3. Validate/generate the catalogs; enumerate the exact eight tags, prove English per-message fallback and compare canonical hashes for the same fixture under every locale.
+3. Validate/generate the catalogs; enumerate the exact product tags (`en`,`ru`,`de`,`fr`,`es`,`it`, `WOTR-D-032`), prove English per-message fallback and compare canonical hashes for the same fixture under every locale.
 4. Set `BFME2_INSTALL` and `ROTWK_INSTALL` to validated retail trees; retail archive validation passes.
 5. Launch the automated WOTR Remaster fixture through Godot/OpenBFME.
 6. Observe and artifact the initial three-cell map in English plus assigned locale layout/glyph evidence.

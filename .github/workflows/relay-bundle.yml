@@ -1,9 +1,10 @@
 # Бандл ScriptCat собирается здесь (WOTR-D-033)
 
 # Транспорт (Creative36711/relay-wotr) не хранит наших документов и не читает наше дерево:
-# подстановку краткого регламента делает этот репозиторий. Проверки транспорта при этом
-# остаются ЕГО: фиксированный список запускается его узлом tools/relay-build.mjs, так что
-# подмена проверок в манифесте ничего не изменит.
+# краткий регламент подаёт ему этот репозиторий — флагом --digest их же сборке (их D-003),
+# сверяя нейтральную сборку с запиненным артефактом, а принятие входа — с их build-manifest.
+# Проверки транспорта при этом остаются ЕГО: фиксированный список запускается его узлом
+# tools/relay-build.mjs, так что подмена проверок в манифесте ничего не изменит.
 name: Relay bundle
 
 on:
@@ -56,7 +57,7 @@ jobs:
       - name: Report the artifact identity
         run: |
           sha256sum build/relay/relay.user.js build/relay/prompt-coverage.json build/relay/build-manifest.json
-          node -e "const m=require('./build/relay/build-manifest.json'); console.log('transport ' + m.transport.userscriptVersion + ' @ ' + m.transport.commit.slice(0, 7) + ', regulation ' + m.project.regulationVersion + ', docsCoincide ' + m.project.docsCoincide + ', fingerprint ' + m.artifact.fingerprint);"
+          node -e "const m=require('./build/relay/build-manifest.json'); const t=m.project.transportManifest; if (!t) { console.error('в манифесте нет project.transportManifest — артефакт собран до D-003'); process.exit(1); } console.log('transport ' + m.transport.userscriptVersion + ' @ ' + m.transport.commit.slice(0, 7) + ', regulation ' + m.project.regulationVersion + ', transport accepted digest ' + t.version + '/' + t.sha256.slice(0, 12) + ', neutral ' + m.transport.neutralBundleSha256.slice(0, 12) + ', fingerprint ' + m.artifact.fingerprint);"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
