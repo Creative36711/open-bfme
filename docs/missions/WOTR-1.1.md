@@ -283,6 +283,13 @@ a machine. The rules below are normative for slicing.
 - The card's report is committed under `docs/evidence/WOTR-1-1/<card>/**` by the role that
   executes the card, and the registry field «Report SHA» names that repository path. A report
   that lives only in a sandbox tree or only in Drive is not acceptance evidence (cost-gates §7).
+- A card whose executing role is read-only (`Determinism & Save Auditor`, `UX & Modding Auditor`,
+  `Integration Auditor`, `Reviewer`) closes that anchor only through an explicit one-file grant
+  in the card's Scope: `additive evidence file: docs/evidence/WOTR-1-1/<card>/report.md`
+  (`docs/agents/markers.md`). Without the grant the role writes nothing to Git — the authoritative
+  transport block forbids it and wins over the descriptive row — and the missing anchor is a card
+  defect for the Coordinator to fix in the Scope field, not a licence for the accepting side to commit
+  the report on the role's behalf (`WOTR-D-044`).
 
 | Path | Owning role row | Cards |
 |---|---|---|
