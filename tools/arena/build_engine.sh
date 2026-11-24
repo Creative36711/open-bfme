@@ -77,6 +77,11 @@ fi
 
 [ "$CLEAN" = 0 ] || { say "remove $BUILD"; rm -rf "$BUILD"; }
 mkdir -p "$BUILD"
+rm -f "$BUILD/.arena-cache-key"
+cache_key=""
+if [ "$MODE" = tests ]; then
+  cache_key=$(python3 "$HERE/build_cache.py" key 2>/dev/null) || cache_key=""
+fi
 
 GODOT=ON
 TESTS=OFF
@@ -112,3 +117,8 @@ elapsed=$(( $(date +%s) - start ))
 printf '    elapsed: %d min %d s\n' $((elapsed / 60)) $((elapsed % 60))
 ok "built: $TARGET"
 find "$REPO/godot/bin" -maxdepth 1 -type f -name '*.so' -printf '    extension: %p (%k KiB)\n' 2>/dev/null || true
+
+# Only a completed tests build with an unchanged tracked tree can be exported.
+if [ -n "$cache_key" ] && [ "$cache_key" = "$(python3 "$HERE/build_cache.py" key 2>/dev/null || true)" ]; then
+  printf '%s\n' "$cache_key" > "$BUILD/.arena-cache-key"
+fi
