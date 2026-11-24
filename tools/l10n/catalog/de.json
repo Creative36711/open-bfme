@@ -4,6 +4,13 @@
   "@@status": "partial",
   "common.cancel": "Abbrechen",
   "common.close": "Schließen",
+  "game.wotr.map_missing.text": "Die Gefechtskarte für {region} ist in dieser Installation nicht vorhanden. Das Gefecht wurde daher automatisch berechnet.",
+  "game.wotr.map_missing.title": "Gefechtskarte fehlt",
+  "game.wotr.remaster.hud.load": "Laden",
+  "game.wotr.remaster.hud.move": "Bewegen",
+  "game.wotr.remaster.hud.save": "Speichern",
+  "game.wotr.rts_demoted.text": "Am Gefecht in {region} nehmen mehr gegnerische Seiten teil, als die Karte nutzbare Startpositionen hat. Es wurde daher automatisch berechnet.",
+  "game.wotr.rts_demoted.title": "Gefecht automatisch berechnet",
   "launcher.main.check_for_updates": "Nach Updates suchen",
   "launcher.main.footer_version": "Launcher {version}",
   "launcher.main.head_checking": "Suche nach Updates",
@@ -50,9 +57,5 @@
   "launcher.settings.tab_about": "Info & Protokolle",
   "launcher.settings.tab_display": "Anzeige",
   "launcher.settings.tab_general": "Allgemein",
-  "launcher.settings.title": "Einstellungen",
-  "game.wotr.map_missing.text": "Die Gefechtskarte für {region} ist in dieser Installation nicht vorhanden. Das Gefecht wurde daher automatisch berechnet.",
-  "game.wotr.map_missing.title": "Gefechtskarte fehlt",
-  "game.wotr.rts_demoted.text": "Am Gefecht in {region} nehmen mehr gegnerische Seiten teil, als die Karte nutzbare Startpositionen hat. Es wurde daher automatisch berechnet.",
-  "game.wotr.rts_demoted.title": "Gefecht automatisch berechnet"
+  "launcher.settings.title": "Einstellungen"
 }

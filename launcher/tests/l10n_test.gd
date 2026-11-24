@@ -9,6 +9,9 @@ const L10n := preload("res://scripts/l10n/l10n.gd")
 const Catalog := preload("res://scripts/l10n/catalog.gd")
 const LauncherMain := preload("res://scripts/main.gd")
 
+const PRODUCT_LOCALES := ["en", "ru", "de", "fr", "es", "it"]
+const PARKED_SAMPLES := ["zh-Hans", "ja", "ko"]
+
 var failures := 0
 
 
@@ -36,30 +39,59 @@ func _run() -> void:
 		if a.begins_with("--dir="):
 			dir = a.substr(6)
 
-	# the generated catalog: English is the source of every id, a language translates a subset
+	# the generated catalog: English is the source of every id, the six WOTR-D-032 product locales exist and stay visibly incomplete when partial
 	check(L10n.language() == "en", "the default language is the source")
 	check(L10n.languages()[0].code == "en" and L10n.languages().size() == Catalog.LANGUAGES.size(), "languages(): source first")
-	for required in ["en", "ru", "zh-Hans", "ja", "pt-BR", "de", "fr", "ko"]:
+	for required in PRODUCT_LOCALES:
 		check(Catalog.LANGUAGES.has(required), "required product locale %s" % required)
+		check(L10n.automatic_ok(required), "Automatic may pick product locale %s" % required)
 		var label := LauncherMain._catalog_language_label(required)
 		check(label.contains(Catalog.LANGUAGES[required].name), "the selector names product locale %s" % required)
 		check(required == "en" or label != Catalog.LANGUAGES[required].name, "partial locale %s is visibly incomplete" % required)
+
+	# community-tier pt-BR stays partial; out-of-plan CJK catalogs stay parked as sample and are never picked by Automatic
+	check(Catalog.LANGUAGES.has("pt-BR") and Catalog.LANGUAGES["pt-BR"].status == "partial", "pt-BR stays as a partial community catalog")
+	check(LauncherMain._catalog_language_label("pt-BR") != Catalog.LANGUAGES["pt-BR"].name, "pt-BR is visibly incomplete")
+	for parked in PARKED_SAMPLES:
+		check(Catalog.LANGUAGES.has(parked) and Catalog.LANGUAGES[parked].status == "sample", "parked locale %s stays as a sample catalog" % parked)
+		check(not L10n.automatic_ok(parked), "Automatic never picks parked sample %s" % parked)
+		check(LauncherMain._catalog_language_label(parked) != Catalog.LANGUAGES[parked].name, "parked sample %s is visibly incomplete" % parked)
+
 	check(L10n.t("common.cancel") == "Cancel", "an English message")
 	check(L10n.has("common.cancel") and not L10n.has("common.no_such_id"), "has()")
-	check(L10n.text_in("de", "common.cancel") == "Abbrechen", "a German message")
-	check(L10n.automatic_ok("de") and L10n.automatic_ok("en"), "Automatic may pick a partial product locale, never a sample")
+	for pair in [["de", "Abbrechen"], ["ru", "Отмена"], ["fr", "Annuler"], ["es", "Cancelar"], ["it", "Annulla"], ["pt-BR", "Cancelar"]]:
+		check(L10n.text_in(pair[0], "common.cancel") == pair[1], "%s common.cancel" % pair[0])
 	for code in Catalog.TEXT:
 		for id in Catalog.TEXT[code]:
 			check(Catalog.TEXT["en"].has(id), "%s translates %s, which English does not have" % [code, id])
-	check(L10n.set_language("de") and L10n.language() == "de", "set_language(de)")
-	check(L10n.t("launcher.settings.language_automatic", {"language": "Deutsch"}) == "Automatisch (Deutsch)", "a German message with a placeholder")
-	var untranslated := ""
-	for id in Catalog.TEXT["en"]:
-		if not Catalog.TEXT["de"].has(id):
-			untranslated = id
-			break
-	if untranslated != "" and not Catalog.TEXT["en"][untranslated] is Dictionary and not String(Catalog.TEXT["en"][untranslated]).contains("{"):
-		check(L10n.t(untranslated) == Catalog.TEXT["en"][untranslated], "an id German has not translated shows the English source")
+
+	# per-message English fallback across every non-English product locale and community/parked catalogs
+	for loc in ["ru", "de", "fr", "es", "it", "pt-BR", "zh-Hans"]:
+		check(L10n.set_language(loc) and L10n.language() == loc, "set_language(%s)" % loc)
+		var untranslated := ""
+		for id in Catalog.TEXT["en"]:
+			if not Catalog.TEXT[loc].has(id) and not Catalog.TEXT["en"][id] is Dictionary and not String(Catalog.TEXT["en"][id]).contains("{"):
+				untranslated = id
+				break
+		check(untranslated != "", "%s is partial/sample: at least one plain id falls back to English" % loc)
+		if untranslated != "":
+			check(L10n.t(untranslated) == Catalog.TEXT["en"][untranslated], "an id %s has not translated shows the English source" % loc)
+	check(L10n.set_language("de") and L10n.t("launcher.settings.language_automatic", {"language": "Deutsch"}) == "Automatisch (Deutsch)",
+		"a German message with a placeholder")
+	check(L10n.set_language("es") and L10n.t("launcher.settings.language_automatic", {"language": "Español"}) == "Automático (Español)",
+		"a Spanish message with accented placeholder")
+	check(L10n.set_language("it") and L10n.t("launcher.settings.language_automatic", {"language": "Italiano"}) == "Automatico (Italiano)",
+		"an Italian message with a placeholder")
+	check(L10n.set_language("ru") and L10n.t("launcher.online_count.players_online", {"count": 1}) == "1 игрок в сети"
+		and L10n.t("launcher.online_count.players_online", {"count": 3}) == "3 игрока в сети"
+		and L10n.t("launcher.online_count.players_online", {"count": 5}) == "5 игроков в сети",
+		"Russian CLDR plural forms in catalog")
+	check(L10n.set_language("es") and L10n.t("launcher.online_count.players_online", {"count": 1}) == "1 jugador en línea"
+		and L10n.t("launcher.online_count.players_online", {"count": 4}) == "4 jugadores en línea",
+		"Spanish CLDR plural forms in catalog")
+	check(L10n.set_language("it") and L10n.t("launcher.online_count.players_online", {"count": 1}) == "1 giocatore online"
+		and L10n.t("launcher.online_count.players_online", {"count": 4}) == "4 giocatori online",
+		"Italian CLDR plural forms in catalog")
 	check(L10n.set_language("en"), "back to English")
 
 	# placeholders: named, typed, read once
@@ -68,7 +100,8 @@ func _run() -> void:
 	check(L10n.format("{n:d} files", {"n": 3}) == "3 files", "{n:d}")
 	check(L10n.format("{n:d}", {"n": 3.9}) == "3", "{n:d} of a float truncates like %d")
 	check(L10n.format("{x:.1f} GB", {"x": 1.25}, "en") == "%.1f GB" % 1.25, "{x:.1f} in English")
-	check(L10n.format("{x:.2f} GB", {"x": 1.5}, "de") == "1,50 GB", "{x:.2f} in German: a decimal comma")
+	for comma_loc in ["de", "fr", "es", "it", "ru", "pt-BR"]:
+		check(L10n.format("{x:.2f} GB", {"x": 1.5}, comma_loc) == "1,50 GB", "{x:.2f} in %s: a decimal comma" % comma_loc)
 	check(L10n.format("{x:.0f}%", {"x": 99.6}) == "100%", "{x:.0f}")
 	check(L10n.format("{{literal}} {a}", {"a": "{b}"}) == "{literal} {b}", "{{ }} are braces; an argument's text is not read again")
 	check(L10n.format("{a}", {"a": "{a}{a}"}) == "{a}{a}", "no recursion")
@@ -76,16 +109,18 @@ func _run() -> void:
 
 	# plural categories (CLDR, whole numbers)
 	for c in [["en", 0, "other"], ["en", 1, "one"], ["en", 2, "other"], ["de", 1, "one"], ["de", 5, "other"], ["fr", 0, "one"],
-			["fr", 1, "one"], ["fr", 2, "other"], ["pl", 1, "one"], ["pl", 3, "few"], ["pl", 5, "many"], ["pl", 22, "few"],
-			["pl", 12, "many"], ["ru", 21, "one"], ["ru", 11, "many"], ["ru", 23, "few"], ["cs", 3, "few"], ["cs", 5, "other"],
-			["zh-Hans", 1, "other"], ["ja", 1, "other"], ["ko", 1, "other"], ["pt-BR", 0, "one"], ["pt-BR", 2, "other"]]:
+			["fr", 1, "one"], ["fr", 2, "other"], ["es", 0, "other"], ["es", 1, "one"], ["es", 2, "other"],
+			["it", 0, "other"], ["it", 1, "one"], ["it", 2, "other"], ["pl", 1, "one"], ["pl", 3, "few"], ["pl", 5, "many"],
+			["pl", 22, "few"], ["pl", 12, "many"], ["ru", 21, "one"], ["ru", 11, "many"], ["ru", 23, "few"], ["cs", 3, "few"],
+			["cs", 5, "other"], ["zh-Hans", 1, "other"], ["ja", 1, "other"], ["ko", 1, "other"], ["pt-BR", 0, "one"], ["pt-BR", 2, "other"]]:
 		check(L10n.plural_category(c[0], c[1]) == c[2], "plural_category(%s, %d) = %s" % c)
 
-	# the retail install's language: lang/<Language>.big
+	# the retail install's language: lang/<Language>.big — exact public tags are never replaced by zh/pt aliases
 	if dir != "":
 		for g in [["german", ["German.big", "GermanAudio.big", "germanpatch201.big"]], ["english", ["English.big", "englishpatch201.big"]],
-				["chinese", ["Chinese.big"]], ["brazilian", ["Brazilian.big"]], ["two", ["English.big", "French.big"]],
-				["none", ["Splash.big"]]]:
+				["russian", ["Russian.big"]], ["french", ["French.big"]], ["spanish", ["Spanish.big"]], ["italian", ["Italian.big"]],
+				["chinese", ["Chinese.big"]], ["korean", ["Korean.big"]], ["brazilian", ["Brazilian.big"]],
+				["portuguese", ["Portuguese.big"]], ["two", ["English.big", "French.big"]], ["none", ["Splash.big"]]]:
 			var lang := dir.path_join(g[0]).path_join("lang")
 			DirAccess.make_dir_recursive_absolute(lang)
 			for f in g[1]:
@@ -93,8 +128,14 @@ func _run() -> void:
 		var de := L10n.install_language(dir.path_join("german"))
 		check(de.code == "de" and de.name == "German" and de.error == "", "a German install: %s" % de)
 		check(L10n.install_language(dir.path_join("english")).code == "en", "an English install")
-		check(L10n.install_language(dir.path_join("chinese")).code == "zh-Hans", "a Simplified Chinese install uses the exact product tag")
-		check(L10n.install_language(dir.path_join("brazilian")).code == "pt-BR", "a Brazilian Portuguese install uses the exact product tag")
+		check(L10n.install_language(dir.path_join("russian")).code == "ru", "a Russian install")
+		check(L10n.install_language(dir.path_join("french")).code == "fr", "a French install")
+		check(L10n.install_language(dir.path_join("spanish")).code == "es", "a Spanish install")
+		check(L10n.install_language(dir.path_join("italian")).code == "it", "an Italian install")
+		check(L10n.install_language(dir.path_join("chinese")).code == "zh-Hans", "Chinese.big resolves to exact tag zh-Hans, never zh")
+		check(L10n.install_language(dir.path_join("korean")).code == "ko", "Korean.big resolves to ko")
+		check(L10n.install_language(dir.path_join("brazilian")).code == "pt-BR", "Brazilian.big resolves to exact tag pt-BR, never pt")
+		check(L10n.install_language(dir.path_join("portuguese")).code == "pt-BR", "Portuguese.big alias resolves to exact tag pt-BR, never pt")
 		var two := L10n.install_language(dir.path_join("two"))
 		check(two.code == "" and two.error.contains("several languages"), "two languages are not guessed: %s" % two)
 		check(L10n.install_language(dir.path_join("none")).code == "", "no language archive: unknown")

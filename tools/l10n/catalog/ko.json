@@ -1,7 +1,7 @@
 {
   "@@locale": "ko",
   "@@name": "한국어",
-  "@@status": "partial",
+  "@@status": "sample",
   "common.cancel": "취소",
   "common.close": "닫기",
   "game.wotr.map_missing.text": "이 설치에는 {region} 전투 지도가 없으므로 전투가 자동 해결되었습니다.",
