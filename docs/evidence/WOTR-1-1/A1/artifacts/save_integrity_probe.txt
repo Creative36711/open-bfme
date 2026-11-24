@@ -1,0 +1,8 @@
+BASELINE state_bytes_len=1812 state_hash=033cae70104415a3194ead818c87aad502ad3cf96c81f15021e5966df18e2887
+PROBE1 dropped_armies_and_regions accepted=false err=ERR_INVALID_SAVE loaded_state_len=- loaded_state_hash=- equals_original=-
+PROBE2 teleported_army accepted=true err=Ok loaded_army_region=east
+PROBE3 forged_command_checksums accepted=true err=Ok
+PROBE3 forged_log_resaved_checksum=still_forged
+PROBE4 forged_pending_request_checksum accepted=true err=Ok
+PROBE4 legit_result_on_forged_state ok=false err=ERR_MISMATCHED_CHECKSUM
+PROBE5 legit_load ok=true bytes_equal=true
