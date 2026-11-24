@@ -1,7 +1,7 @@
 {
   "@@locale": "ja",
   "@@name": "日本語",
-  "@@status": "partial",
+  "@@status": "sample",
   "common.cancel": "キャンセル",
   "common.close": "閉じる",
   "game.wotr.map_missing.text": "このインストールには{region}の戦闘マップがないため、戦闘は自動解決されました。",

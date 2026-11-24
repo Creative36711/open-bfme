@@ -1,0 +1,860 @@
+{
+  "english_baseline_hashes": {
+    "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+    "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+    "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+    "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+    "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+    "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+    "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+    "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+    "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+    "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+    "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+    "save_bytes": 2173,
+    "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+  },
+  "failures": [],
+  "hash_invariance_verified": true,
+  "hud_geometry_and_shaping": {
+    "de": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 40.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            224.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 48.0,
+          "text": "Laden"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 17.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 71.0,
+          "text": "Bewegen"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 11.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            120.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 77.0,
+          "text": "Speichern"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 379.0,
+          "size_y": 69.0,
+          "text": "Die Gefechtskarte für Minas Tirith ist in dieser Installation nicht vorhanden. Das Gefecht wurde daher automatisch berechnet."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 150.0,
+          "size_y": 23.0,
+          "text": "Gefechtskarte fehlt"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 4,
+          "missing_glyphs": 0,
+          "size_x": 384.0,
+          "size_y": 92.0,
+          "text": "Am Gefecht in Minas Tirith nehmen mehr gegnerische Seiten teil, als die Karte nutzbare Startpositionen hat. Es wurde daher automatisch berechnet."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 245.0,
+          "size_y": 23.0,
+          "text": "Gefecht automatisch berechnet"
+        }
+      },
+      "screenshot": "gdrive:11KBGzSL88TyOXoBsFU8V5eXjuUUDQUZC"
+    },
+    "en": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 50.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            224.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 38.0,
+          "text": "Load"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 45.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 43.0,
+          "text": "Move"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 52.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            120.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 36.0,
+          "text": "Save"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 2,
+          "missing_glyphs": 0,
+          "size_x": 343.0,
+          "size_y": 46.0,
+          "text": "The battle map for Minas Tirith is not in this installation, so the battle was auto-resolved."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 148.0,
+          "size_y": 23.0,
+          "text": "Battle map missing"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 420.0,
+          "size_y": 69.0,
+          "text": "The battle in Minas Tirith has more opposing sides than its map has usable start positions, so it was auto-resolved."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 157.0,
+          "size_y": 23.0,
+          "text": "Battle auto-resolved"
+        }
+      },
+      "screenshot": "gdrive:12Gn0IJsVk01O_oZU4d3bi3JHGm-I2Kde"
+    },
+    "es": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 36.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            224.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 52.0,
+          "text": "Cargar"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 38.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 50.0,
+          "text": "Mover"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 23.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            120.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 65.0,
+          "text": "Guardar"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 418.0,
+          "size_y": 69.0,
+          "text": "El mapa de batalla de Minas Tirith no se encuentra en esta instalación, por lo que la batalla se resolvió automáticamente."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 185.0,
+          "size_y": 23.0,
+          "text": "Falta el mapa de batalla"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 409.0,
+          "size_y": 69.0,
+          "text": "La batalla en Minas Tirith tiene más bandos enfrentados que posiciones iniciales utilizables en el mapa, por lo que se resolvió automáticamente."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 264.0,
+          "size_y": 23.0,
+          "text": "Batalla resuelta automáticamente"
+        }
+      },
+      "screenshot": "gdrive:1L8rBINza7alU6SNaa_Pm7qLpvOvlLv80"
+    },
+    "fr": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 26.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            224.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 62.0,
+          "text": "Charger"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 19.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 69.0,
+          "text": "Déplacer"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 2.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            120.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 86.0,
+          "text": "Enregistrer"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 416.0,
+          "size_y": 69.0,
+          "text": "La carte de bataille de Minas Tirith n’est pas présente dans cette installation ; la bataille a donc été résolue automatiquement."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 221.0,
+          "size_y": 23.0,
+          "text": "Carte de bataille manquante"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 414.0,
+          "size_y": 69.0,
+          "text": "La bataille de Minas Tirith compte plus de camps adverses que de positions de départ utilisables sur la carte ; elle a donc été résolue automatiquement."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 266.0,
+          "size_y": 23.0,
+          "text": "Bataille résolue automatiquement"
+        }
+      },
+      "screenshot": "gdrive:1bNmElNTnM9Xg9jIBuD0CRAdcD1gyIOB4"
+    },
+    "it": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 39.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            224.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 49.0,
+          "text": "Carica"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 40.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 48.0,
+          "text": "Muovi"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 47.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            120.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 41.0,
+          "text": "Salva"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 412.0,
+          "size_y": 69.0,
+          "text": "La mappa della battaglia per Minas Tirith non è presente in questa installazione, quindi la battaglia è stata risolta automaticamente."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 250.0,
+          "size_y": 23.0,
+          "text": "Mappa della battaglia mancante"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 409.0,
+          "size_y": 69.0,
+          "text": "La battaglia a Minas Tirith conta più schieramenti avversari rispetto alle posizioni iniziali utilizzabili sulla mappa, quindi è stata risolta automaticamente."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 265.0,
+          "size_y": 23.0,
+          "text": "Battaglia risolta automaticamente"
+        }
+      },
+      "screenshot": "gdrive:1IshRw-6c4pzvfm1UHlnGZn10V2lU6_Xe"
+    },
+    "ru": {
+      "button_row_fits_hud_panel": true,
+      "button_row_rect": [
+        16.0,
+        154.0,
+        460.0,
+        32.0
+      ],
+      "buttons": {
+        "load": {
+          "clip_text": false,
+          "horizontal_slack_px": 6.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            243.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 82.0,
+          "text": "Загрузить"
+        },
+        "move": {
+          "clip_text": false,
+          "horizontal_slack_px": 0.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            16.0,
+            154.0,
+            115.0,
+            32.0
+          ],
+          "shaped_width": 107.0,
+          "text": "Переместить"
+        },
+        "save": {
+          "clip_text": false,
+          "horizontal_slack_px": 0.0,
+          "missing_glyphs": 0,
+          "padding_h": 8.0,
+          "rect": [
+            139.0,
+            154.0,
+            96.0,
+            32.0
+          ],
+          "shaped_width": 88.0,
+          "text": "Сохранить"
+        }
+      },
+      "hud_panel_rect": [
+        16.0,
+        16.0,
+        460.0,
+        170.0
+      ],
+      "long_wotr_dialogs_420px": {
+        "map_missing_text": {
+          "fits_width": true,
+          "line_count": 3,
+          "missing_glyphs": 0,
+          "size_x": 400.0,
+          "size_y": 69.0,
+          "text": "Карта сражения для региона Minas Tirith отсутствует в этой установке, поэтому сражение было рассчитано автоматически."
+        },
+        "map_missing_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 230.0,
+          "size_y": 23.0,
+          "text": "Карта сражения отсутствует"
+        },
+        "rts_demoted_text": {
+          "fits_width": true,
+          "line_count": 4,
+          "missing_glyphs": 0,
+          "size_x": 395.0,
+          "size_y": 92.0,
+          "text": "В сражении в регионе Minas Tirith больше противоборствующих сторон, чем доступных стартовых позиций на карте, поэтому оно было рассчитано автоматически."
+        },
+        "rts_demoted_title": {
+          "fits_width": true,
+          "line_count": 1,
+          "missing_glyphs": 0,
+          "size_x": 310.0,
+          "size_y": 23.0,
+          "text": "Сражение рассчитано автоматически"
+        }
+      },
+      "screenshot": "gdrive:1r6a1b3vPWis3RdekYnG0Ao_tTp9X3fXl"
+    }
+  },
+  "locales": [
+    "en",
+    "ru",
+    "de",
+    "fr",
+    "es",
+    "it"
+  ],
+  "runs": [
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Move",
+        "Save",
+        "Load"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "en",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Move",
+        "Save",
+        "Load"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "en",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Переместить",
+        "Сохранить",
+        "Загрузить"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "ru",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Переместить",
+        "Сохранить",
+        "Загрузить"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "ru",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Bewegen",
+        "Speichern",
+        "Laden"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "de",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Bewegen",
+        "Speichern",
+        "Laden"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "de",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Déplacer",
+        "Enregistrer",
+        "Charger"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "fr",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Déplacer",
+        "Enregistrer",
+        "Charger"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "fr",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Mover",
+        "Guardar",
+        "Cargar"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "es",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Mover",
+        "Guardar",
+        "Cargar"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "es",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Muovi",
+        "Salva",
+        "Carica"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "it",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 1,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    },
+    {
+      "after_battle_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "after_conflict_hash": "c6d9f2a1a73d8b9d282011ba46611174ead8b2d17157401bb75c543158011cb2",
+      "after_first_move_hash": "8531f522db30630820ef692f33f19d47d80f912e7940a9c0c9e151dcda43909a",
+      "battle_request_checksum": "d2092dedace438fadc97f158656817de6e9d4117b0cf29a54e4723d0f0a06cf2",
+      "battle_request_json_sha256": "a494c8c572bc2e71fb7297d31ea77d368da8f2e930a191803148eb4522460df1",
+      "battle_result_json_sha256": "fb1eada13667daba6f4541096fa1a1107213fb25bb9cc59e6faa4053c5bd4571",
+      "hud_labels": [
+        "Muovi",
+        "Salva",
+        "Carica"
+      ],
+      "initial_snapshot_sha256": "ebc2cbb6f238c51a579e19f25987f28653a1e9f53757684884086cafe60e1b1d",
+      "initial_state_hash": "29689fc52edb46a45a3960c641c9fe18803a4e9c59c54c8167d3b4b61ac28c73",
+      "locale": "it",
+      "pack_hash": "e1835095e2a93d46582ac182ec625c1f4c5b4b6902bb45ca26212ccff5d4dd74",
+      "reloaded_snapshot_sha256": "74544f4c28ca9077746876ed4fc8a78a12984e6965b899f78a5e244f232cb6e3",
+      "reloaded_state_hash": "5ab6958ba0ed8d32985e2e4b2092d6e4dbc3a790d6daf3ad134b8a974581e32b",
+      "repeat": 2,
+      "save_bytes": 2173,
+      "save_sha256": "3fdf1af0c10e3d41599b4dbff83568d7cbc635c67072bb77489399752fe8ee0a"
+    }
+  ],
+  "runs_count": 12
+}

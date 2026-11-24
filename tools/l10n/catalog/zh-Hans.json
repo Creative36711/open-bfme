@@ -1,7 +1,7 @@
 {
   "@@locale": "zh-Hans",
   "@@name": "简体中文",
-  "@@status": "partial",
+  "@@status": "sample",
   "common.cancel": "取消",
   "common.close": "关闭",
   "game.wotr.map_missing.text": "此安装中没有 {region} 的战斗地图，因此已自动结算该战斗。",

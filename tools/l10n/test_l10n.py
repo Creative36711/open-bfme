@@ -27,12 +27,38 @@ def test_catalog_is_valid(langs):
 
 
 def test_product_locale_baseline_is_present(langs):
+    assert l10n.REQUIRED_LOCALES == ("en", "ru", "de", "fr", "es", "it")
     assert l10n.required_locale_problems(langs) == []
     assert set(l10n.REQUIRED_LOCALES).issubset(langs)
+    for code in ("ru", "de", "fr", "es", "it"):
+        assert langs[code]["@@status"] == "partial", f"{code} must stay partial until 100% coverage and native review"
+    assert langs["pt-BR"]["@@status"] == "partial"
+    for parked in ("zh-Hans", "ja", "ko"):
+        assert langs[parked]["@@status"] == "sample"
+    phase1_ids = {
+        "game.wotr.remaster.hud.load",
+        "game.wotr.remaster.hud.move",
+        "game.wotr.remaster.hud.save",
+        "game.wotr.map_missing.text",
+        "game.wotr.map_missing.title",
+        "game.wotr.rts_demoted.text",
+        "game.wotr.rts_demoted.title",
+    }
+    for code in l10n.REQUIRED_LOCALES:
+        assert phase1_ids.issubset(langs[code]), f"{code} is missing WOTR ids: {sorted(phase1_ids - set(langs[code]))}"
+
+
+def test_required_locale_missing_or_sample_is_refused(langs):
+    without_es = {k: v for k, v in langs.items() if k != "es"}
+    assert any("es.json is required" in p for p in l10n.required_locale_problems(without_es))
+    sample_it = {**langs, "it": {**langs["it"], "@@status": "sample"}}
+    assert any("it.json: required product locale cannot have @@status 'sample'" in p
+               for p in l10n.required_locale_problems(sample_it))
 
 
 def test_generated_files_are_current(langs):
     assert l10n.stale_generated(langs) == []
+    assert l10n.RUNTIME.read_bytes() == l10n.RUNTIME_COPY.read_bytes()
 
 
 def test_every_id_the_code_uses_exists_with_its_arguments(langs):
