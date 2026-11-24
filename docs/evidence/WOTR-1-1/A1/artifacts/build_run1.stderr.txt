@@ -1,0 +1,9 @@
+co1/engine/src/GameLogic/WotrRemaster/Save.cpp:32:11: warning: 'WotrRemaster::JsonValue WotrRemaster::{anonymous}::jarray()' defined but not used [-Wunused-function]
+   32 | JsonValue jarray() {
+      |           ^~~~~~
+co1/engine/src/GameLogic/WotrRemaster/Save.cpp:26:11: warning: 'WotrRemaster::JsonValue WotrRemaster::{anonymous}::jnull()' defined but not used [-Wunused-function]
+   26 | JsonValue jnull() {
+      |           ^~~~~
+co1/engine/src/GameLogic/WotrRemaster/State.cpp:53:30: warning: 'WotrRemaster::WotrResult<const WotrRemaster::JsonValue*> WotrRemaster::{anonymous}::requireNode(const WotrRemaster::JsonValue&, const std::string&, WotrRemaster::JsonValue::Type, const std::string&)' defined but not used [-Wunused-function]
+   53 | WotrResult<const JsonValue*> requireNode(const JsonValue& obj, const std::string& key,
+      |                              ^~~~~~~~~~~
