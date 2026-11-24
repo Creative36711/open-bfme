@@ -36,6 +36,7 @@ def identity():
         'tree': output('git', 'rev-parse', 'HEAD^{tree}'), 'godot_cpp': pin,
         'build_type': os.environ.get('BUILD_TYPE') or 'Release',
         'flags': os.environ.get('OPENBFME_EXTRA_CXX_FLAGS') or '-include cstddef',
+        'launcher': os.environ.get('OPENBFME_CXX_LAUNCHER') or '',
         'compiler': compiler, 'compiler_version': output(*compiler, '--version'),
     }
 
@@ -49,12 +50,23 @@ def inspect(root):
     return {name: sha(root / name) for name in paths}
 
 
+def check_outputs():
+    """build_engine.sh --check exits 0 even for missing outputs, so read its report."""
+    report = output(CHECK, '--check')
+    failed = [line.strip() for line in report.splitlines() if '\u2717' in line]
+    if failed:
+        raise ValueError('build_engine.sh --check: ' + '; '.join(failed))
+    print(f'build_engine.sh --check: {report}', flush=True)
+
+
 def verify_build_settings(config):
     cache = dict(line.split('=', 1) for line in (REPO / ROOTS[0] / 'CMakeCache.txt').read_text().splitlines()
                  if '=' in line and not line.startswith(('#', '//')))
     compiler = next(value for name, value in cache.items() if name.startswith('CMAKE_CXX_COMPILER:'))
+    launcher = next((value for name, value in cache.items() if name.startswith('CMAKE_CXX_COMPILER_LAUNCHER')), '')
     if (cache.get('CMAKE_BUILD_TYPE:STRING') != config['build_type']
             or cache.get('CMAKE_CXX_FLAGS:STRING') != config['flags']
+            or launcher != config['launcher']
             or output(compiler, '--version') != config['compiler_version']):
         raise ValueError('configured build settings do not match the key')
 
@@ -69,13 +81,14 @@ def main():
     print(f'cache key: {key}', flush=True)
     if args.action == 'key':
         return
+    print('key inputs: ' + json.dumps(config, sort_keys=True), flush=True)
     if args.store is None or args.store.resolve().is_relative_to(REPO):
         parser.error('provide a cache directory outside the checkout')
     archive = args.store.resolve() / f'{key}.tar.gz'
     if args.action == 'save':
         if (REPO / ROOTS[0] / '.arena-cache-key').read_text().strip() != f'cache key: {key}':
             raise ValueError('build provenance does not match; run build_engine.sh --clean --tests')
-        subprocess.run([CHECK, '--check'], check=True)
+        check_outputs()
         verify_build_settings(config)
         if not (REPO / 'engine/thirdparty/godot-cpp/src').is_dir():
             raise ValueError('godot-cpp sources are missing')
@@ -109,7 +122,10 @@ def main():
                             or not (member.name == 'manifest.json' or any(path.is_relative_to(r) for r in ROOTS))
                             or not (member.isfile() or member.isdir())):
                         raise ValueError(f'unsupported archive entry: {member.name}')
-                bundle.extractall(stage, members=members, filter='data')
+                if hasattr(tarfile, 'data_filter'):  # Python 3.12+; 3.11 takes no filter argument
+                    bundle.extractall(stage, members=members, filter='data')
+                else:
+                    bundle.extractall(stage, members=members)
             print('before:', json.dumps(manifest['binaries'], sort_keys=True), flush=True)
             if (stage / ROOTS[0] / '.arena-cache-key').read_text().strip() != f'cache key: {key}':
                 raise ValueError('staged build provenance mismatch')
@@ -122,7 +138,7 @@ def main():
                 for name in ROOTS:
                     (stage / name).rename(REPO / name)
                     installed.append(name)
-                subprocess.run([CHECK, '--check'], check=True)
+                check_outputs()
                 verify_build_settings(config)
                 binaries = inspect(REPO)
                 print('after:', json.dumps(binaries, sort_keys=True), flush=True)
