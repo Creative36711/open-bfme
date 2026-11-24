@@ -683,3 +683,43 @@ retail-установок, публикация retail-контента запр
 ситуацию «правка release-гейта без легального владельца»; (2) вернуть строке Localization
 `godot/wotr_remaster/l10n/**` и убрать реальные пути — снова заблокирует K5 проверкой зоны. Оба шага
 противоречат `R-ZONES` и не рекомендуются.
+
+## WOTR-D-040 · Реестр зон: `tools/release/**` → Warden, glob-перевод prose-строк, зона Transport под relay-wotr
+
+**Дата:** 2026-11-23 · **Статус:** принято; правки строк «Роли» исполнены тем же ходом · **Продолжение:** `WOTR-D-039` (наблюдения оттуда же).
+
+Три группы правок реестра по решению приёмки (`R-ZONES`; санкция Мастера «если нужны исправления — делай» от 2026-11-23).
+
+1. **Семья `tools/release/**` закреплена за строкой Warden** — шесть перечисленных файлов заменены одним
+   glob-путём (итого 17 строк зоны). Каталог — один пайплайн «процесс и CI этого репозитория» (дословно
+   поле «Гейт» строки Warden), где Warden уже владеет `tools/precommit.py`, `pr_audit.py`, `pr_pytest.py`,
+   `public_workflows.py`, `test_community_prs.py`, `audit_package.py` и `public_binaries.txt`; узор
+   `WOTR-D-022` — «одна семья — один владелец». Альтернатива «отдать Upstream Integrator» отклонена: по
+   контракту это разовая integration-роль («Только явный pin, sync tooling/report и conflict resolutions»),
+   а не постоянное обслуживание пайплайна. Sync-импорты OpenBFME не затронуты: их Scope несёт токен
+   `OPENBFME_UPSTREAM`, который гейт игнорирует с обеих сторон (§10 ТЗ), а точечные конфликты назначаются
+   карточкой. Впервые нуждающийся в правке release-инструмент получает легальный путь: карточка на Warden.
+2. **Prose-строки «Зона записи» переведены в glob-список** (§10: «no prose»; описания и exclusions — в «Гейт»).
+   AI & Simulation Engineer: `engine/src/GameLogic/WotrRemaster/AI/**`, `engine/tests/WotrRemaster/AI/**` —
+   имя подкаталога provisional (узор вложенной зоны `Bridge/**`), его фиксирует или переименовывает ADR
+   Strategic MVP (`WOTR-D-037`), правка строки — по `R-ZONES`; исключение «strategic state вне AI-поддерева
+   read-only» перенесено в «Гейт». Campaign Editor Engineer: `godot/wotr_remaster/editor/**`; пути
+   схем/миграций/валидаторов/примеров паков присоединятся строкой по выпуску карточки WOTR-2.1 — имена
+   фиксирует ТЗ миссии, догадываться заранее нельзя (урок фантомного `godot/wotr_remaster/l10n/**`,
+   `WOTR-D-039`). Technical Artist: `art/**`, `design/**`, `tools/art/**`; «явно назначаемые карточкой
+   ассеты» и запрет retail-копий перенесены в «Гейт».
+3. **Зона Transport Maintainer пересобрана под контекст поля «Репозиторий» = `Creative36711/relay-wotr`** —
+   контракт `docs/agents/roles/transport-maintainer.md` и «Гейт» строки уже задавали этот контекст, а поле
+   «Зона записи» отставало (в нём оставались пути open-bfme эпохи до `WOTR-D-033`). Стало: `tools/script-cat/**`,
+   `tools/relay-*.mjs`, `package.json`, `.github/**`, `README.md`, `docs/REGULATION.md`,
+   `docs/regulation-digest.md`, `docs/agents/**`, `docs/DECISIONS.md`, `docs/DECISIONS-UPSTREAM.md`,
+   `docs/scriptcat-update.md`. Убраны `tools/*.mjs`, `WARDEN-SCRIPTCAT-MIGRATION.md` и широкий `docs/**`
+   (по контракту: «a docs/** glob once delivered 31 588 lines of product pages to a public transport
+   repository»; множество зеркальных документов закрыто именами). Следствие: open-bfme transport-пути
+   не покрываются ни одной зоной, и PR, возвращающий `tools/script-cat/**` или `tools/relay-*.mjs` в
+   open-bfme, законно отклоняется гейтом — ровно как требует контракт.
+
+**Откат:** три пункта независимы. (1) возврат перечисления шести файлов вместо `tools/release/**` снова
+откроет класс дефектов на каждый файл каталога; (2) возврат prose-строк вернёт нечитаемость зон для
+гейта; (3) возврат open-bfme-списка Transport снова даст роли права на чужое дерево вопреки `WOTR-D-033`
+и контракту. Ни один шаг не рекомендуется.
