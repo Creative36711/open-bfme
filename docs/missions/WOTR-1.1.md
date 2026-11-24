@@ -248,9 +248,12 @@ Acceptance record includes:
 - narrow OpenBFME/Godot adapter points named by K3;
 - `godot/wotr_remaster/**` for K4;
 - `tools/l10n/**` (catalog, `REQUIRED_LOCALES`, tool tests), the generated catalog outputs
-  `launcher/scripts/l10n/catalog.gd` and `godot/scripts/l10n/catalog.gd` - written only by
+  `launcher/scripts/l10n/catalog.gd`, `godot/scripts/l10n/catalog.gd` and
+  `engine/src/GameClient/OpenBFMETextCatalog.inc` - written only by
   `python3 tools/l10n/l10n.py generate`, the locale runtime `launcher/scripts/l10n/l10n.gd` with its
   `godot/scripts/l10n/l10n.gd` copy, and `launcher/tests/l10n_test.gd` for K5;
+  `engine/src/GameClient/OpenBFMEText.cpp` and `OpenBFMEText.h` (plural/number rules) stay out of K5
+  and belong to the phase 6 community-tier card;
 - `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**` for the tiny pack;
 - additive test/evidence documents explicitly named by audit cards.
 
@@ -287,7 +290,7 @@ a machine. The rules below are normative for slicing.
 | `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**`, `docs/evidence/WOTR-1-1/K2/**` | Strategic Core Engineer | K2 |
 | `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**`, `engine/CMakeLists.txt`, `engine/cmake/WotrRemaster1.cmake`, `docs/evidence/WOTR-1-1/K3/**` | Tactical Bridge Engineer | K3 |
 | `godot/wotr_remaster/**`, `docs/evidence/WOTR-1-1/K4/**` | Godot World Engineer | K4 |
-| `tools/l10n/**`, `launcher/scripts/l10n/**`, `godot/scripts/l10n/**`, `launcher/tests/l10n_test.gd`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
+| `tools/l10n/**`, `launcher/scripts/l10n/**`, `godot/scripts/l10n/**`, `engine/src/GameClient/OpenBFMETextCatalog.inc`, `launcher/tests/l10n_test.gd`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
 | `docs/evidence/WOTR-1-1/A1/**` | Determinism & Save Auditor | A1 |
 | `docs/evidence/WOTR-1-1/A2/**` | UX & Modding Auditor | A2 |
 | `docs/evidence/WOTR-1-1/A3/**` | Integration Auditor | A3, `B0` (read-only, no repo writes) |

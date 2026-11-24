@@ -771,3 +771,31 @@ Warden держит `tools/release/**` целиком; прежняя форму
 
 **Откат:** удалить контракт и вернуть формулировку «provisional» в «Гейт» — снова откроет лимбо
 имени подкаталога до ADR.
+
+## WOTR-D-043 · Scope K5: generated `OpenBFMETextCatalog.inc` в скоупе, `OpenBFMEText.cpp/.h` — вне
+
+**Дата:** 2026-11-24 · **Статус:** принято · **Прецедент:** `WOTR-D-039` (зона Localization).
+
+Исполнитель K5 остановился протокольным вопросом: `python3 tools/l10n/l10n.py generate` обновляет
+`engine/src/GameClient/OpenBFMETextCatalog.inc` (третий потребитель `CONSUMERS` в `tools/l10n/l10n.py:44-48`),
+без чего `l10n.py check` и `test_generated_files_are_current` падают на `stale_generated`; путь
+`engine/src/GameClient/OpenBFMEText*` входит в «Зону записи» роли (`WOTR-D-039` п.2), но Scope карточки K5
+говорил «Not in scope: `engine/**`».
+
+Решение приёмки (Warden, `R-ZONES` / `R-QUESTIONS`): отвечает Warden, не Coordinator — коллизия зоны,
+Scope и §10 есть толкование ТЗ миссии, а Coordinator владеет очередью внутри принятой спецификации.
+Выбран вариант «включить generated `.inc`», `WOTR-BLOCKED` отклонён: оракул §8 K5 требует `check` rc 0,
+который без `.inc` невыполним; `.inc` — механический выход in-scope генератора `tools/l10n/**`
+(шапка `do not edit`), а не правка C++-правил. Исключение «`engine/**`» читается как «без ручных правок
+`OpenBFMEText.cpp/.h`; generated `.inc` — исключение». `es`/`it` плюралы уже есть во всех трёх рантаймах
+(`WOTR-D-032`), правка `.cpp` не нужна; фаза 6 не втягивается.
+
+Исправление: §10 ТЗ (`docs/missions/WOTR-1.1.md`) дополнен — в «Allowed by cards» и в таблице владельцев
+ряда K5 добавлен `engine/src/GameClient/OpenBFMETextCatalog.inc`; `OpenBFMEText.cpp/.h` явно оставлены
+вне K5. Зона роли не меняется (уже `OpenBFMEText*`). Оракул §8/§9 не изменён, новая карточка не заводится.
+Исполнитель: только `generate`, `.cpp` не трогать, коллизию зафиксировать в `report.md` с командой, SHA и
+строкой `Допущение:`. Coordinator приводит поле Scope карточки K5 в соответствие с §10; ответ Warden
+доставляется с исходными ID (D-105).
+
+**Откат:** убрать `.inc` из §10 — снова сделает K5 невыполнимым без нарушения Scope или ослабления оракула;
+не рекомендуется.
