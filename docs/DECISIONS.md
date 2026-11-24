@@ -751,3 +751,23 @@ Warden держит `tools/release/**` целиком; прежняя форму
 **Откат:** два независимых шага. (1) удалить `tools/relay/**` из строки Warden — вернёт «подъём пина без
 легального владельца»; (2) вернуть «Продолжение» в `WOTR-D-040` и снять пометку в «Откате» `WOTR-D-039` —
 вернёт расхождение журнала.
+
+## WOTR-D-042 · Контракт AI & Simulation Engineer; `AI/**` — закреплённое имя, не provisional
+
+**Дата:** 2026-11-23 · **Статус:** принято · **Закрывает наблюдения** разбора `WOTR-D-041`.
+
+1. Написан контракт `docs/agents/roles/ai-simulation-engineer.md` по образцу
+   `localization-cultural-qa-engineer.md`: миссия (command-producing AI, autoresolve и
+   воспроизводимая симуляция по объёму фаз из `docs/PHASES.md`), зона, обязанности (ordinary
+   commands only, именованный seeded RNG, fixed-seed repeatability, no hidden mutation —
+   `specializations.md`), гейт (scenario replay детерминирован, dual-run hash, отсутствие
+   скрытых мутаций) и правило «не принимает собственную работу» (evidence Coordinator;
+   Determinism & Save Auditor — независимая проверка; Warden — продуктовая граница).
+2. Имя подкаталога `engine/src/GameLogic/WotrRemaster/AI/**` (тесты
+   `engine/tests/WotrRemaster/AI/**`) перестаёт быть provisional: оно зафиксировано контрактом
+   и строкой «Роли». ADR Strategic MVP (`WOTR-D-037`) обязан его придерживаться; переименование —
+   явная правка строки и контракта по `R-ZONES`, а не молчаливое расхождение. Ячейка
+   `specializations.md` (Primary write zone) и «Гейт» Notion-строки приведены к тому же тексту.
+
+**Откат:** удалить контракт и вернуть формулировку «provisional» в «Гейт» — снова откроет лимбо
+имени подкаталога до ADR.

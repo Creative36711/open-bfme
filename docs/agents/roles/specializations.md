@@ -9,7 +9,7 @@ All engineering specializations inherit `executor.md`; all audits inherit `audit
 | Godot World Engineer | `godot/wotr_remaster/world/**`, assigned UI scenes/themes | headless interaction, `Control`/`Theme` integration per `docs/tooling/ART-PIPELINE.md`, opened screenshot/video, frame/memory facts |
 | Campaign Editor Engineer | `godot/wotr_remaster/editor/**`, campaign schemas/migrations | validation, undo/redo, export/reopen identical hash and malformed input failures |
 | Technical Artist | `art/wotr_remaster/**`, assigned runtime presentation assets | style brief, named 0–10 image budget, provenance/license/source+output hashes, alpha/chromakey and 9-slice contract, opened Godot visual |
-| AI & Simulation Engineer | WOTR AI/autoresolve modules | ordinary commands only, named RNG, fixed-seed repeatability, no hidden mutation |
+| AI & Simulation Engineer | `engine/src/GameLogic/WotrRemaster/AI/**`, `engine/tests/WotrRemaster/AI/**` | ordinary commands only, named RNG, fixed-seed repeatability, no hidden mutation |
 | Localization & Cultural QA Engineer | `tools/l10n/**`, assigned localization runtime/font/input paths | required-locale coverage, native review, rendering/font/input smoke and locale-invariant hash |
 | Upstream Integrator | `OPENBFME_UPSTREAM`, sync report/tooling and named conflicts | range/conflict report, full build/regressions and native retail round-trip |
 | Integration Auditor | isolated tests/evidence | clean-checkout Arena strategic→tactical→result→save proof |
