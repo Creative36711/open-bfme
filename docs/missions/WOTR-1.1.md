@@ -144,6 +144,9 @@ If OpenBFME cannot currently produce a field, the DTO still represents it with e
 | `WOTR-1.1-K4` | Godot World Engineer / Executor | K2,K3 | full | hydrate¹ | minimal 2.5D interaction and automated route through battle/return/save |
 | `WOTR-1.1-K5` | Localization & Cultural QA Engineer / Executor | K4 | full | none | exact six product-locale catalogs (`en`,`ru`,`de`,`fr`,`es`,`it` per `WOTR-D-032`) with fallback, generated tables, hash-invariance and target-screen evidence |
 | `WOTR-1.1-A1` | Determinism & Save Auditor / Auditor | K2,K4 | focused | none | independent dual-run and corruption/transactionality report |
+| `WOTR-1.1-Def-A1-1` | Strategic Core Engineer / Executor | A1 | full | none | save envelope carries its own canonical state hash, `loadCampaign` cross-checks it, `a1_probe` PROBE 2 refuses it |
+| `WOTR-1.1-Def-A1-2` | Strategic Core Engineer / Executor | A1 | focused | none | `loadCampaign` re-verifies every `acceptedCommands[*].checksum`, PROBE 3 refuses a forged command log |
+| `WOTR-1.1-Def-A1-3` | Strategic Core Engineer / Executor | A1 | focused | none | `loadCampaign` binds `pendingBattle` to `phase == BattlePending` and `commandCursor == acceptedCommands.size()`, PROBE 4 refuses |
 | `WOTR-1.1-A2` | UX & Modding Auditor / Auditor | K4,K5 | focused | none | opened locale visuals plus independent pack/reference/cultural boundary report |
 | `WOTR-1.1-A3` | Integration Auditor / Auditor | K1–K5,A1,A2 | full | hydrate¹ | clean-checkout Arena retail end-to-end evidence |
 
@@ -294,7 +297,7 @@ a machine. The rules below are normative for slicing.
 | Path | Owning role row | Cards |
 |---|---|---|
 | `OPENBFME_UPSTREAM`, `tools/arena/**`, `docs/UPSTREAM_SYNC.md`, `docs/evidence/WOTR-1-1/K1/**` | Upstream Integrator | K1 |
-| `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**`, `docs/evidence/WOTR-1-1/K2/**` | Strategic Core Engineer | K2 |
+| `engine/src/GameLogic/WotrRemaster/**`, `engine/tests/WotrRemaster/**`, `campaigns/schema/**`, `campaigns/fixtures/wotr_1_1/**`, `docs/evidence/WOTR-1-1/K2/**`, `docs/evidence/WOTR-1-1/Def-A1-1/**`, `docs/evidence/WOTR-1-1/Def-A1-2/**`, `docs/evidence/WOTR-1-1/Def-A1-3/**` | Strategic Core Engineer | K2, Def-A1-1..3 |
 | `engine/src/GameLogic/WotrRemaster/Bridge/**`, `engine/tests/WotrRemaster/Bridge/**`, `engine/CMakeLists.txt`, `engine/cmake/WotrRemaster1.cmake`, `docs/evidence/WOTR-1-1/K3/**` | Tactical Bridge Engineer | K3 |
 | `godot/wotr_remaster/**`, `docs/evidence/WOTR-1-1/K4/**` | Godot World Engineer | K4 |
 | `tools/l10n/**`, `launcher/scripts/l10n/**`, `godot/scripts/l10n/**`, `engine/src/GameClient/OpenBFMETextCatalog.inc`, `launcher/tests/l10n_test.gd`, `docs/evidence/WOTR-1-1/K5/**` | Localization & Cultural QA Engineer | K5 |
