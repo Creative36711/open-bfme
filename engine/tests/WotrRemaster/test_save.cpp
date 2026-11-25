@@ -166,3 +166,152 @@ TEST_CASE("save: incompatible tactical profile is rejected") {
     CHECK_FALSE(loaded.ok());
     CHECK(loaded.err == WotrErrc::IncompatiblePack);
 }
+
+TEST_CASE("save: legitimate save envelope carries canonical stateHash and round-trips byte-identically") {
+    auto [pack, s] = resolvedState();
+    const std::string envelope = saveCampaign(s, pack);
+    auto parsed = parseSaveEnvelope(envelope);
+    INFO(parsed.message);
+    REQUIRE(parsed.ok());
+    CHECK(parsed.value.stateHash == stateHash(s));
+    CHECK(parsed.value.stateBytes == canonicalState(s));
+    CHECK(serializeSaveEnvelope(parsed.value) == envelope);
+
+    auto loaded = loadCampaign(envelope, pack);
+    INFO(loaded.message);
+    REQUIRE(loaded.ok());
+    CHECK(canonicalState(loaded.value) == canonicalState(s));
+    CHECK(stateHash(loaded.value) == stateHash(s));
+    CHECK(saveCampaign(loaded.value, pack) == envelope);
+}
+
+TEST_CASE("save: A1 PROBE 2 reproducer (re-sealed envelope with army_gondor.regionId = east) is refused") {
+    auto packRes = loadPack(readFile(fixtureDir() + "/pack.json"));
+    INFO(packRes.message);
+    REQUIRE(packRes.ok());
+    const Pack pack = packRes.value;
+
+    auto st = initialState(pack, 7ull);
+    INFO(st.message);
+    REQUIRE(st.ok());
+    auto r = resolveCommands(
+        st.value,
+        {moveEnvelopeTest(0, "faction_gondor", 1, "c1", "army_gondor", "crossing"),
+         moveEnvelopeTest(0, "faction_mordor", 1, "c2", "army_mordor", "crossing")});
+    INFO(r.message);
+    REQUIRE(r.ok());
+    REQUIRE(r.value.state.armies.at("army_gondor").regionId == "crossing");
+
+    const std::string beforeBytes = canonicalState(r.value.state);
+    const std::string beforeHash = stateHash(r.value.state);
+
+    const std::string envelope = saveCampaign(r.value.state, pack);
+    auto parsed = parseSaveEnvelope(envelope);
+    INFO(parsed.message);
+    REQUIRE(parsed.ok());
+    CHECK(parsed.value.stateHash == beforeHash);
+
+    // Re-seal the envelope over an altered inner state (army_gondor.regionId = east
+    // while the army is in crossing), matching A1 PROBE 2 verbatim.
+    WotrSaveEnvelopeV1 forged = parsed.value;
+    JsonValue inner = JsonValue::parse(forged.stateBytes);
+    for (auto& a : inner.objectValue.at("armies").arrayValue) {
+        if (a.objectValue.at("id").stringValue == "army_gondor") {
+            a.objectValue.at("regionId").stringValue = "east";
+        }
+    }
+    forged.stateBytes = inner.canonical();
+    forged.checksum = Sha256::hashHex(saveEnvelopePayload(forged));
+    const std::string forgedEnvelope = serializeSaveEnvelope(forged);
+
+    // Outer envelope checksum is validly re-sealed over the payload including stateHash.
+    auto forgedParsed = parseSaveEnvelope(forgedEnvelope);
+    REQUIRE(forgedParsed.ok());
+
+    // loadCampaign cross-checks stateHash == stateHash(parsedState) and refuses.
+    auto res = loadCampaign(forgedEnvelope, pack);
+    CHECK_FALSE(res.ok());
+    CHECK(res.err == WotrErrc::DamagedSaveChecksum);
+    CHECK(std::string(errcName(res.err)) == "ERR_DAMAGED_SAVE_CHECKSUM");
+    CHECK_FALSE(res.message.empty());
+    CHECK(canonicalState(r.value.state) == beforeBytes);
+    CHECK(stateHash(r.value.state) == beforeHash);
+
+    // Legitimate envelope on the same state still loads byte-identically.
+    auto legit = loadCampaign(envelope, pack);
+    INFO(legit.message);
+    REQUIRE(legit.ok());
+    CHECK(canonicalState(legit.value) == beforeBytes);
+    CHECK(stateHash(legit.value) == beforeHash);
+}
+
+TEST_CASE("save: stateHash is hashed inside envelope payload and cross-checked at load") {
+    auto [pack, s] = resolvedState();
+    const std::string envelope = saveCampaign(s, pack);
+    auto parsed = parseSaveEnvelope(envelope);
+    REQUIRE(parsed.ok());
+
+    // Tampering with stateHash without re-sealing breaks the outer envelope checksum.
+    JsonValue unsealed = JsonValue::parse(envelope);
+    unsealed.objectValue.at("stateHash").stringValue = std::string(64, '0');
+    auto badOuter = parseSaveEnvelope(unsealed.canonical());
+    CHECK_FALSE(badOuter.ok());
+    CHECK(badOuter.err == WotrErrc::DamagedSaveChecksum);
+
+    // Re-sealing with a wrong stateHash over valid stateBytes fails at loadCampaign.
+    WotrSaveEnvelopeV1 badHashEnv = parsed.value;
+    badHashEnv.stateHash = std::string(64, '0');
+    badHashEnv.checksum = Sha256::hashHex(saveEnvelopePayload(badHashEnv));
+    const std::string resealedBadHash = serializeSaveEnvelope(badHashEnv);
+    REQUIRE(parseSaveEnvelope(resealedBadHash).ok());
+    auto loadedBadHash = loadCampaign(resealedBadHash, pack);
+    CHECK_FALSE(loadedBadHash.ok());
+    CHECK(loadedBadHash.err == WotrErrc::DamagedSaveChecksum);
+
+    // Re-sealing with non-canonical stateBytes (extra unparsed field) fails even if
+    // stateHash equals stateHash(parsedState).
+    WotrSaveEnvelopeV1 nonCanonicalEnv = parsed.value;
+    JsonValue extraInner = JsonValue::parse(nonCanonicalEnv.stateBytes);
+    JsonValue extraVal;
+    extraVal.type = JsonValue::Type::String;
+    extraVal.stringValue = "injected";
+    extraInner.objectValue.emplace("extraField", extraVal);
+    nonCanonicalEnv.stateBytes = extraInner.canonical();
+    nonCanonicalEnv.checksum = Sha256::hashHex(saveEnvelopePayload(nonCanonicalEnv));
+    auto loadedNonCanonical = loadCampaign(serializeSaveEnvelope(nonCanonicalEnv), pack);
+    CHECK_FALSE(loadedNonCanonical.ok());
+    CHECK(loadedNonCanonical.err == WotrErrc::DamagedSaveChecksum);
+}
+
+TEST_CASE("save: stale envelope missing stateHash or unknown inner schemaVersion fails without fallback") {
+    auto [pack, s] = resolvedState();
+    const std::string envelope = saveCampaign(s, pack);
+
+    // Stale envelope missing stateHash (even if outer checksum is recomputed over
+    // the remaining fields) fails with InvalidSave — no silent migration/fallback.
+    JsonValue stale = JsonValue::parse(envelope);
+    stale.objectValue.erase("stateHash");
+    JsonValue stalePayload = stale;
+    stalePayload.objectValue.erase("checksum");
+    stale.objectValue.at("checksum").stringValue = Sha256::hashHex(stalePayload.canonical());
+    const std::string staleText = stale.canonical();
+    auto staleParsed = parseSaveEnvelope(staleText);
+    CHECK_FALSE(staleParsed.ok());
+    CHECK(staleParsed.err == WotrErrc::InvalidSave);
+    CHECK_FALSE(staleParsed.message.find("stateHash") == std::string::npos);
+    auto staleLoaded = loadCampaign(staleText, pack);
+    CHECK_FALSE(staleLoaded.ok());
+    CHECK(staleLoaded.err == WotrErrc::InvalidSave);
+
+    // Re-sealed envelope with unknown inner schemaVersion keeps failing with UnknownSaveVersion.
+    auto parsed = parseSaveEnvelope(envelope);
+    REQUIRE(parsed.ok());
+    WotrSaveEnvelopeV1 badSchema = parsed.value;
+    JsonValue inner = JsonValue::parse(badSchema.stateBytes);
+    inner.objectValue.at("schemaVersion").uintValue = 2;
+    badSchema.stateBytes = inner.canonical();
+    badSchema.checksum = Sha256::hashHex(saveEnvelopePayload(badSchema));
+    auto badSchemaLoaded = loadCampaign(serializeSaveEnvelope(badSchema), pack);
+    CHECK_FALSE(badSchemaLoaded.ok());
+    CHECK(badSchemaLoaded.err == WotrErrc::UnknownSaveVersion);
+}

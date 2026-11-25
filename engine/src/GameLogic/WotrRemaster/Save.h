@@ -3,8 +3,9 @@
 // (WotrSaveEnvelopeV1, §9 of the architecture).
 //
 // Envelope: schema version, contract version, Campaign Pack identity/hash,
-// tactical profile, canonical state bytes, command cursor, RNG metadata and
-// checksum. Load is transactional: parse and validate into a fresh state,
+// tactical profile, canonical state bytes, canonical state hash, command
+// cursor, RNG metadata and checksum. Load is transactional: parse and
+// validate into a fresh state, require stateHash == stateHash(parsedState),
 // swap only on success. Unknown version and damaged checksum are named,
 // nonzero failures.
 
@@ -27,6 +28,7 @@ struct WotrSaveEnvelopeV1 {
     PackHash packHash;
     ProfileId tacticalProfile;
     std::string stateBytes;     // canonical state bytes
+    std::string stateHash;      // sha-256 hex of canonical state bytes
     std::uint64_t commandCursor = 0; // number of accepted commands
     std::string rngMetadata;    // "{}" — no ambient RNG in this core phase
     std::string checksum;       // sha-256 hex of the envelope fields above
@@ -45,8 +47,9 @@ std::string saveCampaign(const CampaignState& s, const Pack& pack);
 WotrResult<WotrSaveEnvelopeV1> parseSaveEnvelope(const std::string& text);
 
 // Load a campaign from envelope text into a fresh instance, transactionally.
-// Named errors include ERR_INCOMPATIBLE_PACK (pack/profile mismatch) and
-// errors from state validation (ERR_INVALID_SAVE). On failure no state is
+// Named errors include ERR_INCOMPATIBLE_PACK (pack/profile mismatch),
+// ERR_DAMAGED_SAVE_CHECKSUM (stateHash mismatch / non-canonical stateBytes)
+// and errors from state validation (ERR_INVALID_SAVE). On failure no state is
 // produced.
 WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack);
 

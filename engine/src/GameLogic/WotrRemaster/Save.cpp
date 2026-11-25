@@ -41,6 +41,30 @@ JsonValue jobject() {
     return x;
 }
 
+bool isLowerHex64(const std::string& s) {
+    if (s.size() != 64) return false;
+    for (char c : s) {
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+    }
+    return true;
+}
+
+// When raw byte corruption inside a canonically serialized envelope breaks JSON
+// quoting/escaping (for instance flipping a backslash inside stateBytes), the
+// outer {"checksum":"<64-hex>",...} frame still carries the sealed digest and
+// the reconstructed payload will fail SHA-256 verification.
+bool hasDamagedCanonicalEnvelopeChecksum(const std::string& text) {
+    static const std::string prefix = "{\"checksum\":\"";
+    if (text.size() < prefix.size() + 64 + 3) return false;
+    if (text.compare(0, prefix.size(), prefix) != 0) return false;
+    if (text.back() != '}') return false;
+    const std::string declared = text.substr(prefix.size(), 64);
+    if (!isLowerHex64(declared)) return false;
+    if (text.compare(prefix.size() + 64, 2, "\",") != 0) return false;
+    const std::string rawPayload = "{" + text.substr(prefix.size() + 64 + 2);
+    return Sha256::hashHex(rawPayload) != declared;
+}
+
 } // namespace
 
 std::string saveEnvelopePayload(const WotrSaveEnvelopeV1& e) {
@@ -51,6 +75,7 @@ std::string saveEnvelopePayload(const WotrSaveEnvelopeV1& e) {
     env.objectValue.emplace("packHash", jstr(e.packHash));
     env.objectValue.emplace("tacticalProfile", jstr(e.tacticalProfile));
     env.objectValue.emplace("stateBytes", jstr(e.stateBytes));
+    env.objectValue.emplace("stateHash", jstr(e.stateHash));
     env.objectValue.emplace("commandCursor", juint(e.commandCursor));
     env.objectValue.emplace("rngMetadata", jstr(e.rngMetadata));
     return env.canonical();
@@ -64,6 +89,7 @@ std::string serializeSaveEnvelope(const WotrSaveEnvelopeV1& e) {
     env.objectValue.emplace("packHash", jstr(e.packHash));
     env.objectValue.emplace("tacticalProfile", jstr(e.tacticalProfile));
     env.objectValue.emplace("stateBytes", jstr(e.stateBytes));
+    env.objectValue.emplace("stateHash", jstr(e.stateHash));
     env.objectValue.emplace("commandCursor", juint(e.commandCursor));
     env.objectValue.emplace("rngMetadata", jstr(e.rngMetadata));
     env.objectValue.emplace("checksum", jstr(e.checksum));
@@ -78,6 +104,7 @@ std::string saveCampaign(const CampaignState& s, const Pack& pack) {
     e.packHash = contentHashOf(pack);
     e.tacticalProfile = pack.manifest.tacticalProfile;
     e.stateBytes = canonicalState(s);
+    e.stateHash = stateHash(s);
     e.commandCursor = s.acceptedCommands.size();
     e.rngMetadata = "{}";
     e.checksum = Sha256::hashHex(saveEnvelopePayload(e));
@@ -89,6 +116,10 @@ WotrResult<WotrSaveEnvelopeV1> parseSaveEnvelope(const std::string& text) {
     try {
         root = JsonValue::parse(text);
     } catch (const JsonParseError& ex) {
+        if (hasDamagedCanonicalEnvelopeChecksum(text)) {
+            return fail<WotrSaveEnvelopeV1>(WotrErrc::DamagedSaveChecksum,
+                                            "save envelope checksum does not verify");
+        }
         return fail<WotrSaveEnvelopeV1>(WotrErrc::InvalidSave, ex.what());
     }
     if (!root.isObject()) {
@@ -152,6 +183,10 @@ WotrResult<WotrSaveEnvelopeV1> parseSaveEnvelope(const std::string& text) {
     auto stateBytesRes = reqStr("stateBytes");
     if (!stateBytesRes.ok()) return fail<WotrSaveEnvelopeV1>(stateBytesRes.err, stateBytesRes.message);
     e.stateBytes = stateBytesRes.value;
+
+    auto stateHashRes = reqStr("stateHash");
+    if (!stateHashRes.ok()) return fail<WotrSaveEnvelopeV1>(stateHashRes.err, stateHashRes.message);
+    e.stateHash = stateHashRes.value;
 
     auto cursorRes = reqUInt("commandCursor");
     if (!cursorRes.ok()) return fail<WotrSaveEnvelopeV1>(cursorRes.err, cursorRes.message);
@@ -541,6 +576,19 @@ WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack
         }
         e.checksum = f->stringValue;
         s.acceptedCommands.push_back(e);
+    }
+
+    const std::string parsedStateHash = stateHash(s);
+    if (e.stateHash != parsedStateHash) {
+        return fail<CampaignState>(
+            WotrErrc::DamagedSaveChecksum,
+            "save envelope stateHash '" + e.stateHash +
+                "' does not match canonical state hash '" + parsedStateHash + "'");
+    }
+    if (canonicalState(s) != e.stateBytes) {
+        return fail<CampaignState>(
+            WotrErrc::DamagedSaveChecksum,
+            "save envelope stateBytes do not match canonical state bytes");
     }
 
     return ok(s);
