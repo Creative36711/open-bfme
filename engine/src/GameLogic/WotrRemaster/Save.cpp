@@ -597,6 +597,65 @@ WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack
         s.acceptedCommands.push_back(std::move(cmd));
     }
 
+    // A pending battle is only valid at the exact resolution boundary that
+    // produced it: its phase must be explicit, and the save cursor must cover
+    // the complete accepted command log. Rebuild the immutable request checksum
+    // from the loaded state (excluding the pending marker itself) so a forged
+    // request cannot permanently wedge result application.
+    if (s.pendingBattle) {
+        if (s.phase != Phase::BattlePending) {
+            return fail<CampaignState>(WotrErrc::InvalidSave,
+                                       "embedded state: pendingBattle requires BattlePending phase");
+        }
+        if (e.commandCursor != s.acceptedCommands.size()) {
+            return fail<CampaignState>(WotrErrc::InvalidSave,
+                                       "save commandCursor does not match acceptedCommands size");
+        }
+
+        CampaignState requestState = s;
+        requestState.pendingBattle.reset();
+        requestState.phase = Phase::Planning;
+        BattleRequestV1 request;
+        request.contractVersion = 1;
+        request.id = s.pendingBattle->id;
+        request.stateHash = stateHash(requestState);
+        request.packId = s.packId;
+        request.packHash = s.packHash;
+        request.tacticalProfile = s.tacticalProfile;
+        request.tacticalMap = s.tacticalMap;
+        request.tacticalSeed = s.initialSeed;
+        request.regionId = s.pendingBattle->regionId;
+        std::map<FactionId, std::uint8_t> sideByFaction;
+        std::uint8_t nextSide = 0;
+        for (const auto& armyId : s.pendingBattle->participants) {
+            const StateArmy& army = s.armies.at(armyId);
+            auto side = sideByFaction.emplace(army.factionId, nextSide++);
+            TacticalArmy tacticalArmy;
+            tacticalArmy.id = armyId;
+            tacticalArmy.factionId = army.factionId;
+            tacticalArmy.side = side.first->second;
+            for (const auto& member : army.members) {
+                TacticalMember tacticalMember;
+                tacticalMember.id = member.id;
+                tacticalMember.templateId = member.kind;
+                tacticalMember.quantity = member.quantity;
+                tacticalMember.experience = member.experience;
+                tacticalMember.persistentUpgrades = member.persistentUpgrades;
+                tacticalArmy.members.push_back(std::move(tacticalMember));
+            }
+            request.participants.push_back(std::move(tacticalArmy));
+            TacticalSeat seat;
+            seat.playerId = army.factionId;
+            seat.human = true;
+            request.seats.push_back(std::move(seat));
+        }
+        request.requestChecksum = battleRequestChecksum(request);
+        if (s.pendingBattle->requestChecksum != request.requestChecksum) {
+            return fail<CampaignState>(WotrErrc::DamagedSaveChecksum,
+                                       "pendingBattle requestChecksum does not match reconstructed battle request");
+        }
+    }
+
     const std::string parsedStateHash = stateHash(s);
     if (e.stateHash != parsedStateHash) {
         return fail<CampaignState>(

@@ -424,3 +424,77 @@ TEST_CASE("save: acceptedCommands payload tampering with stale command checksum 
     CHECK(std::string(errcName(loaded.err)) == "ERR_DAMAGED_CHECKSUM");
     CHECK(loaded.value.acceptedCommands.empty());
 }
+
+TEST_CASE("save: pending battle binds request checksum, phase, and command cursor at load") {
+    auto packRes = loadPack(readFile(fixtureDir() + "/pack.json"));
+    REQUIRE(packRes.ok());
+    const Pack pack = packRes.value;
+    auto initial = initialState(pack, 42u);
+    REQUIRE(initial.ok());
+    auto outcome = resolveCommands(
+        initial.value,
+        {moveEnvelopeTest(0, "faction_gondor", 1, "pending-g", "army_gondor", "crossing"),
+         moveEnvelopeTest(0, "faction_mordor", 1, "pending-m", "army_mordor", "crossing")});
+    REQUIRE(outcome.ok());
+    REQUIRE(outcome.value.battlePending);
+    REQUIRE(outcome.value.state.pendingBattle.has_value());
+    const std::string legitimate = saveCampaign(outcome.value.state, pack);
+    const auto parsed = parseSaveEnvelope(legitimate);
+    REQUIRE(parsed.ok());
+
+    auto tryForgedInner = [&](const std::string& field, const std::string& nested,
+                              const std::string& stringValue, std::uint64_t uintValue) {
+        WotrSaveEnvelopeV1 forged = parsed.value;
+        JsonValue inner = JsonValue::parse(forged.stateBytes);
+        JsonValue* node = &inner;
+        if (!nested.empty()) node = &node->objectValue.at(nested);
+        if (field == "requestChecksum") node->objectValue.at(field).stringValue = stringValue;
+        else if (field == "phase") node->objectValue.at(field).uintValue = uintValue;
+        else if (field == "commandCursor") forged.commandCursor = uintValue;
+        forged.stateBytes = inner.canonical();
+        forged.stateHash = Sha256::hashHex(forged.stateBytes);
+        forged.checksum = Sha256::hashHex(saveEnvelopePayload(forged));
+        return loadCampaign(serializeSaveEnvelope(forged), pack);
+    };
+
+    auto badRequest = tryForgedInner("requestChecksum", "pendingBattle", std::string(64, '0'), 0);
+    CHECK_FALSE(badRequest.ok());
+    CHECK(badRequest.err == WotrErrc::DamagedSaveChecksum);
+    CHECK(std::string(errcName(badRequest.err)) == "ERR_DAMAGED_SAVE_CHECKSUM");
+
+    auto badPhase = tryForgedInner("phase", "", "", static_cast<std::uint64_t>(Phase::Planning));
+    CHECK_FALSE(badPhase.ok());
+    CHECK(badPhase.err == WotrErrc::InvalidSave);
+    CHECK(std::string(errcName(badPhase.err)) == "ERR_INVALID_SAVE");
+
+    auto badCursor = tryForgedInner("commandCursor", "", "", 1);
+    CHECK_FALSE(badCursor.ok());
+    CHECK(badCursor.err == WotrErrc::InvalidSave);
+    CHECK(std::string(errcName(badCursor.err)) == "ERR_INVALID_SAVE");
+
+    auto loaded = loadCampaign(legitimate, pack);
+    INFO(loaded.message);
+    REQUIRE(loaded.ok());
+    CHECK(canonicalState(loaded.value) == canonicalState(outcome.value.state));
+    CHECK(stateHash(loaded.value) == stateHash(outcome.value.state));
+    BattleResultV1 result;
+    result.contractVersion = 1;
+    result.id = outcome.value.state.pendingBattle->id;
+    result.requestChecksum = outcome.value.state.pendingBattle->requestChecksum;
+    result.completionReason = CompletionReason::Victory;
+    result.victor = "faction_gondor";
+    SurvivingArmy survivors;
+    survivors.id = "army_gondor";
+    SurvivingMember member;
+    member.id = "member_gondor_1";
+    member.quantity = 12;
+    member.experience = 3;
+    survivors.members.push_back(member);
+    result.survivors.push_back(survivors);
+    result.resultChecksum = battleResultChecksum(result);
+    auto resolved = applyBattleResult(loaded.value, result);
+    REQUIRE(resolved.ok());
+    CHECK_FALSE(resolved.value.pendingBattle.has_value());
+    CHECK(resolved.value.phase == Phase::Planning);
+    CHECK(canonicalState(resolved.value) == canonicalState(applyBattleResult(outcome.value.state, result).value));
+}
