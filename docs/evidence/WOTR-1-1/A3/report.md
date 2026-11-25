@@ -17,10 +17,10 @@
 - **HEAD at first commit:** `a26c2425e372fe28904b2b5ab1cc2ab6581aa27f` (skeleton commit)
 - **git status --short (before first commit):** clean
 
-## §5.1 Audio fixtures (pre-§9.2/§9.13)
+## §5.1 Audio fixtures (pre-§9.2/§9.13) — Attempt 4
 
 - **Tier:** none (per cost-gates §5.1)
-- **Bundle source:** `Arena/wotr-remaster/artifacts/wotr-audio-fixtures.tar.gz` (Drive file id `1AQYEUURZn3dZJ8WJp8DjnmVfa0RGMzku`, per §5.1/cost-gates; not reproduced in evidence per §7)
+- **Bundle source:** `Arena/wotr-remaster/artifacts/wotr-audio-fixtures.tar.gz` (per §5.1/cost-gates; Drive id not recorded in evidence per §7)
 - **Archive SHA-256:**
   ```text
   $ sha256sum google_drive/wotr-audio-fixtures.tar.gz
@@ -35,7 +35,8 @@
   Verified 17 MP3 fixtures (sizes and SHA-256)
   RC=0
   ```
-- **Result:** PASS
+- **Log:** `docs/evidence/WOTR-1-1/A3/logs/fixtures_check_only.log`
+- **Result:** **PASS**
 
 ## §9.1 Verify exact OpenBFME pin and clean source tree
 
