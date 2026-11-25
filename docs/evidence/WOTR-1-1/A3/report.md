@@ -70,17 +70,22 @@
   ```
 - **Pin check:** matches required pin `v0.4.12-nightly.261118100` / `4a8d82727c2664c381b7b1c07344881760c4765b`. **PASS (pin/source tree verified).**
 
-## §9.2 Configure/build C++ GDExtension and focused tests
+## §9.2 Configure/build C++ GDExtension and focused tests — Attempt 4
 
 - **Tier:** build: full (T2)
-- **Bootstrap re-run (sandbox /tmp cleared):** `tools/arena/bootstrap.sh --runtime` rc=0 (cmake 4.4.5, ninja 1.13.2, Godot 4.7.2.stable.custom_build.ed1daf0bf).
-- **Build command:**
+- **Pre-check:** `pgrep -fa "ninja|cc1plus"` — no build processes (self-match of pgrep command line only); empty of ninja/cc1plus.
+- **Bootstrap:** `tools/arena/bootstrap.sh --runtime` rc=0 (cmake 4.4.5, ninja 1.13.2.git.kitware.jobserver-pipe-1, Godot 4.7.2.stable.custom_build.ed1daf0bf).
+- **Detached start (§5.2):**
   ```bash
-  export PATH="/tmp/buildenv/bin:$PATH"
-  tools/arena/build_engine.sh --tests
+  mkdir -p engine/build
+  setsid nohup bash -c 'bash tools/arena/build_engine.sh --tests; echo $? > engine/build/build.rc' \
+    > engine/build/build.console.log 2>&1 &
+  echo $! > engine/build/build.pid
   ```
-- **Progress:** configure OK (mode=tests, Godot=ON, tests=ON), godot-cpp `507ed9d840c01a3c5b2a39af8bb4000bfac30bf5` populated. Incremental ninja resumes: ~2075/2618, ~2368/2618 (still compiling, no failure observed).
-- **Status:** IN PROGRESS
+  - Start (UTC): 2026-11-25T17:09:43Z
+  - PID: 1751
+  - Initial poll: `build.rc` absent (NO_RC_YET), console tail showed `==> configure (mode=tests, Godot=ON, tests=ON)`, build.log progress not yet available.
+- **Status:** IN PROGRESS (detached, polling; no restart over live ninja)
 
 ## §9.3 Catalogs/locale hash invariance
 
