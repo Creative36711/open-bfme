@@ -7,6 +7,9 @@
 #   tools/arena/build_engine.sh --tests     # extension + C++ tests
 #   tools/arena/build_engine.sh --check     # inspect outputs only
 #   tools/arena/build_engine.sh --clean     # clean runnable build
+#
+#   OPENBFME_CXX_LAUNCHER=sccache   optional compiler launcher for the local
+#                                   edit/compile loop; never used by a gate run
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +19,7 @@ PATH="/tmp/buildenv/bin:$PATH"
 MODE="runtime"
 CLEAN=0
 
-usage() { sed -n '2,9p' "$0"; }
+usage() { sed -n '2,12p' "$0"; }
 for argument in "$@"; do
   case "$argument" in
     --quick) MODE="quick" ;;
@@ -77,6 +80,11 @@ fi
 
 [ "$CLEAN" = 0 ] || { say "remove $BUILD"; rm -rf "$BUILD"; }
 mkdir -p "$BUILD"
+rm -f "$BUILD/.arena-cache-key"
+cache_key=""
+if [ "$MODE" = tests ]; then
+  cache_key=$(python3 "$HERE/build_cache.py" key 2>/dev/null) || cache_key=""
+fi
 
 GODOT=ON
 TESTS=OFF
@@ -88,11 +96,19 @@ case "$MODE" in
 esac
 
 say "configure (mode=$MODE, Godot=$GODOT, tests=$TESTS)"
+launcher_args=()
+if [ -n "${OPENBFME_CXX_LAUNCHER:-}" ]; then
+  command -v "$OPENBFME_CXX_LAUNCHER" >/dev/null \
+    || die "OPENBFME_CXX_LAUNCHER=$OPENBFME_CXX_LAUNCHER not found on PATH"
+  launcher_args+=("-DCMAKE_CXX_COMPILER_LAUNCHER=$OPENBFME_CXX_LAUNCHER")
+  say "compiler launcher: $OPENBFME_CXX_LAUNCHER (iteration aid, not a gate)"
+fi
 if ! cmake -S "$REPO/engine" -B "$BUILD" -G Ninja \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE:-Release}" \
     -DOPENBFME_BUILD_GODOT="$GODOT" \
     -DOPENBFME_BUILD_TESTS="$TESTS" \
     -DCMAKE_CXX_FLAGS="${OPENBFME_EXTRA_CXX_FLAGS:--include cstddef}" \
+    "${launcher_args[@]}" \
     > "$BUILD/configure.log" 2>&1; then
   tail -40 "$BUILD/configure.log" >&2
   die "configuration failed; see $BUILD/configure.log"
@@ -112,3 +128,8 @@ elapsed=$(( $(date +%s) - start ))
 printf '    elapsed: %d min %d s\n' $((elapsed / 60)) $((elapsed % 60))
 ok "built: $TARGET"
 find "$REPO/godot/bin" -maxdepth 1 -type f -name '*.so' -printf '    extension: %p (%k KiB)\n' 2>/dev/null || true
+
+# Only a completed tests build with an unchanged tracked tree can be exported.
+if [ -n "$cache_key" ] && [ "$cache_key" = "$(python3 "$HERE/build_cache.py" key 2>/dev/null || true)" ]; then
+  printf '%s\n' "$cache_key" > "$BUILD/.arena-cache-key"
+fi
