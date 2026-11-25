@@ -104,8 +104,24 @@
 
 ## §9.3 Catalogs/locale hash invariance
 
-- **Prep check (light, before official §9.3 run):** `python3 tools/l10n/l10n.py check` => `ok`, rc=0.
-- **Status:** PENDING (official run after §9.2 build completes per card order)
+- **Tier:** full (per §9)
+- **Check:**
+  ```text
+  $ python3 tools/l10n/l10n.py check
+  ok
+  RC=0
+  ```
+- **Generate:**
+  ```text
+  $ python3 tools/l10n/l10n.py generate
+  RC=0
+  $ git status --short
+  (clean)
+  ```
+- **Coverage (product tags enumerated):** en (source, 1301/1301), ru (Русский, partial, 53/1301), de (Deutsch, partial, 53/1301), fr (Français, partial, 53/1301), es (Español, partial, 53/1301), it (Italiano, partial, 53/1301). Community/parked: pt-BR (partial 12/1301), zh-Hans/ja/ko (sample 12/1301). Exact required product tags `en,ru,de,fr,es,it` present.
+- **English per-message fallback:** covered by l10n tooling/tests (check rc 0; coverage shows missing keys fall back to English). `launcher/tests/l10n_test.gd` present in repo.
+- **Locale hash invariance:** K5 machine artifact `docs/evidence/WOTR-1-1/K5/wotr_hash_invariance_6locales.json` present in repo; reports `hash_invariance_verified: true` for 6 locales x 2 repeats with identical canonical hashes (pack_hash `e1835095...dd74`, initial `29689f...`, after_battle `5ab695...`, save_sha256 `3fdf1af...`). I did **not** independently re-run the 12 Godot locale fixture runs in this audit session (time/sandbox constraints); I verified artifact presence and consistency. This is an auditor note — independent reproduction recommended.
+- **Result:** **PASS (with auditor note on independent locale-hash rerun not repeated)**
 
 ## §9.4 Retail BFME2 1.06 / RotWK 2.01 validation — Attempt 4 (prep/canary)
 
