@@ -1,0 +1,1787 @@
+{
+  "schema": "openbfme.retail-big-transfer",
+  "schemaVersion": 1,
+  "partSize": 99614720,
+  "totalSize": 5636073399,
+  "fileCount": 213,
+  "files": [
+    {
+      "path": "BFME2/_patch101.big",
+      "offset": 0,
+      "size": 718806,
+      "md5": "7b49c9d5f61f6aa109631a25392dbaf5",
+      "sha256": "45df3aca98f41e990c739981df09ab419fa2d2f64489fb788e79d16097487bba"
+    },
+    {
+      "path": "BFME2/_patch103.big",
+      "offset": 718806,
+      "size": 12865477,
+      "md5": "d05d87de698df05ee6abf1c580714a9b",
+      "sha256": "4b9057b8c49053802797e22a171b378678f3b8f45edc9563c6480b254b968a1a"
+    },
+    {
+      "path": "BFME2/ambientstreams.big",
+      "offset": 13584283,
+      "size": 57258662,
+      "md5": "76f8f580a465a7a48e9015ba741723dc",
+      "sha256": "e5f15d597cf63a4afaff6f5ebb8714aac75a4ca9d94433538c8ae3b0e7e218e5"
+    },
+    {
+      "path": "BFME2/apt/aptlevel0.big",
+      "offset": 70842945,
+      "size": 2194,
+      "md5": "92741354a22771997021a10cfe9ea967",
+      "sha256": "96b4ab8dc7ea8321081d09ff1e72dddbb301bae5c9d75c21867fc55965361e7b"
+    },
+    {
+      "path": "BFME2/apt/background.big",
+      "offset": 70845139,
+      "size": 6031,
+      "md5": "8f20b1555758281d06e895002e49a4cc",
+      "sha256": "71a74826e82807e354b150cdf81db4ab52211937de89cc986e7a07fc23df1134"
+    },
+    {
+      "path": "BFME2/apt/bannerui.big",
+      "offset": 70851170,
+      "size": 16261,
+      "md5": "62ba59542a3944ce184911f4a71928fc",
+      "sha256": "37adecbc013553b283e7bfe3fb9b0df95d49ada22c45a887ad65290688079f7f"
+    },
+    {
+      "path": "BFME2/apt/cahappearance.big",
+      "offset": 70867431,
+      "size": 1160064,
+      "md5": "9cf2863b89aaf70733eb5a4e0b32388a",
+      "sha256": "4ea0129d4db3315f212d8167e322372421d6f63b3a4209e62f7481b25bb50bfc"
+    },
+    {
+      "path": "BFME2/apt/cahclass.big",
+      "offset": 72027495,
+      "size": 1120352,
+      "md5": "62e86c9a351b2bcf783309b9d082109e",
+      "sha256": "450d9933d4867b072494da42cd78a59123a54d4dac423a420ce379f76eaf645c"
+    },
+    {
+      "path": "BFME2/apt/cahmanager.big",
+      "offset": 73147847,
+      "size": 1410404,
+      "md5": "5fd321ae4a1fd024a1c7c8b0b8c53e20",
+      "sha256": "e91ce2f12e7b7dc75fca30f09a8029572fa097c26f8b63954c8eeac0e3765e94"
+    },
+    {
+      "path": "BFME2/apt/cahpowers.big",
+      "offset": 74558251,
+      "size": 4493594,
+      "md5": "b747089e09bef2b5cd7bb97dac413644",
+      "sha256": "837e283a2bdaf1f2c5d3587007baac3cef8f6b535b9e3a6277d6410c9174e38c"
+    },
+    {
+      "path": "BFME2/apt/campaignmenu.big",
+      "offset": 79051845,
+      "size": 2142964,
+      "md5": "a50d7ec895a1c54f3e27f29861866ebc",
+      "sha256": "2b608173039988ee6ff87989655e2076025a7e6e65e5ca5b12872ae9d2f28413"
+    },
+    {
+      "path": "BFME2/apt/campaignreview.big",
+      "offset": 81194809,
+      "size": 1146004,
+      "md5": "5a2a4dc25d1cbaecc8867664a78a961b",
+      "sha256": "c51a58634a92c2c5764dda7bc2828da38b4176057dd69ae744eb003c12886782"
+    },
+    {
+      "path": "BFME2/apt/connections.big",
+      "offset": 82340813,
+      "size": 234524,
+      "md5": "9294284b118d4747c1c483692f935b66",
+      "sha256": "92d6152f12a6ce2d94f763c5d4c871d260dfa7ef28453e73cfba7b0a26c79ecc"
+    },
+    {
+      "path": "BFME2/apt/createahero.big",
+      "offset": 82575337,
+      "size": 15361,
+      "md5": "75fa8f51a86e6e0e28cbfda6c93e290a",
+      "sha256": "91d1d6859d47937124d65e961c7a81b04ffa3d3419b6e33a5f6d326d54d9cb2c"
+    },
+    {
+      "path": "BFME2/apt/disconnectscreen.big",
+      "offset": 82590698,
+      "size": 356604,
+      "md5": "40afc7c78efd0524fe3913b6a645d760",
+      "sha256": "aa2ac7e06ce3b98a026898f4e23a029c68edbb166b4f5e955386532e6775f4d8"
+    },
+    {
+      "path": "BFME2/apt/gadgetcolorpicker.big",
+      "offset": 82947302,
+      "size": 8295,
+      "md5": "6cf04cc3972fea3094258d9c88e87160",
+      "sha256": "ee94372b6fe76cec37d7098703f087adf6c54f5c2304cc6256ee52c1cd482993"
+    },
+    {
+      "path": "BFME2/apt/gadgettimer.big",
+      "offset": 82955597,
+      "size": 78286,
+      "md5": "cf9c08fcf4c4dab347b0bcb61b5d2fe6",
+      "sha256": "5e4e61395e2d84bbf64fbd34f62f4136e080b2888b66b399229293ae7c673bd0"
+    },
+    {
+      "path": "BFME2/apt/gamewindowgadgets.big",
+      "offset": 83033883,
+      "size": 125360,
+      "md5": "5b7ea9a603b0e28dbd3ee10da6515668",
+      "sha256": "acdb0cbc855e24ef8ee1df7fb4d19ae9176416fdedda8ef34f916df82dbeb948"
+    },
+    {
+      "path": "BFME2/apt/guifx.big",
+      "offset": 83159243,
+      "size": 2269836,
+      "md5": "ef5fd18ca90d726d97d738ebeb5d2438",
+      "sha256": "2cfc6e86bc95950baa9d97145a3f10e8be8cb08ce9c1ac7b1d7eef98f14b9aae"
+    },
+    {
+      "path": "BFME2/apt/guitest.big",
+      "offset": 85429079,
+      "size": 8920,
+      "md5": "03af49da2addf5378d74578a091714f0",
+      "sha256": "57555d4737f7c1cc1d55f44bc9923099d5ade83dffd483a4e75082938643c79e"
+    },
+    {
+      "path": "BFME2/apt/ingamechat.big",
+      "offset": 85437999,
+      "size": 101396,
+      "md5": "3ec9fc455504fc9e360598a313f20b5d",
+      "sha256": "7bbd668f4086d47c0c5771eb31114364f7fac087de34f3bec237f567d6713859"
+    },
+    {
+      "path": "BFME2/apt/ingamehelpbox.big",
+      "offset": 85539395,
+      "size": 9847,
+      "md5": "90259daed95154d12fd57665569d3b31",
+      "sha256": "497e433e782202c9666b886d93afd089060dd38c7bbf85d4106013f562b62a7e"
+    },
+    {
+      "path": "BFME2/apt/ingameheroselect.big",
+      "offset": 85549242,
+      "size": 2284020,
+      "md5": "2ad1262aacf22253ab32649056523bb6",
+      "sha256": "18d28e1914df15f99720835ee076a3a260aa7177f5202cf70140309339080fc7"
+    },
+    {
+      "path": "BFME2/apt/ingamenotificationbox.big",
+      "offset": 87833262,
+      "size": 297634,
+      "md5": "0d9064dc623a7203d88b583a36a31875",
+      "sha256": "48ec2aeaf4a51981d360a040429989ed67bb9f7fea531815908289f8d8a3131f"
+    },
+    {
+      "path": "BFME2/apt/ingameplanningmode.big",
+      "offset": 88130896,
+      "size": 1084356,
+      "md5": "2cabbce4bd194e0ece0ddf2986c8f928",
+      "sha256": "acb06c2dfd327bba795cd6821241ca2f55a4f95c419a53a9666d9aab0a2eaabd"
+    },
+    {
+      "path": "BFME2/apt/ingameradialmenustage.big",
+      "offset": 89215252,
+      "size": 70732,
+      "md5": "b4ef1c033abded3a2830718e968be084",
+      "sha256": "d4e8bdd8b5b2b21dc61c10b46193e6eb7606da651752c0d88c0e5568e71f054e"
+    },
+    {
+      "path": "BFME2/apt/ingamesidecommandbar.big",
+      "offset": 89285984,
+      "size": 17618,
+      "md5": "55128abcc9f4ef33e41ba506822ba761",
+      "sha256": "a93dd36fe8c4bb9d68acb8b01823b2d1c1e18ab8aa09873a9bcab2e63a5ddbab"
+    },
+    {
+      "path": "BFME2/apt/ingamespellbook.big",
+      "offset": 89303602,
+      "size": 30599,
+      "md5": "40d1514d2e5d989862aefb3fdf74f253",
+      "sha256": "eb0dcc5d79d3b88caf0870aa2bb5e965d099499c2cd67d7275586870f4d2595f"
+    },
+    {
+      "path": "BFME2/apt/lanlobby.big",
+      "offset": 89334201,
+      "size": 1132092,
+      "md5": "d1119863dc58faca1189555356c216a1",
+      "sha256": "cbaae903bbe270b8eb011e1f3b928cbcb6dcbf52a6e4a0c691f97f5f969e1fea"
+    },
+    {
+      "path": "BFME2/apt/lanopenplay.big",
+      "offset": 90466293,
+      "size": 618880,
+      "md5": "5b75e65f3e617ee8c69b562e80a8c106",
+      "sha256": "95e87d771e8f9c540fc3e2f6d52208b21f968d253aab582e6acdef54b517947f"
+    },
+    {
+      "path": "BFME2/apt/lanstrategic.big",
+      "offset": 91085173,
+      "size": 356028,
+      "md5": "41b8e8f9e89213a0a4a83bfd471b93eb",
+      "sha256": "cb003b4493878df3bd14d867e89a6e1caff1bcf1f6717a3f77d04a858fea9853"
+    },
+    {
+      "path": "BFME2/apt/libingameimagesmain.big",
+      "offset": 91441201,
+      "size": 2113144,
+      "md5": "f297f723fe69113cacfa8608ae12791b",
+      "sha256": "264bb8a1228d209d96b8a3ddfcb0ecd0ca33dc8084cf3e0a92624e60ec7926a4"
+    },
+    {
+      "path": "BFME2/apt/libingameui.big",
+      "offset": 93554345,
+      "size": 100827,
+      "md5": "5cdd0cb04e077e0dff483f55f2a1916a",
+      "sha256": "19201789afc574296069f9069de881c40bd9c2a4810bffe5385df1f320179bde"
+    },
+    {
+      "path": "BFME2/apt/libprogressbar.big",
+      "offset": 93655172,
+      "size": 19960,
+      "md5": "1405162500f721f434b8b451c8fffd60",
+      "sha256": "7e14b0fa098165e43ff2b1ff82d6423b21d13c425c755413d4dbe6ab1f399a38"
+    },
+    {
+      "path": "BFME2/apt/livingworldui.big",
+      "offset": 93675132,
+      "size": 2947280,
+      "md5": "62a443bb7911c97a87ac50d829d8e9cf",
+      "sha256": "88659bbc1c580191c930a0cbc6966f184c06c2eb38c7ea3b444218ba77cfc707"
+    },
+    {
+      "path": "BFME2/apt/loadscreen.big",
+      "offset": 96622412,
+      "size": 26778,
+      "md5": "35af30ac170976ea8162dff4a7c2b9fc",
+      "sha256": "70a7a9c56774ea071c84c7802000200f90fd9b1b43f300afc815e147a52fbedc"
+    },
+    {
+      "path": "BFME2/apt/mainmenu.big",
+      "offset": 96649190,
+      "size": 4366652,
+      "md5": "d1979ef3b302301b84cd6c39d2855e4c",
+      "sha256": "4dca952d6fe9f9b3751cb6679d2fc5847956fb6a0b6ae73aaf01ffcfb0337f86"
+    },
+    {
+      "path": "BFME2/apt/menuexport.big",
+      "offset": 101015842,
+      "size": 6496366,
+      "md5": "aa6aad778c2e2b7f0a17b5683ba32fcf",
+      "sha256": "ce69e4802305babdda374298d2278e0c30af2892551b07833aeb7ac3450c9ef1"
+    },
+    {
+      "path": "BFME2/apt/menuframeandbg.big",
+      "offset": 107512208,
+      "size": 4642,
+      "md5": "dca3cb7ebf773a32ebb974930d4d8990",
+      "sha256": "159bab69676a3d02532e2a87322959eba3790ee23c05b93211cd81aa54b8109e"
+    },
+    {
+      "path": "BFME2/apt/messenger.big",
+      "offset": 107516850,
+      "size": 4547988,
+      "md5": "62e7f8633d8b4b2cb703877ed7cb2c50",
+      "sha256": "fde1ae6d02ff5fd5e9cfcde8ea17a48ae48a607c66f949ceb8b6bcf34d95af50"
+    },
+    {
+      "path": "BFME2/apt/mpgamesetup.big",
+      "offset": 112064838,
+      "size": 1545476,
+      "md5": "0ac2ac770613544cd137c9ffdb740b88",
+      "sha256": "e8e77687996c4eb59c2aaa1b199e3f41fc604c31607e2bca2c3365304a26024d"
+    },
+    {
+      "path": "BFME2/apt/objectives.big",
+      "offset": 113610314,
+      "size": 1099144,
+      "md5": "866aeb64447caa2016a826e3a6094876",
+      "sha256": "0b5c36779e3e66923a5dc9a9ce20dbf476cff15b3ebb0809f2dea791759150d7"
+    },
+    {
+      "path": "BFME2/apt/onlinehome.big",
+      "offset": 114709458,
+      "size": 183700,
+      "md5": "5b2e105364377ca4b6df4a1175523a4f",
+      "sha256": "32e2553711be0aa0a64f38406b2310691adac05192f1a8a2e999bfd8b60cf8ac"
+    },
+    {
+      "path": "BFME2/apt/onlinelogin.big",
+      "offset": 114893158,
+      "size": 712736,
+      "md5": "00984870a11cbe037e3a78bee4a67192",
+      "sha256": "a8f2af8e4ef8039633c6588c8b3b028ba190c0a2539ef596e02182542a8295d0"
+    },
+    {
+      "path": "BFME2/apt/onlineopenplay.big",
+      "offset": 115605894,
+      "size": 305540,
+      "md5": "d984dc8f96139ec23641809cfbdb1a18",
+      "sha256": "df20858c5bfbe1f62bf2a8a05584ea1c36689b22d617a16c3af7b026520328cf"
+    },
+    {
+      "path": "BFME2/apt/onlineprofile.big",
+      "offset": 115911434,
+      "size": 117272,
+      "md5": "5cd85dcd360dff06716830ca4578e8be",
+      "sha256": "d16069ace2c11f5973fc676629f3164046a0d3b246173b99047819ead5865f77"
+    },
+    {
+      "path": "BFME2/apt/onlinequickmatch.big",
+      "offset": 116028706,
+      "size": 94528,
+      "md5": "bff00e4f2324d37e96f106317683a1c1",
+      "sha256": "70a5a3b6c59d16282b0d92553ea9edfaf539962424cb07926a21494003d3b469"
+    },
+    {
+      "path": "BFME2/apt/onlineshell.big",
+      "offset": 116123234,
+      "size": 1165488,
+      "md5": "1b03220078f20b8c6a5a50add30466cd",
+      "sha256": "327297289ad1f7cb8156e3a03f6bac99cd2dc787480401aabb20e41ece7e8699"
+    },
+    {
+      "path": "BFME2/apt/onlinestrategic.big",
+      "offset": 117288722,
+      "size": 550304,
+      "md5": "c0b8eaf3f3959d3cfafc2304952910e1",
+      "sha256": "b52d09885b627dd81356467939d5b852bc2fd43491ab178c3852cfb94716d297"
+    },
+    {
+      "path": "BFME2/apt/options.big",
+      "offset": 117839026,
+      "size": 2521574,
+      "md5": "4a539ac5701c78a28350f19cea2ed434",
+      "sha256": "bc8358ed31d11928ffe84aa7724b61bca728eb7b9539d703513bb3cce411f320"
+    },
+    {
+      "path": "BFME2/apt/palantir.big",
+      "offset": 120360600,
+      "size": 2703910,
+      "md5": "565f2c8a0850c36f94dbf1ce4868dedd",
+      "sha256": "bfec49be38bfe2f5eb4a04de06da0addb4761a622e7f55d48440f6fa5a353010"
+    },
+    {
+      "path": "BFME2/apt/palantirexport.big",
+      "offset": 123064510,
+      "size": 2076318,
+      "md5": "feccd60f989ef7c7cc5cb8d88000b4d3",
+      "sha256": "fe0b422f211bdb6348c6a8f763bbff82a406883cbc263d9871fd7a5e6a930134"
+    },
+    {
+      "path": "BFME2/apt/playerstatus.big",
+      "offset": 125140828,
+      "size": 41687,
+      "md5": "4e54875936b3f75588d4dc5eca096ee0",
+      "sha256": "099546f816f26cd99988f2e2dd0b88d836322590974f856375142f9ab42a6cb3"
+    },
+    {
+      "path": "BFME2/apt/playertribute.big",
+      "offset": 125182515,
+      "size": 190704,
+      "md5": "2f40491dfbc1502b26ac1e0cc7e47129",
+      "sha256": "7fd1f8ac2c2351df8316238b3cb1703775d2ce5595145ce99b2fd3604657875a"
+    },
+    {
+      "path": "BFME2/apt/quitmenu.big",
+      "offset": 125373219,
+      "size": 2172220,
+      "md5": "6bd085e8d98e31d77461b11a8d9d112a",
+      "sha256": "aea4919ade78347415f2021135af4b3bb2e3263f55d1cec5a705c1ee917dbbc6"
+    },
+    {
+      "path": "BFME2/apt/saveload.big",
+      "offset": 127545439,
+      "size": 1151328,
+      "md5": "05eec2b26db797fb3e72a36ca281d46b",
+      "sha256": "9786847b0da985bacc379b6b9b6050561199eda5bba0b8ab9e5ff4ce5cf02f31"
+    },
+    {
+      "path": "BFME2/apt/scorescreen.big",
+      "offset": 128696767,
+      "size": 2235660,
+      "md5": "28157b2e746b2bc46ba659eacc598ccb",
+      "sha256": "175c349f4905ffea13aab81cbec1b9791b1aed2a858ae182ebaf1eff96576236"
+    },
+    {
+      "path": "BFME2/apt/sidecommandbar.big",
+      "offset": 130932427,
+      "size": 2826,
+      "md5": "b55ef9763bfe2bdfba16bd9a4ff1643c",
+      "sha256": "b12e34d99964c91db94714531eee6ada39b1635db4f13762527f41d093bbb774"
+    },
+    {
+      "path": "BFME2/apt/skirmish.big",
+      "offset": 130935253,
+      "size": 1166184,
+      "md5": "9992d2f4207314841c73c3e02d8b0a5a",
+      "sha256": "214db39299c1860c92e44765c1d242eefcb915257c495f2cb4d9ab247868d8b6"
+    },
+    {
+      "path": "BFME2/apt/skirmishopenplay.big",
+      "offset": 132101437,
+      "size": 7358,
+      "md5": "2b16e2ebd87f69eab67d1d1b5d95a1ab",
+      "sha256": "907dc9e40f3e0261d9860666ee94a346d441a7ab6c5e71ffac7c12a6fc912a98"
+    },
+    {
+      "path": "BFME2/apt/skirmishstrategic.big",
+      "offset": 132108795,
+      "size": 7402,
+      "md5": "63a89b3ae0b85052e94e9838a0855b2d",
+      "sha256": "8f390b2b96ecfff4edfb151ac231952fab0047b427214dfb42bf5af7cc62ceaf"
+    },
+    {
+      "path": "BFME2/apt/spellstore.big",
+      "offset": 132116197,
+      "size": 2218700,
+      "md5": "482f12e334a3ec6870030d72beca2b7c",
+      "sha256": "9c5dccf9d5f534b4dbcbc7e8d5ec2de53d5ba99968bb1afa1ae7679b34e04f74"
+    },
+    {
+      "path": "BFME2/apt/stats.big",
+      "offset": 134334897,
+      "size": 568904,
+      "md5": "987a937236d8c8e44e927890e169123a",
+      "sha256": "0471e04bf076133200bbd7caa3711ac153b5b5bb79bb3ceee7a7dec557e97d25"
+    },
+    {
+      "path": "BFME2/apt/strategicarmyunitswapper.big",
+      "offset": 134903801,
+      "size": 1120406,
+      "md5": "d6d26ed05836ea0d578a341b45d802f6",
+      "sha256": "41822134bc004e72ddc2281a15438860a977a814872e876eb3055d70a6c514a0"
+    },
+    {
+      "path": "BFME2/apt/strategicbattleprompt.big",
+      "offset": 136024207,
+      "size": 2235038,
+      "md5": "07fe2e03a5f4df520f964f73fe3ec388",
+      "sha256": "7676c6227465c646c7643c321e048ac0010d6739289d5e92f885af6240b3e16e"
+    },
+    {
+      "path": "BFME2/apt/strategicbattlepromptarmypanel.big",
+      "offset": 138259245,
+      "size": 1063748,
+      "md5": "2f68ad456b270e93e8103cc2c80f0db9",
+      "sha256": "2dba5f29dc9489fe27e921247df6edad4892429f2e8a55b440dbab6f2b2e68ea"
+    },
+    {
+      "path": "BFME2/apt/strategicbattlepromptplayerpage.big",
+      "offset": 139322993,
+      "size": 1079670,
+      "md5": "d09f4734e81710a474ae3ff73f0dc878",
+      "sha256": "ccb517159a2512650dd4a3cd76e7ffa3c32ec23d5c970362bc1a3b7ea23fc0b9"
+    },
+    {
+      "path": "BFME2/apt/strategicchecklist.big",
+      "offset": 140402663,
+      "size": 1121322,
+      "md5": "4b524ad96d3cc32cb1f34824daf3d638",
+      "sha256": "1127a25e813d4824e60b02092289daba8f7efea054856f2051b0aa5b4197c45b"
+    },
+    {
+      "path": "BFME2/apt/strategicconflictresults.big",
+      "offset": 141523985,
+      "size": 2174354,
+      "md5": "f0b87339c6877d5b14e733dc8496cbc5",
+      "sha256": "5ca19c32ace5bbea5b50640b2d1bd4693bfb6f06c1f1ced10328b8b1ec38f3a4"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsarmies.big",
+      "offset": 143698339,
+      "size": 278238,
+      "md5": "649ad1e11d0ea4f60c1cea52f89afe45",
+      "sha256": "49cdcec7211d45b8546113aa1123b907619518df28b5b040d111652051fc6053"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsarmyretinue.big",
+      "offset": 143976577,
+      "size": 1119202,
+      "md5": "2328b6f38fbff65a6580e2a9fd607e91",
+      "sha256": "09f89836ac28c7861458a783a50d7e6861bebbee95d82dc7da1b9f662305aabb"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsbuildqueue.big",
+      "offset": 145095779,
+      "size": 1096986,
+      "md5": "d5043fee2de58a5161c90a2c58291f72",
+      "sha256": "e3885de61fef92b32b1cf9c461cb9e73390b0f4893d1e98beb0cbb85c653ef22"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsregion.big",
+      "offset": 146192765,
+      "size": 143632,
+      "md5": "2a4c500cb9a7a713ee9a46c74820c785",
+      "sha256": "7dbc1bb90bdc419adf48ab63e639a58454e2685e53493b547d51efc75f0a40a0"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsstructures.big",
+      "offset": 146336397,
+      "size": 544090,
+      "md5": "c66ec0ace000ccdcd5ee619131e5153d",
+      "sha256": "1351b0fab8928d97c7c13ef8c3325dc8a40401e29c0e28558892214df57bc127"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailsterritory.big",
+      "offset": 146880487,
+      "size": 143098,
+      "md5": "db22df2f3181ddedb16aaa20d399e299",
+      "sha256": "0b2073c80111542ebb0f973e36baed96515a04d7d38345a3c4a797b176e91955"
+    },
+    {
+      "path": "BFME2/apt/strategicdetailstray.big",
+      "offset": 147023585,
+      "size": 286292,
+      "md5": "af0330f0ea56a1fa5f8e7cea211e97cb",
+      "sha256": "dccd2bd8844f81badaaf201012b8cfc061eecbe973d5c7bdffa1285ed7aa82b6"
+    },
+    {
+      "path": "BFME2/apt/strategicdynamicautoresolve.big",
+      "offset": 147309877,
+      "size": 4403366,
+      "md5": "76c4c443dd093499d4c92910229c3bee",
+      "sha256": "9d3a15b45436e1af499318bdf2a46715f93bb4f605f0d38849fbec06351bdaf9"
+    },
+    {
+      "path": "BFME2/apt/strategicendturnbutton.big",
+      "offset": 151713243,
+      "size": 1073532,
+      "md5": "e842e17283ac181412b6f66e3c75d583",
+      "sha256": "80a775f11a9ab604223f94701dfe3209877a812c45c7ead437500794c1be8c9e"
+    },
+    {
+      "path": "BFME2/apt/strategichud.big",
+      "offset": 152786775,
+      "size": 21963,
+      "md5": "64f202b539fc186e62c2aada36e0bb17",
+      "sha256": "a544d4faa15f5c27c5f921b2d10f5621d91413e129bf4f590e48a14545efb53b"
+    },
+    {
+      "path": "BFME2/apt/strategicnextturnind.big",
+      "offset": 152808738,
+      "size": 2114440,
+      "md5": "855433a95c299789189bf7e303f900ce",
+      "sha256": "57a225b05f026248c7ed25557ef294abecf0956d6c05f48c05e122dfed5b06c5"
+    },
+    {
+      "path": "BFME2/apt/strategicpalantir.big",
+      "offset": 154923178,
+      "size": 424572,
+      "md5": "47bacc347e65da67ec916e1484a4c6cf",
+      "sha256": "c4ca3e4113292b3875e53617e498534cdadf280129421705038dc0f3cdd9cf6f"
+    },
+    {
+      "path": "BFME2/apt/strategicplayerstatus.big",
+      "offset": 155347750,
+      "size": 2165262,
+      "md5": "2a2e7c9382516ad242823741520efc0d",
+      "sha256": "4bada7e01623658dc6cec57cdf88edfbdd2203db37afae555a5d29b2b72f8858"
+    },
+    {
+      "path": "BFME2/apt/strategicregionaward.big",
+      "offset": 157513012,
+      "size": 2175934,
+      "md5": "140d5346c55f9b000ebdb1a108d91c6c",
+      "sha256": "8e2a694c45bdb03a8c5825452bfa0899c9fc86bac20b226630bcc6d270802a99"
+    },
+    {
+      "path": "BFME2/apt/strategicstats.big",
+      "offset": 159688946,
+      "size": 163952,
+      "md5": "d738e53b4dbc09a84f310e3ce8ddbd62",
+      "sha256": "58d31c6267392a653c561ca4d264cef6b87d7b4d5f499801f1802f7ddb3bdc79"
+    },
+    {
+      "path": "BFME2/apt/strategicveterancy.big",
+      "offset": 159852898,
+      "size": 2171366,
+      "md5": "d79be19414171db22d3e64d98c5e7aa6",
+      "sha256": "f8d75526be531501689177767671ffc1896b39fdbfa2d394028d67d8cf49fe0e"
+    },
+    {
+      "path": "BFME2/apt/timeline.big",
+      "offset": 162024264,
+      "size": 8589436,
+      "md5": "1037cb1e01faed1d75c3b03b5ed76d3a",
+      "sha256": "782cc8f84429cf02f3c3703fd2351ba913beb98ee327b036c50cacb9c8f6e811"
+    },
+    {
+      "path": "BFME2/apt/verticalscrollbar.big",
+      "offset": 170613700,
+      "size": 16723,
+      "md5": "15009d8e053fd98945d0fb201cb8edb2",
+      "sha256": "62853dc247a1dccdc727edba0aa5ad750c234474bc859891b73634e12d233c70"
+    },
+    {
+      "path": "BFME2/audio.big",
+      "offset": 170630423,
+      "size": 389964738,
+      "md5": "02fe7ec5e78c4762942512005fa1a9a5",
+      "sha256": "53d6e1108a2855a611c9ff596765a801b9db09ee94b73cd6429846f20a5d40d4"
+    },
+    {
+      "path": "BFME2/bases.big",
+      "offset": 560595161,
+      "size": 2639561,
+      "md5": "3b2681a873da6370dd86623e302a7f68",
+      "sha256": "fa4579a65732bf54550273b8631eab18923994c6ad6834c9e57fb0996fe63a7c"
+    },
+    {
+      "path": "BFME2/data1.big",
+      "offset": 563234722,
+      "size": 627173,
+      "md5": "5874e35ecb8f1da190a063dee401106c",
+      "sha256": "4e90809f8986dd7b9055d458ab5333d562ddca8bc4d22914b513b7f21cf97d2c"
+    },
+    {
+      "path": "BFME2/ini.big",
+      "offset": 563861895,
+      "size": 24293875,
+      "md5": "92351fdb635c04c10f93d2e3e5f3ee47",
+      "sha256": "e5e5aa2be5681161c2e24daa75e9294c38cb988133cba385bc433cba30fb72ca"
+    },
+    {
+      "path": "BFME2/lang/english.big",
+      "offset": 588155770,
+      "size": 1632397,
+      "md5": "2bc70c61f083860b38c0f45ae457e6b2",
+      "sha256": "57a94ed13a181ebac03dc9492e410373f1395672dc7435e0ebd60fd5149855f9"
+    },
+    {
+      "path": "BFME2/lang/englishaudio.big",
+      "offset": 589788167,
+      "size": 517443862,
+      "md5": "4d4f291d02dff10786c0a17eed26f6e4",
+      "sha256": "322f3fce09800f24c3cd91708ce8ab295c372dcdc2e0fc1dcbe86fdee263c073"
+    },
+    {
+      "path": "BFME2/lang/englishpatch105.big",
+      "offset": 1107232029,
+      "size": 1037340,
+      "md5": "6a4c89cf2972273417dd2353ce7cf6b7",
+      "sha256": "ffdc7e390e9c3f3196b105d60ec067546844a946917d2b021e616bb75ad75e56"
+    },
+    {
+      "path": "BFME2/libraries.big",
+      "offset": 1108269369,
+      "size": 439746,
+      "md5": "d5e866512b9f4d4b74fa14f9628609a3",
+      "sha256": "d6bf62be5d8b690226a3d0e0d1a6f7dcce0000482ade6b3d970620202023fd67"
+    },
+    {
+      "path": "BFME2/lotrsec.big",
+      "offset": 1108709115,
+      "size": 787458,
+      "md5": "ca2cbcc80f8b9dbef309adb8057aca03",
+      "sha256": "e9a76d9636a1bd7907d2ecaed60cc40bfb10314bee3a584bce85e161a740be0a"
+    },
+    {
+      "path": "BFME2/maps.big",
+      "offset": 1109496573,
+      "size": 56296638,
+      "md5": "fa624a31ded008f2826b22b180b999a2",
+      "sha256": "8ca19783c3a4969dffeb5a6493a18d6f7447a310bf8b4152b17fc7ed4307e1c8"
+    },
+    {
+      "path": "BFME2/music.big",
+      "offset": 1165793211,
+      "size": 392190008,
+      "md5": "1c557bb978fa390d258b570fa7b94730",
+      "sha256": "6cc8cf58ad6b1e37ea36b4f49cae4ef3b8f6698be1b9e08614763c6dedb9ac5b"
+    },
+    {
+      "path": "BFME2/shaders.big",
+      "offset": 1557983219,
+      "size": 1200292,
+      "md5": "90eccb69e1d7f561505d0e7a60aea363",
+      "sha256": "b842a039e77879155b3af1b74a256f2a745169fb3c598b8d5e1bc56cb9beea2e"
+    },
+    {
+      "path": "BFME2/terrain.big",
+      "offset": 1559183511,
+      "size": 356737592,
+      "md5": "f5cdfebe415b199a2b2b7393f80d11a3",
+      "sha256": "bf2b3331d50b2f07138e79a3d75d9d78e6a6cf41738629bc9aa8c184e12edaba"
+    },
+    {
+      "path": "BFME2/textures0.big",
+      "offset": 1915921103,
+      "size": 35923222,
+      "md5": "45e7769ce02a5d8872a0ccfb38ac69f2",
+      "sha256": "b26eec353d1970420c540ca5c76b3b63bec953985320107d1f091e77901e5d9e"
+    },
+    {
+      "path": "BFME2/textures1.big",
+      "offset": 1951844325,
+      "size": 352128360,
+      "md5": "f21ca3f6ecb47057e0e3821fe9e90d6c",
+      "sha256": "defdcbef8bbd2b8b19571079c0224b2c89494410029860685ac221df7f57457a"
+    },
+    {
+      "path": "BFME2/textures2.big",
+      "offset": 2303972685,
+      "size": 490142126,
+      "md5": "69c4a2f63b23592c2647ed7fe0f79dfc",
+      "sha256": "1f58a0040ff52ee40bb6cfdbd02d1ecc79bd23302058b6ea6fe9880d1963a7fd"
+    },
+    {
+      "path": "BFME2/textures3.big",
+      "offset": 2794114811,
+      "size": 245867627,
+      "md5": "4ce7fb8746737c108665f7b92ba9d155",
+      "sha256": "bc637fd0f7a2569451e4a0023377b55bd9ceb902f2ba663eb6c81ecbf18065cc"
+    },
+    {
+      "path": "BFME2/textures4.big",
+      "offset": 3039982438,
+      "size": 121058389,
+      "md5": "c1533f870132919e83467119d9fb19da",
+      "sha256": "cc6eb18ee6ae6e537351a8639e3d2f054666e8e7e4b35baeacf8b876e0dd653e"
+    },
+    {
+      "path": "BFME2/w3d.big",
+      "offset": 3161040827,
+      "size": 1050024230,
+      "md5": "4008063cfb1f8cc061b2373df3983b74",
+      "sha256": "c65fc670c35a2b938720a82328559786944b9dd3a37868f218f79226db3ed87d"
+    },
+    {
+      "path": "BFME2/window.big",
+      "offset": 4211065057,
+      "size": 646458,
+      "md5": "75805d283d9c36202d4fd48ce48c26d5",
+      "sha256": "20da0cfb6ceb9606337c26a96d3856873cda35ac5b8574bb8968ac297d507ee7"
+    },
+    {
+      "path": "RotWK/_patch201.big",
+      "offset": 4211711515,
+      "size": 19777872,
+      "md5": "aee118420cc92c7c0558a7164240849a",
+      "sha256": "1a63f109eb41a14a44bd553346efe6ccbefd852cba6d2ffaaa4f80f6ba76897c"
+    },
+    {
+      "path": "RotWK/_patch201ini.big",
+      "offset": 4231489387,
+      "size": 7524533,
+      "md5": "8dc9a1f1ce5a062ef0da013e39df5a4f",
+      "sha256": "c96a69cf6b85407c3e25fca69af13667e94427b6827c261c02c70faec54731db"
+    },
+    {
+      "path": "RotWK/_patch201maps.big",
+      "offset": 4239013920,
+      "size": 3784392,
+      "md5": "7a24d555bab3b631b8eee4e431c86df8",
+      "sha256": "ee980439992e5878cf22e477c23a92c3ab7c29f1d39a5e464d65707566cdfe5f"
+    },
+    {
+      "path": "RotWK/ambientstreams.big",
+      "offset": 4242798312,
+      "size": 24,
+      "md5": "600bdb99223b53f12e5ce3424f57c55d",
+      "sha256": "b8e109770430e5c71f8e71f52d0b7a109272a73729db4c801f15056cdffa6d6f"
+    },
+    {
+      "path": "RotWK/apt/aptlevel0.big",
+      "offset": 4242798336,
+      "size": 2662,
+      "md5": "221228dc7437babca185ccb3609a6ba6",
+      "sha256": "28c5eee4e90c896828f00a51fb01c13cfcc12e72b4591f5a9b2fd9beb736046a"
+    },
+    {
+      "path": "RotWK/apt/background.big",
+      "offset": 4242800998,
+      "size": 6727,
+      "md5": "aecde4d713070f5bf923fc33c0241c85",
+      "sha256": "cf18bfab94911e8850bdfb9a0ab329cefa5f61c8b53566757ecafb7b49342aef"
+    },
+    {
+      "path": "RotWK/apt/bannerui.big",
+      "offset": 4242807725,
+      "size": 16341,
+      "md5": "2c8e66f5b6c3791a18c3a82cc936a479",
+      "sha256": "7dea79e95d0f75b8994d043cf7e4c26d0cca5cec67694fecb80bc1634d336ced"
+    },
+    {
+      "path": "RotWK/apt/cahappearance.big",
+      "offset": 4242824066,
+      "size": 1126472,
+      "md5": "44f7ad6ae07e2913627f693ff850b804",
+      "sha256": "c443a26c9160897353d31b54431f7d14373d0b33cb4f21ae55a322d969b66835"
+    },
+    {
+      "path": "RotWK/apt/cahclass.big",
+      "offset": 4243950538,
+      "size": 1111444,
+      "md5": "1cd644c542fbafa875d59486d82f7250",
+      "sha256": "eb15b5bfe7213ebf6be023eb1c90639ff584a1b27ced00d5ad35f25b22c40b06"
+    },
+    {
+      "path": "RotWK/apt/cahmanager.big",
+      "offset": 4245061982,
+      "size": 1434272,
+      "md5": "cf7e4c0005ae89cd1b6e377f6cdd8828",
+      "sha256": "753e01a9095b06620d72631776b44b25dc4fb706b99e9ed74d4bb9daaa7641cf"
+    },
+    {
+      "path": "RotWK/apt/cahnewfeatures.big",
+      "offset": 4246496254,
+      "size": 546980,
+      "md5": "7637ce6c0b2b534d3ad0139a6416da16",
+      "sha256": "c131d5865fd518ce6086c00f723b306daed7a4a4ef63ddd9382691a9dc026c90"
+    },
+    {
+      "path": "RotWK/apt/cahpowers.big",
+      "offset": 4247043234,
+      "size": 2319888,
+      "md5": "89338b4ead9f8516fb8449bc7a0f7f11",
+      "sha256": "444134cf388fa255030f0bb428d4648cc92b9a72d6012a5f66c3316b167f273e"
+    },
+    {
+      "path": "RotWK/apt/campaignmenu.big",
+      "offset": 4249363122,
+      "size": 280624,
+      "md5": "f02ce4fe0b54d4141dd5e2ceba037bf6",
+      "sha256": "bc6e1b93b0dca757593a34d89e9dd0d856041566b81ca53487f9d133ca8a792b"
+    },
+    {
+      "path": "RotWK/apt/connections.big",
+      "offset": 4249643746,
+      "size": 97408,
+      "md5": "7fbaff15778ced214933e2bb71f0c062",
+      "sha256": "fd101a972cfef759b9818a4d4f859241ad795323de51051f167de9066dcb5ca2"
+    },
+    {
+      "path": "RotWK/apt/createahero.big",
+      "offset": 4249741154,
+      "size": 19257,
+      "md5": "b1fd0b13e35667cb05851276d2894682",
+      "sha256": "8179e864148a7ca33835402b3c735e7b36ef815664803d3b249e2354fe8b9b04"
+    },
+    {
+      "path": "RotWK/apt/disconnectscreen.big",
+      "offset": 4249760411,
+      "size": 187340,
+      "md5": "ac48aca1a55ad506b16181a5829fd129",
+      "sha256": "2054b019060e0243dc392c2a3eab59814c4fe1e6164f4f3502d6c2c5a51e4e46"
+    },
+    {
+      "path": "RotWK/apt/gadgetcolorpicker.big",
+      "offset": 4249947751,
+      "size": 8295,
+      "md5": "6cf04cc3972fea3094258d9c88e87160",
+      "sha256": "ee94372b6fe76cec37d7098703f087adf6c54f5c2304cc6256ee52c1cd482993"
+    },
+    {
+      "path": "RotWK/apt/gadgettimer.big",
+      "offset": 4249956046,
+      "size": 78286,
+      "md5": "cf9c08fcf4c4dab347b0bcb61b5d2fe6",
+      "sha256": "5e4e61395e2d84bbf64fbd34f62f4136e080b2888b66b399229293ae7c673bd0"
+    },
+    {
+      "path": "RotWK/apt/gamewindowgadgets.big",
+      "offset": 4250034332,
+      "size": 125360,
+      "md5": "5b7ea9a603b0e28dbd3ee10da6515668",
+      "sha256": "acdb0cbc855e24ef8ee1df7fb4d19ae9176416fdedda8ef34f916df82dbeb948"
+    },
+    {
+      "path": "RotWK/apt/guifx.big",
+      "offset": 4250159692,
+      "size": 4345012,
+      "md5": "7538a08aab1f22cd6c961951405075db",
+      "sha256": "a9ac52202e4d97d43abbfa7f4fb18926241a272ffc6490ffe7087db7402f983a"
+    },
+    {
+      "path": "RotWK/apt/ingamechat.big",
+      "offset": 4254504704,
+      "size": 1082300,
+      "md5": "9d14b9da42b96e2f00872487d7056d30",
+      "sha256": "01969cfca4e8cc111fed214917785c47b8341c0553d14ac1375bdac801f278cd"
+    },
+    {
+      "path": "RotWK/apt/ingamehelpbox.big",
+      "offset": 4255587004,
+      "size": 9847,
+      "md5": "90259daed95154d12fd57665569d3b31",
+      "sha256": "497e433e782202c9666b886d93afd089060dd38c7bbf85d4106013f562b62a7e"
+    },
+    {
+      "path": "RotWK/apt/ingameheroselect.big",
+      "offset": 4255596851,
+      "size": 2285040,
+      "md5": "61d363079771e71497207ae6c9284b99",
+      "sha256": "bcd31c52c0389692879683a0250153efa5036d35764c8db23d5cdf279916989d"
+    },
+    {
+      "path": "RotWK/apt/ingamenotificationbox.big",
+      "offset": 4257881891,
+      "size": 297634,
+      "md5": "0d9064dc623a7203d88b583a36a31875",
+      "sha256": "48ec2aeaf4a51981d360a040429989ed67bb9f7fea531815908289f8d8a3131f"
+    },
+    {
+      "path": "RotWK/apt/ingameplanningmode.big",
+      "offset": 4258179525,
+      "size": 1084356,
+      "md5": "2cabbce4bd194e0ece0ddf2986c8f928",
+      "sha256": "acb06c2dfd327bba795cd6821241ca2f55a4f95c419a53a9666d9aab0a2eaabd"
+    },
+    {
+      "path": "RotWK/apt/ingameradialmenustage.big",
+      "offset": 4259263881,
+      "size": 70732,
+      "md5": "b4ef1c033abded3a2830718e968be084",
+      "sha256": "d4e8bdd8b5b2b21dc61c10b46193e6eb7606da651752c0d88c0e5568e71f054e"
+    },
+    {
+      "path": "RotWK/apt/ingamesidecommandbar.big",
+      "offset": 4259334613,
+      "size": 17618,
+      "md5": "55128abcc9f4ef33e41ba506822ba761",
+      "sha256": "a93dd36fe8c4bb9d68acb8b01823b2d1c1e18ab8aa09873a9bcab2e63a5ddbab"
+    },
+    {
+      "path": "RotWK/apt/ingamespellbook.big",
+      "offset": 4259352231,
+      "size": 30599,
+      "md5": "40d1514d2e5d989862aefb3fdf74f253",
+      "sha256": "eb0dcc5d79d3b88caf0870aa2bb5e965d099499c2cd67d7275586870f4d2595f"
+    },
+    {
+      "path": "RotWK/apt/lanlobby.big",
+      "offset": 4259382830,
+      "size": 589736,
+      "md5": "4b2e743639e6c18ed3f86d0d66a395d4",
+      "sha256": "ae49916cb1f391e8574362e34ac9fcee7b7f5fb79ac3801f06452c045e2e5db9"
+    },
+    {
+      "path": "RotWK/apt/lanopenplay.big",
+      "offset": 4259972566,
+      "size": 340272,
+      "md5": "d7bfbb6e12e2579086044907a287f533",
+      "sha256": "4e761ff0bc81a67cab242719d8c6ac5c666edb362d63f27c800552336352630a"
+    },
+    {
+      "path": "RotWK/apt/lanstrategic.big",
+      "offset": 4260312838,
+      "size": 351376,
+      "md5": "77e965a922aafd71c7e41c18669144e8",
+      "sha256": "41e248660a227ea8d2e764c36f73f8aaf1f16c4acd3614cca9a9f313fbba377d"
+    },
+    {
+      "path": "RotWK/apt/libingameimagesmain.big",
+      "offset": 4260664214,
+      "size": 2113784,
+      "md5": "361f2796ec392121a957fb7c86c49d17",
+      "sha256": "b709c398d3415b60800498f86e80ffba6f122782e74200eb6063dc74746796dd"
+    },
+    {
+      "path": "RotWK/apt/libingameui.big",
+      "offset": 4262777998,
+      "size": 100827,
+      "md5": "5cdd0cb04e077e0dff483f55f2a1916a",
+      "sha256": "19201789afc574296069f9069de881c40bd9c2a4810bffe5385df1f320179bde"
+    },
+    {
+      "path": "RotWK/apt/libprogressbar.big",
+      "offset": 4262878825,
+      "size": 21748,
+      "md5": "59c62a6231764a0e2b55a1497379f279",
+      "sha256": "f328552e89d7a20a699c3799490ec1e4754fc9c1db9faca7a8cd4eb61c78ebe2"
+    },
+    {
+      "path": "RotWK/apt/libsnow.big",
+      "offset": 4262900573,
+      "size": 7100,
+      "md5": "7998a35580ddc184c781a03c34d863d7",
+      "sha256": "e71db7a53d9cfd94c57abc02d9d48cfdfa7407ff3f93632f098ab254f16c4ea6"
+    },
+    {
+      "path": "RotWK/apt/livingworldui.big",
+      "offset": 4262907673,
+      "size": 2947280,
+      "md5": "62a443bb7911c97a87ac50d829d8e9cf",
+      "sha256": "88659bbc1c580191c930a0cbc6966f184c06c2eb38c7ea3b444218ba77cfc707"
+    },
+    {
+      "path": "RotWK/apt/loadscreen.big",
+      "offset": 4265854953,
+      "size": 24038,
+      "md5": "4fb583ad279b97f4b742beaa37f2a958",
+      "sha256": "ef34c021d268805685ef17780f166f8290efe1d9d5ce8278683f713bbab646cf"
+    },
+    {
+      "path": "RotWK/apt/mainmenu.big",
+      "offset": 4265878991,
+      "size": 2187080,
+      "md5": "3f0a4aa4c8196e0855dde26a50196696",
+      "sha256": "5c6a04f6a012d62ba8174f2ea2d6dd9ed0193a59c6a61805569d7ac19ef11dd4"
+    },
+    {
+      "path": "RotWK/apt/menuexport.big",
+      "offset": 4268066071,
+      "size": 10878688,
+      "md5": "1405a8d7783eb563b683d9c978bb2dcf",
+      "sha256": "5f5f6c5dae26239d84deacd931e1b5ffbd29f4956d71ec7ec1ba78d4fdb08a22"
+    },
+    {
+      "path": "RotWK/apt/menuframeandbg.big",
+      "offset": 4278944759,
+      "size": 4642,
+      "md5": "dca3cb7ebf773a32ebb974930d4d8990",
+      "sha256": "159bab69676a3d02532e2a87322959eba3790ee23c05b93211cd81aa54b8109e"
+    },
+    {
+      "path": "RotWK/apt/messenger.big",
+      "offset": 4278949401,
+      "size": 4735732,
+      "md5": "701bd4e9eef9dfee2a2218bbddebba82",
+      "sha256": "ce52399d75f0127aaa93f0805791dbf0fd2fb7958d237ce4f64cd810a82b8c62"
+    },
+    {
+      "path": "RotWK/apt/mpgamesetup.big",
+      "offset": 4283685133,
+      "size": 1030948,
+      "md5": "6454882484bdb82eb09a0061a69eaf4c",
+      "sha256": "aa201f972714b1f8d59b9b65a2e59311508605d4eb6ca1ff201a7a6fcc368cdb"
+    },
+    {
+      "path": "RotWK/apt/objectives.big",
+      "offset": 4284716081,
+      "size": 41323,
+      "md5": "c64b39b4a6f8535c9cd6104f8d75e5cc",
+      "sha256": "508433c47cde8b6730b56712ac591324157fe1985e3da744ba85b13b4a9171fe"
+    },
+    {
+      "path": "RotWK/apt/onlinehome.big",
+      "offset": 4284757404,
+      "size": 179800,
+      "md5": "a56b924b92fdcbbf08e8cedd530ba157",
+      "sha256": "9a66fd897d514915ac65c79767243b776f602027518ef89ad6f44cb30fbfbe01"
+    },
+    {
+      "path": "RotWK/apt/onlinelogin.big",
+      "offset": 4284937204,
+      "size": 826836,
+      "md5": "286bc761352715a3b9fc48535ce884ef",
+      "sha256": "571939312f890bdbbb617dc8bf97004b44aea8b1498196bf8e5216ca518caf13"
+    },
+    {
+      "path": "RotWK/apt/onlineopenplay.big",
+      "offset": 4285764040,
+      "size": 1223284,
+      "md5": "5b6d2460f7353bcb75e39ed2c85f464b",
+      "sha256": "d95985379caabd3cac8f68aff6ec638731378ec80038c345f93610e991f5b59f"
+    },
+    {
+      "path": "RotWK/apt/onlinequickmatch.big",
+      "offset": 4286987324,
+      "size": 46874,
+      "md5": "2ba10fa0b042133ae9ad7efca4edd1ad",
+      "sha256": "77c976bfa4fb1cf754315f43d9626211fb8f5597c761a553147944dcb4ccb040"
+    },
+    {
+      "path": "RotWK/apt/onlineshell.big",
+      "offset": 4287034198,
+      "size": 1148592,
+      "md5": "5838b43ffd24d1e022ef11ed551e625a",
+      "sha256": "92c257ef2a7c2fb3188c8d160d99dbfbde111b232ffe07ae2c46ef03fb5d07c9"
+    },
+    {
+      "path": "RotWK/apt/onlinestrategic.big",
+      "offset": 4288182790,
+      "size": 103152,
+      "md5": "e46458c70b6f4db23fab935acf602b58",
+      "sha256": "cc29adf25c39c64c8b31f7d9ca82e261cb157cbac911ad32a547789913be232a"
+    },
+    {
+      "path": "RotWK/apt/options.big",
+      "offset": 4288285942,
+      "size": 2488194,
+      "md5": "115eae7e0eb5ecb59b64db0fdc627228",
+      "sha256": "40c8c3fe27efde1da2ebb5e3c8977ed1f8a05a73608b69280bbc429297c45fcc"
+    },
+    {
+      "path": "RotWK/apt/palantir.big",
+      "offset": 4290774136,
+      "size": 2705054,
+      "md5": "5b2afa79f3537536c61835f1f547bf72",
+      "sha256": "f6c1c94f5adf875ad5fba0a2c1956bc7b8b8ad0615ea004b12f8169fed49d9c0"
+    },
+    {
+      "path": "RotWK/apt/palantirexport.big",
+      "offset": 4293479190,
+      "size": 2076318,
+      "md5": "feccd60f989ef7c7cc5cb8d88000b4d3",
+      "sha256": "fe0b422f211bdb6348c6a8f763bbff82a406883cbc263d9871fd7a5e6a930134"
+    },
+    {
+      "path": "RotWK/apt/playertribute.big",
+      "offset": 4295555508,
+      "size": 2138064,
+      "md5": "e499563c83d113f8cfc74183328c95fc",
+      "sha256": "e0747022cde5c24d4290e65aabab263d5ea6a54e49352bab7bde05007d6b3e8a"
+    },
+    {
+      "path": "RotWK/apt/quitmenu.big",
+      "offset": 4297693572,
+      "size": 40115,
+      "md5": "26255b39682d383becdac627cee09bc5",
+      "sha256": "d3c788569c43d43878077ae91f6b5872c4b814292e6f904b5ea307b9d04f6f17"
+    },
+    {
+      "path": "RotWK/apt/saveload.big",
+      "offset": 4297733687,
+      "size": 1109984,
+      "md5": "f49a0c5a86a5c7b91690d767ffbf58f2",
+      "sha256": "0eaed8c9e5b6d64317b9326ee7b2586725a8176399fa4f77a17bf44c0f548e15"
+    },
+    {
+      "path": "RotWK/apt/sidecommandbar.big",
+      "offset": 4298843671,
+      "size": 2826,
+      "md5": "b55ef9763bfe2bdfba16bd9a4ff1643c",
+      "sha256": "b12e34d99964c91db94714531eee6ada39b1635db4f13762527f41d093bbb774"
+    },
+    {
+      "path": "RotWK/apt/skirmish.big",
+      "offset": 4298846497,
+      "size": 43888,
+      "md5": "3d0b75d73fbaa2c9423d427fc3a96c93",
+      "sha256": "be00cb447947419f48aeed28db9a968ec476a62b373897f3bf6fa4b906d0de56"
+    },
+    {
+      "path": "RotWK/apt/skirmishopenplay.big",
+      "offset": 4298890385,
+      "size": 7650,
+      "md5": "2293c9f71208a04fad593cecf1a223be",
+      "sha256": "2eaf73a4cb1536a16fe3735d2c8a3a6ffc4b20154909f0e35061092319bed0df"
+    },
+    {
+      "path": "RotWK/apt/skirmishstrategic.big",
+      "offset": 4298898035,
+      "size": 289312,
+      "md5": "9d8f425ceadc7fa3aadbd8be512e16ad",
+      "sha256": "6690b6918d1166b3e7db01b8cc3e6ecccc88dfc8b590db83d4d7a7dfccfdd953"
+    },
+    {
+      "path": "RotWK/apt/spellstore.big",
+      "offset": 4299187347,
+      "size": 2218012,
+      "md5": "9891e961b39936bcdf339f16cba41fce",
+      "sha256": "dba638b326142ec75131d85fedcb9753d463e8822364ce114991b2194def8d10"
+    },
+    {
+      "path": "RotWK/apt/stats.big",
+      "offset": 4301405359,
+      "size": 572944,
+      "md5": "f00cf5a41667acab64f27fceda1b91ad",
+      "sha256": "b523b8edb5857a8444cebefe436875d7f15c747db092207bacf52b209695eafa"
+    },
+    {
+      "path": "RotWK/apt/strategicarmyunitswapper.big",
+      "offset": 4301978303,
+      "size": 1120802,
+      "md5": "1c107a9464acb83fc9e271dc18940081",
+      "sha256": "b45a10fc14ded1724310043eba995f524675c1519126e118bd03a9845d1197f3"
+    },
+    {
+      "path": "RotWK/apt/strategicbattleprompt.big",
+      "offset": 4303099105,
+      "size": 2169790,
+      "md5": "08ac3ae2947cf50b919e54179af760fb",
+      "sha256": "b8c6cb60dddb9f13ea3588ec16219fa1f97060966ae6063e047dd78b23752998"
+    },
+    {
+      "path": "RotWK/apt/strategicbattlepromptarmypanel.big",
+      "offset": 4305268895,
+      "size": 1065220,
+      "md5": "8620c7ee6bfe76b32b819bf2d7b80715",
+      "sha256": "1df146cdcf89656e8eba4516e38b17ba6839b6006dec62f4c04acb1ddac9796f"
+    },
+    {
+      "path": "RotWK/apt/strategicbattlepromptplayerpage.big",
+      "offset": 4306334115,
+      "size": 558554,
+      "md5": "1af44f6698d8d589ff8b382f6356743b",
+      "sha256": "d345084de34d5e56a728c5e7a40a5e8ce991522533796ee7e44d7fe085b520d8"
+    },
+    {
+      "path": "RotWK/apt/strategicchecklist.big",
+      "offset": 4306892669,
+      "size": 1121322,
+      "md5": "96086646dc393e7416088319df9069d4",
+      "sha256": "368d2b4f6fa7e359a7975216f7dc1a8aff34067ea1004f8ecd1dbf5e24204a72"
+    },
+    {
+      "path": "RotWK/apt/strategicconflictresults.big",
+      "offset": 4308013991,
+      "size": 2174354,
+      "md5": "ff08541d6ff87f226718c3316421fb41",
+      "sha256": "e05fbafff3c991ae1d5d7802c161ecc03a6c662494c4c1918dcda49c11378828"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsarmies.big",
+      "offset": 4310188345,
+      "size": 279270,
+      "md5": "6fa7a25551adcc7ccaf386f677e3ebb7",
+      "sha256": "987985812c3af38bc360d6be071d4e07a8ca8db2ee16a00af3ebe155c9dee2b1"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsarmyretinue.big",
+      "offset": 4310467615,
+      "size": 1119202,
+      "md5": "2328b6f38fbff65a6580e2a9fd607e91",
+      "sha256": "09f89836ac28c7861458a783a50d7e6861bebbee95d82dc7da1b9f662305aabb"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsbuildqueue.big",
+      "offset": 4311586817,
+      "size": 1096986,
+      "md5": "bc611195716e3f3469d9209c75ec0f93",
+      "sha256": "8bd9b9cfb9358e1c27f2cdb02829c612e87bef9b4f4b4cc78a50b5566d8b1d50"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsregion.big",
+      "offset": 4312683803,
+      "size": 143632,
+      "md5": "2a4c500cb9a7a713ee9a46c74820c785",
+      "sha256": "7dbc1bb90bdc419adf48ab63e639a58454e2685e53493b547d51efc75f0a40a0"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsstructures.big",
+      "offset": 4312827435,
+      "size": 544842,
+      "md5": "c9a570652df75656b6a4546e5732c379",
+      "sha256": "b187572dcdb670cf89095ba17dddd51ded9ace398d30eaa333f7354f5f60002f"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailsterritory.big",
+      "offset": 4313372277,
+      "size": 143098,
+      "md5": "e483cb24311cab8e50074601d872f418",
+      "sha256": "e96cd98d9a18bf21d1b2f034d16e724f2ad3f1c75d5180ea4e0a187619c32062"
+    },
+    {
+      "path": "RotWK/apt/strategicdetailstray.big",
+      "offset": 4313515375,
+      "size": 286292,
+      "md5": "af0330f0ea56a1fa5f8e7cea211e97cb",
+      "sha256": "dccd2bd8844f81badaaf201012b8cfc061eecbe973d5c7bdffa1285ed7aa82b6"
+    },
+    {
+      "path": "RotWK/apt/strategicdynamicautoresolve.big",
+      "offset": 4313801667,
+      "size": 4404238,
+      "md5": "cd16e82b7a8ed0120c33435324d63b7d",
+      "sha256": "c790e5d273e1dfa51efee18af3fd931bc900f2054c3c692b01ac9818e6f211d3"
+    },
+    {
+      "path": "RotWK/apt/strategicendturnbutton.big",
+      "offset": 4318205905,
+      "size": 1073532,
+      "md5": "e842e17283ac181412b6f66e3c75d583",
+      "sha256": "80a775f11a9ab604223f94701dfe3209877a812c45c7ead437500794c1be8c9e"
+    },
+    {
+      "path": "RotWK/apt/strategichud.big",
+      "offset": 4319279437,
+      "size": 21963,
+      "md5": "64f202b539fc186e62c2aada36e0bb17",
+      "sha256": "a544d4faa15f5c27c5f921b2d10f5621d91413e129bf4f590e48a14545efb53b"
+    },
+    {
+      "path": "RotWK/apt/strategicnextturnind.big",
+      "offset": 4319301400,
+      "size": 2114440,
+      "md5": "44d63f591bdff4016801802cc11ea395",
+      "sha256": "4421f6781473783a8fa3bd84b398c1c11efdb9ef99b068766b054f1d4cd0be1b"
+    },
+    {
+      "path": "RotWK/apt/strategicpalantir.big",
+      "offset": 4321415840,
+      "size": 424572,
+      "md5": "54f3d420215f08b2ef6fcae447ece53e",
+      "sha256": "8ba108ffbba7be000c088c2e455159eeb3bbaf58091c725223400bf3d3e7897f"
+    },
+    {
+      "path": "RotWK/apt/strategicplayerstatus.big",
+      "offset": 4321840412,
+      "size": 2165238,
+      "md5": "66a78112f1fd2a003e18d92ccde7c704",
+      "sha256": "0fb98a4eba1d49b1d9b793165fb694c9383c99c53295223b15a7fc3de484b7d8"
+    },
+    {
+      "path": "RotWK/apt/strategicregionaward.big",
+      "offset": 4324005650,
+      "size": 2175934,
+      "md5": "d35011f30749dfddccf3a454d03bdcad",
+      "sha256": "e1fbb7139ad33c79ed04cd1cceffb3722672cf62c66209ef9998d3567474665b"
+    },
+    {
+      "path": "RotWK/apt/strategicstats.big",
+      "offset": 4326181584,
+      "size": 304376,
+      "md5": "f9f6a8a7133d904820c51ea71e552785",
+      "sha256": "397cb5f071c158270217bef4c3bf27c81779771ab42a5df3984ab54412e36a3e"
+    },
+    {
+      "path": "RotWK/apt/strategicveterancy.big",
+      "offset": 4326485960,
+      "size": 2188806,
+      "md5": "f9d3bc00fe05f63e0dfb32beb8279c08",
+      "sha256": "a6d3479d9fc8d0f5b7a3f799911e5bd4928aa802b1e02784d99101164c6fa400"
+    },
+    {
+      "path": "RotWK/apt/timeline.big",
+      "offset": 4328674766,
+      "size": 1170352,
+      "md5": "f556d5434d095d878b54a038b256d24f",
+      "sha256": "f8d27dfcb48896c9d0ba7fdebc7163a6161a8d21192ae1ddb6aee0598ddf0fc1"
+    },
+    {
+      "path": "RotWK/apt/verticalscrollbar.big",
+      "offset": 4329845118,
+      "size": 16723,
+      "md5": "15009d8e053fd98945d0fb201cb8edb2",
+      "sha256": "62853dc247a1dccdc727edba0aa5ad750c234474bc859891b73634e12d233c70"
+    },
+    {
+      "path": "RotWK/audio.big",
+      "offset": 4329861841,
+      "size": 2214478,
+      "md5": "dc4beeff6a9a9587a8e5b2fc2f529d5b",
+      "sha256": "f17fbf131338cd6e9e52f98f26c02042b35058e19eea8b1dff603d0ed9b12c5a"
+    },
+    {
+      "path": "RotWK/bases.big",
+      "offset": 4332076319,
+      "size": 854842,
+      "md5": "abf8f80bac2b46842c73fd75b73d6c7f",
+      "sha256": "d83a5eb2e04d1a9621e2a64994ae5d9c88ecf67e902233dbb6de909212ada8bd"
+    },
+    {
+      "path": "RotWK/data1.big",
+      "offset": 4332931161,
+      "size": 625668,
+      "md5": "ee5c0791c75a55a5123d0c21b5fd680f",
+      "sha256": "18dd9f9cd153b3678c9c6c3170637b41fbf13dafec3b06d9c203fa2c629046eb"
+    },
+    {
+      "path": "RotWK/data2.big",
+      "offset": 4333556829,
+      "size": 2736520,
+      "md5": "c6ee671f7e6546f117e1a1795a17018f",
+      "sha256": "2dc7512a3fa3743f5147fa067cdd414294c8df7f33a5fc98d17497f802069a40"
+    },
+    {
+      "path": "RotWK/ini.big",
+      "offset": 4336293349,
+      "size": 29034678,
+      "md5": "2f24887ba2b0c1d210bc7bc2d6c62c31",
+      "sha256": "68be19a8828963cb94a9d3e5c8eb5b83d365acf7a6b29370011aea8e029dfc3d"
+    },
+    {
+      "path": "RotWK/lang/english.big",
+      "offset": 4365328027,
+      "size": 1252933,
+      "md5": "3b49cdaf47b25729ff1e162885772662",
+      "sha256": "f429df848687f0f0a4783b0d83b0016650400238588dbe25c263c220ba3e7658"
+    },
+    {
+      "path": "RotWK/lang/englishaudio.big",
+      "offset": 4366580960,
+      "size": 473605060,
+      "md5": "b0b988f245fa7023652d206968132563",
+      "sha256": "1e83fc713309782e52b72cd6c44906c2a676538557530c5cf1818c36db76f39d"
+    },
+    {
+      "path": "RotWK/lang/englishpatch201.big",
+      "offset": 4840186020,
+      "size": 1207497,
+      "md5": "d279329f6a34f1b7a43dbad94430461c",
+      "sha256": "83f98f182a9d74711b47aea02e3ea0a246295429f49a45069698e3af1a5a9ac7"
+    },
+    {
+      "path": "RotWK/libraries.big",
+      "offset": 4841393517,
+      "size": 44715,
+      "md5": "3c481dd56708585718000349acd1ce7a",
+      "sha256": "a6c992d98b8952fec7f55be1694f8ff3d0c133d46243b307d36aed441a3a01a1"
+    },
+    {
+      "path": "RotWK/lotrsec.big",
+      "offset": 4841438232,
+      "size": 787458,
+      "md5": "ca2cbcc80f8b9dbef309adb8057aca03",
+      "sha256": "e9a76d9636a1bd7907d2ecaed60cc40bfb10314bee3a584bce85e161a740be0a"
+    },
+    {
+      "path": "RotWK/maps.big",
+      "offset": 4842225690,
+      "size": 84237960,
+      "md5": "5877fb6e9e02723c26c208218a58ec66",
+      "sha256": "673615e01e2f49a37e46a77c3678221bdae3c7d0e9422a5e39a6997795dd9f56"
+    },
+    {
+      "path": "RotWK/music.big",
+      "offset": 4926463650,
+      "size": 1193851,
+      "md5": "210b1498f4e7f8bbda750b91d8ab93f5",
+      "sha256": "f4b4ccc698b51ca9c1ccee78bdb24fb0741356a54d258e204580264174d99109"
+    },
+    {
+      "path": "RotWK/shaders.big",
+      "offset": 4927657501,
+      "size": 1193229,
+      "md5": "4c62668348d77a5f3bd66bdf5e5ef44d",
+      "sha256": "353c835b0e77387b322a094b62477b35c34e8e1cea6d75f5844a20b9e36b091b"
+    },
+    {
+      "path": "RotWK/terrain.big",
+      "offset": 4928850730,
+      "size": 11471885,
+      "md5": "b6520faebd7ce102ffa3031d1fbecfcc",
+      "sha256": "ed3551c483aee05aa8093067ac60479289852fe0f286e68da80d396097aa4619"
+    },
+    {
+      "path": "RotWK/textures0.big",
+      "offset": 4940322615,
+      "size": 1183466,
+      "md5": "2825a6b57c4746b92a43ca97d20c97ba",
+      "sha256": "0d1cd80823425adc9b9f6660ec3beddabe7e2029e21b2020c1eae8f6fe9cf024"
+    },
+    {
+      "path": "RotWK/textures1.big",
+      "offset": 4941506081,
+      "size": 88039866,
+      "md5": "ef0a2740d3e115d199784ef78dcdc28a",
+      "sha256": "2ba6e276d759ff7b7d4b0dc56f8a21549e888036a2fb3401285bdedaace50423"
+    },
+    {
+      "path": "RotWK/textures2.big",
+      "offset": 5029545947,
+      "size": 228832235,
+      "md5": "832ee7cef75921f66e6939a638a9cd9a",
+      "sha256": "d7ded82f16ad6c0ca94a854b02a8382943d5bdb3b759f4f97eb269507bcc6637"
+    },
+    {
+      "path": "RotWK/textures3.big",
+      "offset": 5258378182,
+      "size": 139382119,
+      "md5": "b11b1b822d7f6d970267f6a050caadc7",
+      "sha256": "a6fea9f1ad4c333bd7eef61240b360906d38266cf20c066643451ee26d1e994e"
+    },
+    {
+      "path": "RotWK/textures4.big",
+      "offset": 5397760301,
+      "size": 503160,
+      "md5": "8356bbca440e7da32639f30b8bfd1065",
+      "sha256": "965350eb6d553030f75debe5b9ec9e1af6f9a52e2391d074112bf46e5fa9b06c"
+    },
+    {
+      "path": "RotWK/w3d.big",
+      "offset": 5398263461,
+      "size": 237730343,
+      "md5": "bb581b6f711c4e831d45c695d110accc",
+      "sha256": "62bc6bab12964592418de77f8aa44581238f2683501b3d4cbc68c5dee8bb25f2"
+    },
+    {
+      "path": "RotWK/window.big",
+      "offset": 5635993804,
+      "size": 79595,
+      "md5": "cc5c234c94edfac57fba8f7f000921b4",
+      "sha256": "d34f7a5e95e56fe54c861db61a24e11dfdbf4003797f4d3bee0a4f6f27560265"
+    }
+  ],
+  "parts": [
+    {
+      "name": "retail-bigs.part-0001.bin",
+      "size": 99614720,
+      "sha256": "6d195cde7e2419e95f9c1652d64d92cd4bd0c9b01d7c3fbe0dbf22e414d79f07"
+    },
+    {
+      "name": "retail-bigs.part-0002.bin",
+      "size": 99614720,
+      "sha256": "b787b8c2310e1603392b9ddb1b24d4dbfd8d6a377c5b62a10af53aa2c2625688"
+    },
+    {
+      "name": "retail-bigs.part-0003.bin",
+      "size": 99614720,
+      "sha256": "ca1b8a2792cc63ded231e50a98780c4e699dfb2ee9dcd395cc8ae9801462939e"
+    },
+    {
+      "name": "retail-bigs.part-0004.bin",
+      "size": 99614720,
+      "sha256": "391327780b11c7d6b0fdec2bfa265e2409a73b81006d3e0519aab85cba9e5d14"
+    },
+    {
+      "name": "retail-bigs.part-0005.bin",
+      "size": 99614720,
+      "sha256": "3efb36f21360236fdb36e61f4bdce6f80153bbc867998ef891857d4b7b8fb4af"
+    },
+    {
+      "name": "retail-bigs.part-0006.bin",
+      "size": 99614720,
+      "sha256": "a7206a54e5656d50eebb89b3a987bc2c1aa649f73ae819aa8547ffc715fd15d0"
+    },
+    {
+      "name": "retail-bigs.part-0007.bin",
+      "size": 99614720,
+      "sha256": "89c0b6e4db02385ab404f05e4a87acf1f0df35f6732d12351ae29d2a560d1441"
+    },
+    {
+      "name": "retail-bigs.part-0008.bin",
+      "size": 99614720,
+      "sha256": "d2edd335a051d608a5d8baa2cd3431f1f30df838ca7123a45658e1418423be66"
+    },
+    {
+      "name": "retail-bigs.part-0009.bin",
+      "size": 99614720,
+      "sha256": "059de4f7ca7ffac184ba25b7647c19e29fbdb2773a31af8dd980c0ccf2f01c78"
+    },
+    {
+      "name": "retail-bigs.part-0010.bin",
+      "size": 99614720,
+      "sha256": "c8ec81ffce84cbe42c16073aea7c475b3322ab061f48344f547adf2f91d29c9a"
+    },
+    {
+      "name": "retail-bigs.part-0011.bin",
+      "size": 99614720,
+      "sha256": "497e5216b2cbfbc7c69d89dbaaa778ecf299d3efddc0fce735e6520990653bdc"
+    },
+    {
+      "name": "retail-bigs.part-0012.bin",
+      "size": 99614720,
+      "sha256": "2ea166bd92605de312d5e1742cfe1697c9a255dcc5bbddd0b41151ad7fc90060"
+    },
+    {
+      "name": "retail-bigs.part-0013.bin",
+      "size": 99614720,
+      "sha256": "249d0a7c630e70624eabc12b29dca69a3dd34b39ea54ec050ed2b145e27accd9"
+    },
+    {
+      "name": "retail-bigs.part-0014.bin",
+      "size": 99614720,
+      "sha256": "d9d8c5a16d25a4cee07a84768863b2d1482125fc74d61b3fa9c9f5d44e0c7c13"
+    },
+    {
+      "name": "retail-bigs.part-0015.bin",
+      "size": 99614720,
+      "sha256": "68e301ecc9d8e8650a4155257ccecc14547e5df4d4e99f251c1de5ea2fa33aec"
+    },
+    {
+      "name": "retail-bigs.part-0016.bin",
+      "size": 99614720,
+      "sha256": "6820bf9cfda6781a42accdb8da63d81b8dc4572dbbdaf7fe336585c8b2adea2e"
+    },
+    {
+      "name": "retail-bigs.part-0017.bin",
+      "size": 99614720,
+      "sha256": "0f1ae27942303f2058ce26d877594d645cb7122fd99824051d06333e4b577a79"
+    },
+    {
+      "name": "retail-bigs.part-0018.bin",
+      "size": 99614720,
+      "sha256": "8564cd865cbea04e90e8cb21d9175cf162d0e5a7ac1c5e45a0220b3c54363134"
+    },
+    {
+      "name": "retail-bigs.part-0019.bin",
+      "size": 99614720,
+      "sha256": "7c16db2a21cb9904bc37e305a2069a83f80bc58eb66b34d8d9b9cd6c9712fbbc"
+    },
+    {
+      "name": "retail-bigs.part-0020.bin",
+      "size": 99614720,
+      "sha256": "40b02998b175f4e7d3bd471e871285e75ed1be1f305cb475be21288a25e6333c"
+    },
+    {
+      "name": "retail-bigs.part-0021.bin",
+      "size": 99614720,
+      "sha256": "a63c34593f58f551970728b65a4b4dc78c02c02424edcb0b29a117c475b999c2"
+    },
+    {
+      "name": "retail-bigs.part-0022.bin",
+      "size": 99614720,
+      "sha256": "6e0cff365a1d9db524d193d2e43d65be7e2c22a72b8d4026f00b239929379892"
+    },
+    {
+      "name": "retail-bigs.part-0023.bin",
+      "size": 99614720,
+      "sha256": "e791e1c2662861371c9b5c4e19486fe657edb5d3735897508c295f3369f29d29"
+    },
+    {
+      "name": "retail-bigs.part-0024.bin",
+      "size": 99614720,
+      "sha256": "54eb896daf2a700fa4e7b47c692780ab3509ef227024c842a3b338e68d2c89cc"
+    },
+    {
+      "name": "retail-bigs.part-0025.bin",
+      "size": 99614720,
+      "sha256": "0d52d82c904dd0d4f6807397c3ab5cb786a84976f4ced87d581a98c0bcb6f56f"
+    },
+    {
+      "name": "retail-bigs.part-0026.bin",
+      "size": 99614720,
+      "sha256": "c28ffb09ea60b76e59a6f793cdc7f2902dc3aa0b13cfdac9ba5744e4ca51d13b"
+    },
+    {
+      "name": "retail-bigs.part-0027.bin",
+      "size": 99614720,
+      "sha256": "17272ae2a116d52e5c21b46cc8cc09e73aec4b5964e5566ffcb030df56c9be5b"
+    },
+    {
+      "name": "retail-bigs.part-0028.bin",
+      "size": 99614720,
+      "sha256": "18e3ff0e76ff5c217d57f0c6d4f31ab45390f9c987e469e6284279cb2bb035de"
+    },
+    {
+      "name": "retail-bigs.part-0029.bin",
+      "size": 99614720,
+      "sha256": "c0f8e83919dfc9ece9df331c357fc78b7203e43e7c4139f6995c866eb2378e65"
+    },
+    {
+      "name": "retail-bigs.part-0030.bin",
+      "size": 99614720,
+      "sha256": "8ad4978abacd6833cd2f3f109ef39cb4ee11bb75cf205273111b13af5b314a03"
+    },
+    {
+      "name": "retail-bigs.part-0031.bin",
+      "size": 99614720,
+      "sha256": "6cebd7d602070d2d7087e6fb53d276ad2de43940f47dc1c93fdb51a732703500"
+    },
+    {
+      "name": "retail-bigs.part-0032.bin",
+      "size": 99614720,
+      "sha256": "792d0c983c6143e9d43ae2fd0e530213948566c6ea0c126bc8833fcc82d1c145"
+    },
+    {
+      "name": "retail-bigs.part-0033.bin",
+      "size": 99614720,
+      "sha256": "3afac19ada1654015caf9514687bf8e4677b570838fd68a0f66473dcf03c295e"
+    },
+    {
+      "name": "retail-bigs.part-0034.bin",
+      "size": 99614720,
+      "sha256": "c82862c641e4e9b02de5e5f06e616603d602bfa5ef987aa5a6e75ebd376657a0"
+    },
+    {
+      "name": "retail-bigs.part-0035.bin",
+      "size": 99614720,
+      "sha256": "90c274c4a7721fbb5be6e4be67955e62314f32599605f899eb780606af7c0e40"
+    },
+    {
+      "name": "retail-bigs.part-0036.bin",
+      "size": 99614720,
+      "sha256": "5ada2c899d422944c0dcba4fd1cc5bf7c7d678585326fdae66d8154452f631a3"
+    },
+    {
+      "name": "retail-bigs.part-0037.bin",
+      "size": 99614720,
+      "sha256": "1e2c14a6b7312256c50766d383ce7b24f4e3c5d064380ef8538a843a2625230d"
+    },
+    {
+      "name": "retail-bigs.part-0038.bin",
+      "size": 99614720,
+      "sha256": "6ed079ddb38eb04cbc3e6c2ab349991d58fa9a85182e7a032636c4e1f28bf63f"
+    },
+    {
+      "name": "retail-bigs.part-0039.bin",
+      "size": 99614720,
+      "sha256": "1526572a15f60fb3892f20b081936a27836788901150016f96b32263228ed68b"
+    },
+    {
+      "name": "retail-bigs.part-0040.bin",
+      "size": 99614720,
+      "sha256": "805962627e3afba2bcea00223582536b4d45cef2f252187ae0ecb1922ec2c814"
+    },
+    {
+      "name": "retail-bigs.part-0041.bin",
+      "size": 99614720,
+      "sha256": "c82d6d607edaacec221401b9b163c0242a3fa1af213467ba3670d1ec583229d7"
+    },
+    {
+      "name": "retail-bigs.part-0042.bin",
+      "size": 99614720,
+      "sha256": "1d636c6dbdce86422bde9c7f61c34018fbd2580e57b5c218886e2d654cd2b633"
+    },
+    {
+      "name": "retail-bigs.part-0043.bin",
+      "size": 99614720,
+      "sha256": "913121f58bdeda3857f8aa7f3e6bcecbbdf844c5f1779ceaa29f21c4f26952d6"
+    },
+    {
+      "name": "retail-bigs.part-0044.bin",
+      "size": 99614720,
+      "sha256": "5f98659d13e0da02acd20bf4fce1b31d41dc7eeded8a395c33ae40083ef47856"
+    },
+    {
+      "name": "retail-bigs.part-0045.bin",
+      "size": 99614720,
+      "sha256": "1acb04bde64b992b481dc502b7a8aa2b6b9936e4ae3ef79dac6a76fb0ef0abbd"
+    },
+    {
+      "name": "retail-bigs.part-0046.bin",
+      "size": 99614720,
+      "sha256": "7534c29c9ef3fa0b1c19ecd743b837b4216fc5a079dc0137b67afe67b6345cb1"
+    },
+    {
+      "name": "retail-bigs.part-0047.bin",
+      "size": 99614720,
+      "sha256": "e03fb650485d8f39d48b1aea947fa552931209572789c0d6b8ed784453fa2938"
+    },
+    {
+      "name": "retail-bigs.part-0048.bin",
+      "size": 99614720,
+      "sha256": "12faa4197506c19b3148c6c6e5233c8364162012bf79a1ca4f44850802ccdf8d"
+    },
+    {
+      "name": "retail-bigs.part-0049.bin",
+      "size": 99614720,
+      "sha256": "f20f969d84091be59f1a24d19351f28d5df7d6ee818e6089860e8cd998521af6"
+    },
+    {
+      "name": "retail-bigs.part-0050.bin",
+      "size": 99614720,
+      "sha256": "f3533f4b78396815fe109f5b609e1473a6efe1727303d663c5aedb1a7969513b"
+    },
+    {
+      "name": "retail-bigs.part-0051.bin",
+      "size": 99614720,
+      "sha256": "c058799a441acaf5d0403943b45edba87177acd3242bf944916ccbfc7c4d4532"
+    },
+    {
+      "name": "retail-bigs.part-0052.bin",
+      "size": 99614720,
+      "sha256": "e88666334fbf6e808aae57e0dd34963b7883d001e94e38fa71590f12791ab90c"
+    },
+    {
+      "name": "retail-bigs.part-0053.bin",
+      "size": 99614720,
+      "sha256": "ff2bd4df7124cf5e79b992a2432b0fc93f7d09680778ad79fe6d0bc88b938bfa"
+    },
+    {
+      "name": "retail-bigs.part-0054.bin",
+      "size": 99614720,
+      "sha256": "9b2398ed2b16b93fec20face32ba0b8c42f00906001d0097365e9204d61adb75"
+    },
+    {
+      "name": "retail-bigs.part-0055.bin",
+      "size": 99614720,
+      "sha256": "16f7ae5ee36c8ffb03ff24d764ddc14c3bd0189f04263d3d84ea48845f1755ff"
+    },
+    {
+      "name": "retail-bigs.part-0056.bin",
+      "size": 99614720,
+      "sha256": "bb62e0f6f4679999865574d1785f3f0a102659751a19dc4026a0bcd175484fab"
+    },
+    {
+      "name": "retail-bigs.part-0057.bin",
+      "size": 57649079,
+      "sha256": "ad256e98ae0a80a33fc785a2f00c0f4dd6d4cfeb706adb4d760c35f24fcb2936"
+    }
+  ]
+}

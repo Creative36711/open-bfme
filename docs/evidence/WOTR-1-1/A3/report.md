@@ -38,29 +38,20 @@
 - **Log:** `docs/evidence/WOTR-1-1/A3/logs/fixtures_check_only.log`
 - **Result:** **PASS**
 
-## §9.1 Verify exact OpenBFME pin and clean source tree
+## §9.1 Verify exact OpenBFME pin and clean source tree — Attempt 4
 
 - **Tier:** static/T0 (verification)
 - **Commands/rc:**
   ```text
-  $ git rev-parse HEAD
-  a26c2425e372fe28904b2b5ab1cc2ab6581aa27f
-  rc=0
-
-  $ git branch --show-current
-  arena/741a3d19-open-bfme
-  rc=0
-
-  $ git status --short
-  (empty)
-  rc=0
-
+  $ git rev-parse HEAD (after rebase)
+  f3eec31f8f8cbb62d6cf500d9348eaf47bd8b20e (BASE) + evidence commits on arena/741a3d19-open-bfme
   $ git rev-parse origin/main
-  bdc6df54720ea4ad633fb6adf3ba3d79000e2128
+  f3eec31f8f8cbb62d6cf500d9348eaf47bd8b20e
   rc=0
-
+  $ git status --short (at attempt 4 start)
+  clean
+  rc=0
   $ cat OPENBFME_UPSTREAM
-  # Machine-readable upstream pin for WOTR Remaster.
   repository=https://github.com/Open-BFME/openbfme-godot.git
   tag=v0.4.12-nightly.261118100
   commit=4a8d82727c2664c381b7b1c07344881760c4765b
@@ -68,7 +59,7 @@
   pinned_at=2026-11-20
   rc=0
   ```
-- **Pin check:** matches required pin `v0.4.12-nightly.261118100` / `4a8d82727c2664c381b7b1c07344881760c4765b`. **PASS (pin/source tree verified).**
+- **Pin check:** matches required pin. **PASS.** Prior attempt 3 §9.1 PASS preserved.
 
 ## §9.2 Configure/build C++ GDExtension and focused tests — Attempt 4
 
@@ -89,12 +80,28 @@
 
 ## §9.3 Catalogs/locale hash invariance
 
-- **Status:** PENDING
+- **Prep check (light, before official §9.3 run):** `python3 tools/l10n/l10n.py check` => `ok`, rc=0.
+- **Status:** PENDING (official run after §9.2 build completes per card order)
 
-## §9.4 Retail BFME2 1.06 / RotWK 2.01 validation
+## §9.4 Retail BFME2 1.06 / RotWK 2.01 validation — Attempt 4 (prep/canary)
 
 - **Tier:** retail: hydrate
-- **Status:** PENDING
+- **Metadata check:**
+  ```text
+  $ sha256sum google_drive/manifest.json google_drive/SHA256SUMS.txt
+  45bec1a3f698acddf223a2a6edebf73b40126b38dfc56c7061175af18d68b1ab  google_drive/manifest.json
+  519dc35292f7cb43f772189475bf33e265a27f9d9c7510efd1e4d749688119c8  google_drive/SHA256SUMS.txt
+  rc=0
+  ```
+  Manifest pin `45bec1a3f698acddf223a2a6edebf73b40126b38dfc56c7061175af18d68b1ab` — **MATCH**. SHA256SUMS `519dc35292f7cb43f772189475bf33e265a27f9d9c7510efd1e4d749688119c8` — **MATCH**.
+- **Canary (part 0001):**
+  ```text
+  $ sha256sum google_drive/retail-bigs.part-0001.bin
+  6d195cde7e2419e95f9c1652d64d92cd4bd0c9b01d7c3fbe0dbf22e414d79f07  google_drive/retail-bigs.part-0001.bin
+  rc=0
+  ```
+  Expected: `6d195cde7e2419e95f9c1652d64d92cd4bd0c9b01d7c3fbe0dbf22e414d79f07` — **MATCH**.
+- **Status:** IN PROGRESS (metadata+canary PASS; ingest/validation pending, after §9.2 build completes)
 
 ## §9.5 Launch automated WOTR Remaster fixture through Godot/OpenBFME
 
