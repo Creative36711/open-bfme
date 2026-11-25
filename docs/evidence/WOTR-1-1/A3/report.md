@@ -75,9 +75,32 @@
   ```
   - Start (UTC): 2026-11-25T17:09:43Z
   - PID: 1751
-  - Initial poll: `build.rc` absent (NO_RC_YET), console tail showed `==> configure (mode=tests, Godot=ON, tests=ON)`, build.log progress not yet available.
-- **Progress polls (UTC):** 17:13:57 [262/2618], 17:20:58 [584/2618], 17:28:58 [1147/2618], 17:37:59 [1926/2618], latest polled [2300/2618] at 18:04:59Z; build.rc absent; no failure observed.
-- **Status:** IN PROGRESS (detached, polling; no restart over live ninja)
+- **Completion:**
+  ```text
+  build.rc = 0
+  console tail: ✓ built: openbfme openbfme_tests
+               extension: /home/user/open-bfme/godot/bin/openbfme.linux.template_debug.x86_64.so (32056 KiB)
+               elapsed: 77 min 25 s
+  build.log: 651738 bytes, sha256 ac4f98f1e5fd6b0b50e31047e709b635f29f86485b8f8fd3d6d2abeffd21306e
+  openbfme_tests: -rwxr-xr-x 116652240 bytes (2026-11-25 18:27)
+  ```
+- **Result:** **PASS** (rc 0)
+
+## §9.2b Full openbfme_tests ("fail 0") with fixtures
+
+- **Command:**
+  ```bash
+  OPENBFME_AUDIO_FIXTURES=$HOME/.cache/wotr-audio-fixtures engine/build/openbfme_tests
+  ```
+- **Result tail:**
+  ```text
+  [doctest] test cases:    5652 |    5652 passed | 0 failed | 27 skipped
+  [doctest] assertions: 1410248 | 1410248 passed | 0 failed |
+  [doctest] Status: SUCCESS!
+  TEST_RC=0
+  ```
+- **End (UTC):** 2026-11-25T18:28:43Z
+- **Result:** **PASS** (rc 0, fail 0)
 
 ## §9.3 Catalogs/locale hash invariance
 
