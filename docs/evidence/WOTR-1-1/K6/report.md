@@ -33,7 +33,7 @@ change to any file outside `tools/arena/**` and `docs/evidence/WOTR-1-1/K6/**`.
 `build_cache.py key` hashes a JSON object of the inputs that actually decide the build:
 
 ```json
-{"schema": 1, "checkout": "/home/user/open-bfme", "platform": ["Linux", "x86_64"],
+{"schema": 1, "checkout": "<the canonical checkout path>", "platform": ["Linux", "x86_64"],
  "tree": "428d1f69c55cd7f9a26c50ba3af490a8222901ef",
  "godot_cpp": "507ed9d840c01a3c5b2a39af8bb4000bfac30bf5",
  "build_type": "Release", "flags": "-include cstddef", "launcher": "",
@@ -127,11 +127,11 @@ plus `CMakeCache.txt` comparison against the key (`CMAKE_BUILD_TYPE`, `CMAKE_CXX
 exit code — it exits 0 even when every output is missing, so `✗` in its output is an error:
 
 ```text
-build_engine.sh --check: source: /home/user/open-bfme
+build_engine.sh --check: source: <checkout>
     ✓ godot-cpp present
     ✓ core: 56M
-    ✓ extension: /home/user/open-bfme/godot/bin/openbfme.linux.template_debug.x86_64.so
-    ✓ tests: /home/user/open-bfme/engine/build/openbfme_tests
+    ✓ extension: godot/bin/openbfme.linux.template_debug.x86_64.so
+    ✓ tests: engine/build/openbfme_tests
 ```
 
 The ninja log comes back with the tree, so a restored checkout is already up to date for ninja and
@@ -140,11 +140,11 @@ rebuilds only what was edited afterwards. Restoring is 9 s against a
 
 ## 5 · Compiler cache: the measurement (oracle 4)
 
-**Which tool.** `ccache` is not installable here: the sandbox has no reachable apt mirror
-(`sudo apt-get update` → `Failed to fetch http://deb.debian.org/... Connection failed`) and GitHub
-release assets are unreachable (`release-assets.githubusercontent.com` TLS failure). `sccache`
-0.16.0 — the other half of the card's "ccache/sccache" — ships its Linux release binary as a
-manylinux wheel on the Python package index, which is reachable; installed to `/tmp/k6-bin/sccache`
+**Which tool.** `ccache` is not installable here: the sandbox reaches no package mirror
+(`sudo apt-get update` fails to fetch the Debian bookworm indexes, `Connection failed`) and the release
+asset host of the source forge refuses TLS, so no prebuilt binary can be fetched. `sccache`
+0.16.0 — the other half of the card's "ccache/sccache" — publishes its Linux release binary as a
+manylinux wheel on the Python package index, which is reachable from this sandbox; installed to `/tmp/k6-bin/sccache`
 outside the checkout, `sccache --version` rc 0, binary SHA-256
 `8cc465f71f6f6c85d9df34503fda47f0d23480796501605e0502c88004546149`. Cache directory
 `/tmp/sccache-dir`, 10 GiB limit, local disk mode.
