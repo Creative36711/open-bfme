@@ -145,8 +145,9 @@
   - Step 1 (canary): part 0001 ingested, rc 0, checkpoint 1/57.
   - Step 2: parts 0002-0005 ingested, rc 0, checkpoint 5/57 (0.46 GiB).
   - Step 3: parts 0006-0010 ingested, rc 0, checkpoint 10/57 (0.93 GiB).
+  - Step 4: parts 0011-0015 ingested, rc 0, checkpoint 15/57 (1.39 GiB).
   - Manifest SHA-256 verified: `45bec1a3f698acddf223a2a6edebf73b40126b38dfc56c7061175af18d68b1ab`.
-- **Status:** IN PROGRESS (hydration ongoing; 10/57 committed, not complete)
+- **Status:** IN PROGRESS (hydration ongoing; 15/57 committed, not complete)
 
 ## §9.5 Launch automated WOTR Remaster fixture through Godot/OpenBFME
 
