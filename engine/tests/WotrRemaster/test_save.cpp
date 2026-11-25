@@ -315,3 +315,112 @@ TEST_CASE("save: stale envelope missing stateHash or unknown inner schemaVersion
     CHECK_FALSE(badSchemaLoaded.ok());
     CHECK(badSchemaLoaded.err == WotrErrc::UnknownSaveVersion);
 }
+
+TEST_CASE("save: A1 PROBE 3 reproducer (forged acceptedCommands[*].checksum = ffff...f) is refused and re-save keeps clean log") {
+    auto packRes = loadPack(readFile(fixtureDir() + "/pack.json"));
+    INFO(packRes.message);
+    REQUIRE(packRes.ok());
+    const Pack pack = packRes.value;
+
+    auto st = initialState(pack, 7ull);
+    INFO(st.message);
+    REQUIRE(st.ok());
+    auto r = resolveCommands(
+        st.value,
+        {moveEnvelopeTest(0, "faction_gondor", 1, "c1", "army_gondor", "crossing"),
+         moveEnvelopeTest(0, "faction_mordor", 1, "c2", "army_mordor", "crossing")});
+    INFO(r.message);
+    REQUIRE(r.ok());
+    REQUIRE(r.value.state.acceptedCommands.size() == 2u);
+
+    // Active session holding the valid campaign state before attempting transactional load.
+    CampaignState session = r.value.state;
+    const std::string beforeBytes = canonicalState(session);
+    const std::string beforeHash = stateHash(session);
+    const std::string legitEnvelope = saveCampaign(session, pack);
+    const std::string forgedDigest(64, 'f');
+    REQUIRE(beforeBytes.find(forgedDigest) == std::string::npos);
+
+    auto parsed = parseSaveEnvelope(legitEnvelope);
+    INFO(parsed.message);
+    REQUIRE(parsed.ok());
+
+    // 1) Exact A1 PROBE 3 reproducer: replace every acceptedCommands[*].checksum
+    //    with 64 'f' chars and re-seal outer envelope checksum.
+    WotrSaveEnvelopeV1 probe3 = parsed.value;
+    JsonValue inner = JsonValue::parse(probe3.stateBytes);
+    for (auto& c : inner.objectValue.at("acceptedCommands").arrayValue) {
+        c.objectValue.at("checksum").stringValue = forgedDigest;
+    }
+    probe3.stateBytes = inner.canonical();
+    probe3.checksum = Sha256::hashHex(saveEnvelopePayload(probe3));
+    const std::string probe3Text = serializeSaveEnvelope(probe3);
+    REQUIRE(parseSaveEnvelope(probe3Text).ok());
+
+    auto res1 = loadCampaign(probe3Text, pack);
+    CHECK_FALSE(res1.ok());
+    CHECK(res1.err == WotrErrc::DamagedChecksum);
+    CHECK(std::string(errcName(res1.err)) == "ERR_DAMAGED_CHECKSUM");
+    CHECK_FALSE(res1.message.empty());
+    CHECK(res1.value.acceptedCommands.empty());
+    if (res1.ok()) {
+        session = res1.value;
+    }
+
+    // 2) Stronger post-Def-A1-1 variant: also recompute stateHash over the forged
+    //    canonical stateBytes AND re-seal the outer envelope checksum.
+    WotrSaveEnvelopeV1 probe3Rehashed = probe3;
+    probe3Rehashed.stateHash = Sha256::hashHex(probe3Rehashed.stateBytes);
+    probe3Rehashed.checksum = Sha256::hashHex(saveEnvelopePayload(probe3Rehashed));
+    const std::string probe3RehashedText = serializeSaveEnvelope(probe3Rehashed);
+    REQUIRE(parseSaveEnvelope(probe3RehashedText).ok());
+
+    auto res2 = loadCampaign(probe3RehashedText, pack);
+    CHECK_FALSE(res2.ok());
+    CHECK(res2.err == WotrErrc::DamagedChecksum);
+    CHECK(std::string(errcName(res2.err)) == "ERR_DAMAGED_CHECKSUM");
+    CHECK_FALSE(res2.message.empty());
+    CHECK(res2.value.acceptedCommands.empty());
+    if (res2.ok()) {
+        session = res2.value;
+    }
+
+    // Transactional invariant: session was not mutated by either refused load, and a
+    // subsequent re-save preserves the legitimate log byte-for-byte without ffff...f.
+    CHECK(canonicalState(session) == beforeBytes);
+    CHECK(stateHash(session) == beforeHash);
+    const std::string resaved = saveCampaign(session, pack);
+    CHECK(resaved == legitEnvelope);
+    auto reparsed = parseSaveEnvelope(resaved);
+    REQUIRE(reparsed.ok());
+    CHECK(reparsed.value.stateBytes.find(forgedDigest) == std::string::npos);
+    CHECK(reparsed.value.stateBytes == beforeBytes);
+}
+
+TEST_CASE("save: acceptedCommands payload tampering with stale command checksum is refused at load") {
+    auto [pack, s] = resolvedState();
+    REQUIRE(s.acceptedCommands.size() == 2u);
+    const std::string envelope = saveCampaign(s, pack);
+    auto parsed = parseSaveEnvelope(envelope);
+    REQUIRE(parsed.ok());
+
+    // Rewrite only the second command's targetRegionId while keeping its old checksum,
+    // then recompute both stateHash and outer envelope checksum.
+    WotrSaveEnvelopeV1 tampered = parsed.value;
+    JsonValue inner = JsonValue::parse(tampered.stateBytes);
+    inner.objectValue.at("acceptedCommands")
+        .arrayValue.at(1)
+        .objectValue.at("payload")
+        .objectValue.at("move")
+        .objectValue.at("targetRegionId")
+        .stringValue = "west";
+    tampered.stateBytes = inner.canonical();
+    tampered.stateHash = Sha256::hashHex(tampered.stateBytes);
+    tampered.checksum = Sha256::hashHex(saveEnvelopePayload(tampered));
+
+    auto loaded = loadCampaign(serializeSaveEnvelope(tampered), pack);
+    CHECK_FALSE(loaded.ok());
+    CHECK(loaded.err == WotrErrc::DamagedChecksum);
+    CHECK(std::string(errcName(loaded.err)) == "ERR_DAMAGED_CHECKSUM");
+    CHECK(loaded.value.acceptedCommands.empty());
+}
