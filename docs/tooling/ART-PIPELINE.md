@@ -26,6 +26,16 @@ Godot World Engineer в своей карточке. **Любая генерац
 иллюстративный asset set или сложный material skin требует отдельного Scope
 Technical Artist**; интеграция остаётся у Godot World Engineer.
 
+**Ширина `ART` в зоне Godot World** (`WOTR-D-046`): малые функциональные
+процедурные ассеты — курсоры, маски, маркеры, которые движок потребляет
+нативным файлом и которые генерируются из собственного исходника в коде без
+image quota, — Godot World Engineer делает внутри своей карточки по
+минимальному brief §4 (D2); это не «генерация изображений». Всё, что требует
+image generation, отбора кандидатов, палитры/фактуры или иллюстративного
+набора, — отдельный Scope Technical Artist. Зона записи роли при этом
+`godot/wotr_remaster/**` (реестр «Роли»), evidence — по карточным строкам
+(`WOTR-D-085`).
+
 ## 2. Сначала структура, потом skin
 
 Runtime UI строится из Godot `Control` nodes, containers и `Theme` resources.
@@ -49,7 +59,8 @@ Runtime UI строится из Godot `Control` nodes, containers и `Theme` re
 |---|---|
 | Layout, input, focus, текст, states | Godot `Control`/`Container` + `Theme` |
 | Однотонная рамка, радиус, border, focus ring | `StyleBoxFlat` или простой shader |
-| Пиктограмма, glyph, маска, маркер, курсор | SVG с чистыми paths и `current` palette contract |
+| Пиктограмма, glyph, маска, маркер | SVG с чистыми paths и `current` palette contract |
+| Курсор/маска, которую движок читает только нативным файлом (например `SCCPointer.cur` из `mouse.ini`) | Remaster-owned исходник в коде → runtime-encoded нативный файл (размер/hotspot/SHA-256 записаны); никогда не retail-копия |
 | Материальная рамка/кнопка, которая тянется | PNG с alpha + `StyleBoxTexture`/`NinePatchRect` |
 | Камень, металл, дерево, ткань, пергамент, резьба | сгенерированный/авторский raster asset |
 | Портрет, loading art, province illustration | raster illustration; отдельная карточка/provenance |
@@ -64,7 +75,8 @@ Runtime UI строится из Godot `Control` nodes, containers и `Theme` re
 
 ## 4. Style brief до первой генерации
 
-До расхода image quota карточка фиксирует:
+До создания любого нового визуального ассета — в том числе без расхода image
+quota — карточка фиксирует:
 
 - назначение экрана и список **конкретных** assets;
 - style anchor: эпоха/настроение без ссылки на стиль живого художника;
@@ -77,6 +89,11 @@ Runtime UI строится из Godot `Control` nodes, containers и `Theme` re
 
 Сначала выбирается один style anchor, затем из него выводится набор. Десять
 красивых, но разных по языку картинок — не UI system.
+
+Для zero-quota процедурных/функциональных ассетов (см. §3) достаточно
+минимального brief: назначение, размер/hotspot/форма/палитра, consuming node,
+provenance-граница (не retail-копия) и бюджет генерации 0. Полный brief не
+требуется, но ассет без минимального brief не создаётся (`WOTR-D-046`).
 
 ## 5. Как использовать генерацию Arena
 
@@ -190,6 +207,14 @@ Prompt не является доказательством результата
 - принимать source preview без Godot import/render;
 - смешивать assets разных palette/light/material grammar в одном наборе;
 - коммитить official/retail art, watermark или asset без provenance;
+- коммитить бинарный blob функционального ассета вместо исходника: процедурный
+  ассет живёт в дереве исходником (например ASCII в коде) и генерируется в
+  рантайме, а его регистрация идёт в install overlay, а не в дерево
+  (`WOTR-D-046`); runtime-encoded Remaster-ассет с записанным provenance
+  (процедура, SHA-256, проверка декодером движка и preview) — не «asset без
+  provenance»;
+- выдавать retail-байты за Remaster-ассет: байтовое копирование retail-файла
+  запрещено в любой каталог, включая install overlay;
 - считать image quota обязательством потратить все десять генераций.
 
 ## 9. Карточка и оракул
