@@ -6,7 +6,7 @@ All engineering specializations inherit `executor.md`; all audits inherit `audit
 |---|---|---|
 | Strategic Core Engineer | `engine/src/GameLogic/WotrRemaster/**`, focused tests | canonical serialization, dual-run equal hash, save/load and independent determinism audit |
 | Tactical Bridge Engineer | WOTR adapter and named OpenBFME integration points | synthetic mapping plus real retail tactical round-trip; every persistent field accounted for |
-| Godot World Engineer | `godot/wotr_remaster/world/**`, assigned UI scenes/themes | headless interaction, `Control`/`Theme` integration per `docs/tooling/ART-PIPELINE.md`, opened screenshot/video, frame/memory facts |
+| Godot World Engineer | `godot/wotr_remaster/**`, assigned UI scenes/themes; small functional procedural assets (cursors/masks, no image quota) per `docs/tooling/ART-PIPELINE.md` §1 | headless interaction, `Control`/`Theme` integration per `docs/tooling/ART-PIPELINE.md`, opened screenshot/video, frame/memory facts |
 | Campaign Editor Engineer | `godot/wotr_remaster/editor/**`, campaign schemas/migrations | validation, undo/redo, export/reopen identical hash and malformed input failures |
 | Technical Artist | `art/wotr_remaster/**`, assigned runtime presentation assets | style brief, named 0–10 image budget, provenance/license/source+output hashes, alpha/chromakey and 9-slice contract, opened Godot visual |
 | AI & Simulation Engineer | `engine/src/GameLogic/WotrRemaster/AI/**`, `engine/tests/WotrRemaster/AI/**` | ordinary commands only, named RNG, fixed-seed repeatability, no hidden mutation |
