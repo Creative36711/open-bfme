@@ -98,6 +98,34 @@ Mock/synthetic путь может закрыть T1, но не retail-крит�
 
 Не скачивать все volumes «на будущее», не хранить их в Git/build artifacts и не запускать retail executables для проверки данных. Лимит шага — по **числу файлов, а не по объёму**: при `56 × 99 614,720 B` шаг из 5 volumes — это ≤475 MiB staging-файлов, а `tools/retail_big_transfer.py` не имеет флагов параллельной закачки, `ingest` последовательный, поэтому OOM возникает из-за того, сколько parts агент успел вытащить из Drive до передачи в скрипт. Суммарный объём, число контрольных сумм и общее время гидрации от шага в 5 volumes не меняются. Повторный агент в том же workspace переиспользует провалидированную `.retail`, а не скачивает её заново.
 
+### 5.1 Hydration: MP3-фикстуры тестов
+
+Тест-бинарь `openbfme_tests` без MP3-фикстур падает фатально — это гейт по дизайну, а не сбой окружения: строки `*.mp3.bin` никогда не коммитятся, закреплены только `engine/tests/data/audio/mp3_fixtures.tsv` (sizes + SHA-256) и `mp3_golden.tsv`. Песочница без apt не ставит lame/mpg123, поэтому фикстуры приезжают пинованным бандлом, а не генерацией. Правила:
+
+1. `Arena/wotr-remaster/artifacts` содержит `wotr-audio-fixtures.tar.gz` (17 файлов `*.mp3.bin`; Drive file id `1AQYEUURZn3dZJ8WJp8DjnmVfa0RGMzku`; SHA-256 архива `1e58106afd3ebf8f535b8aa11a040a29665051b0266caddc1984ccdfdf6ea052`; содержимое каждого файла закреплено манифестом из git).
+2. Гидратация: распаковать архив в каталог вне `engine/build` (например `~/.cache/wotr-audio-fixtures`; `--clean` каталог сборки удаляет) и выполнить `python3 tools/audio/gen_mp3_fixtures.py --check-only --out <каталог>` — rc 0 и строка `Verified 17 MP3 fixtures (sizes and SHA-256)` обязательны в доказательстве. Доверие даёт манифест в git, бандл — только транспорт; бандл, не прошедший сверку, отбрасывается целиком.
+3. Запуск тестов: `OPENBFME_AUDIO_FIXTURES=<каталог> …/openbfme_tests …`. Шаг фикстур не имеет tier'а стоимости и выполняется до §9.2/§9.13; `--check-only` не требует lame/mpg123.
+
+В evidence идёт команда `--check-only`, rc и её вывод; сама загрузка описывается ссылкой на §5.1 — Drive id в evidence не попадает (§7). Происхождение бандла (однократное, 2026-11-25, инструментарием процесса): дерево релиза lame-3.100 (GitHub-зеркало релиза), `./configure && make`, `LAME 64bits version 3.100`, генерация потоков по `FIXTURES` из `tools/audio/gen_mp3_fixtures.py`, сверка `--check-only` с манифестом — совпадение байт-в-байт. CI-джоб `Reference MP3 fixtures` остаётся эталонной перегенерацией (lame 3.100 + mpg123 1.33.1); `--write-golden` в прогонах запрещён. Правило «streams NEVER committed» не меняется: бандл живёт в Drive, не в git.
+
+### 5.2 Длинные гейт-шаги в Arena
+
+`tools/arena/build_engine.sh --tests` при `-j2` занимает около 53 минут (52 min 57 s измерено, K4) и не помещается в один вызов агента (лимит 30 минут): в foreground шаг детерминированно не завершается. Длинный гейт-шаг поэтому запускается отвязанным и опрашивается; успех фиксируется только по собственному выводу скрипта (`✓ built: …`, `elapsed: …`) вместе с rc.
+
+```bash
+setsid nohup bash -c 'bash tools/arena/build_engine.sh --tests; echo $? > engine/build/build.rc' \
+  > engine/build/build.console.log 2>&1 &
+echo $! > engine/build/build.pid
+```
+
+- сам скрипт пишет полный лог ninja в `engine/build/build.log`; обёртка пишет stdout/stderr вызова в `engine/build/build.console.log`, pid — в `engine/build/build.pid`, rc — в `engine/build/build.rc`;
+- не запускать вторую сборку, пока жив предыдущий `ninja`/`cc1plus`: перед стартом `pgrep -fa "ninja|cc1plus"` обязан быть пуст; две сборки в одном `engine/build` насыщают 2 vCPU песочницы и вываливают по таймауту даже `tail`, `ps` и `sha256sum`;
+- таймаут вызова не убивает запущенные этим вызовом процессы. Таймаут, прерванная команда или отсутствие вывода — не свидетельство падения шага; свидетельство — только rc;
+- полный `engine/build/build.log` фиксируется в evidence размером и SHA-256; в Git остаётся выдержка (`.gitignore` уже держит `*.log` вне репозитория);
+- порядок: сначала запустить сборку, и пока она идёт, выполнять только дешёвые шаги (метаданные, canary, подготовка каталогов); тяжёлая гидрация (`ingest` масштаба GiB) ждёт `✓ built`.
+
+Раздел ничего не меняет в оракуле §8/§9, уровнях T0–T3, `build: full` / `retail: hydrate`, шагах retail ≤5 томов и запрете скачивать тома «на будущее»: шаг `full` перестаёт теряться и попадает в evidence с rc.
+
 ## 6. Матрица минимальных команд
 
 | Изменение | Минимум в итерации | Перед принятием |
@@ -109,6 +137,7 @@ Mock/synthetic путь может закрыть T1, но не retail-крит�
 | tactical bridge/map/start | focused compile/tests | T2 + T3 |
 | upstream pin | range/conflict report + focused compile | T2 + T3, всегда |
 | ScriptCat (repo `relay-wotr`) | профильные smoke во время итерации | `npm run verify:scriptcat`, без engine/retail |
+| MP3-фикстуры тестов (бандл) | гидратация бандла до §9.2 (§5.1) | `--check-only` rc 0 против манифеста |
 
 ## 7. Evidence
 
