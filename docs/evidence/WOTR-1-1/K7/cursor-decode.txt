@@ -7,7 +7,7 @@
 $ g++ -std=c++17 -O1 -I engine/src -I engine/thirdparty -include cstddef \
       -o /tmp/k7_decode_check docs/evidence/WOTR-1-1/K7/decode_check.cpp \
       engine/src/GameClient/CursorFile.cpp engine/src/Common/System/PathIO.cpp
-$ /tmp/k7_decode_check /tmp/wotr-k7-accept/install/BFME2/data/cursors/SCCPointer.cur
+$ /tmp/k7_decode_check <install>/data/cursors/SCCPointer.cur
 DecodeCursorFile: ok
 width=32 height=32 hotX=2 hotY=2 frames=1 sequence=1 jiffies=1
 ................................

@@ -5,6 +5,14 @@
 **Zone:** `godot/wotr_remaster/**`, `docs/evidence/WOTR-1-1/K7/**`
 **Date:** 2026-11-25
 
+| Provenance | Value |
+|---|---|
+| Repository | `Creative36711/open-bfme` |
+| Base commit | `7c51eb344419160b41ee5203a3d145e18934a37e` (`origin/main` at the fetch; the checkout was unshallowed, the merge-base is the base commit itself) |
+| Branch | `arena/5634866b-open-bfme` |
+| K7 code commit | `27adc314fb6c94c61a195668ffeb86aeeee76715` (the commit the run's banner names) |
+| Runtime | Godot 4.7.2 (`godot-swiftshader`), OpenBFME extension `godot/bin/openbfme.linux.template_debug.x86_64.so` (built from this checkout) |
+
 ## 1 · The path this closes
 
 The retail Godot smoke stopped on a missing asset:
@@ -97,8 +105,13 @@ prepares `BFME2_INSTALL` / `ROTWK_INSTALL` and times the run.
 
 | Run | Pointer | rc | Duration | Substantive output | Verdict |
 |---|---|---|---|---|---|
-| acceptance | registered | **0** | **11.916 s** | `SMOKE PASS: extension and scripts loaded with retail paths` | **pass** |
-| baseline | left out | 1 | 11.506 s | `ERROR: cursor Arrow: no file SCCPointer.cur` · `GAME FAIL: shell: boot_shell: cursor Arrow: no file SCCPointer.cur` · `SMOKE FAIL: Godot exited 1 with retail paths configured` | fail (the old failure, reproduced) |
+| acceptance | registered | **0** | **22.861 s** | `SMOKE PASS: extension and scripts loaded with retail paths` | **pass** |
+| baseline | left out | 1 | 22.206 s | `ERROR: cursor Arrow: no file SCCPointer.cur` · `GAME FAIL: shell: boot_shell: cursor Arrow: no file SCCPointer.cur` · `SMOKE FAIL: Godot exited 1 with retail paths configured` | fail (the old failure, reproduced) |
+
+Both runs are the commit `27adc314fb6c94c61a195668ffeb86aeeee76715` — the
+K7 code commit; the banner in the log (`OpenBFME 27adc314fb`) is that commit,
+and the GDScript and the runner are read from the working tree by the smoke,
+so the run covers the tree as it is committed.
 
 The acceptance log (`smoke.log`) is the whole output of the smoke — the
 native banner, the retail mount and the shell:
@@ -106,8 +119,8 @@ native banner, the retail mount and the shell:
 ```text
 Godot Engine v4.7.2.stable.custom_build.ed1daf0bf (2026-08-17 01:18:38 UTC) - https://godotengine.org
 
-OpenBFME 7c51eb3444 (2026-11-25)
-RELEASE session log: <<<user>>>/.local/share/godot/app_userdata/OpenBFME/logs/openbfme-20261125-082221.log
+OpenBFME 27adc314fb (2026-11-25)
+RELEASE session log: <<<user>>>/.local/share/godot/app_userdata/OpenBFME/logs/openbfme-20261125-082443.log
 GAME DISPLAY graphics preset high (auto: not measured yet: the first match measures it), 3D 100%
 ...
 RELEASE game folders: env
@@ -148,14 +161,15 @@ width=32 height=32 hotX=2 hotY=2 frames=1 sequence=1 jiffies=1
 ## 4 · The pointer, seen
 
 `pointer.png` is the registered asset, written by the stage command at 16× so
-that it can be looked at. It is a mouse arrow: a white body with a black
-outline, its tip at the top left, pointing up and to the left, on a
-transparent ground. The tip sits on the hot spot (2, 2) that `mouse.ini`
-names, so the click lands where the arrow points. The outline is one pixel
-wide and follows the body: the shaft comes down from the tip, a notch marks the
-step of the tail, and the tail ends in a point at the lower right. The pixels
-are opaque where the arrow is and fully transparent everywhere else, so the
-32×32 window adds nothing around the shape.
+that it can be looked at. It is a mouse arrow: a white body with a one-pixel
+black outline, its tip at the top left, on a transparent ground. The tip sits
+on the hot spot (2, 2) that `mouse.ini` names, so the click lands where the
+arrow points. From the tip the body widens down and to the right: the upper
+edge runs diagonally to the rightmost point at mid-height, the lower edge runs
+straight down. Below the middle a V-shaped notch cuts in from the lower right,
+leaving a short leg on the left and a longer one on the right. Everything
+outside the shape is fully transparent, so the 32×32 window adds nothing around
+it.
 
 ![the Remaster's pointer](pointer.png)
 
@@ -190,9 +204,11 @@ Two deviations, both declared:
    (`godot/bin/openbfme.linux.template_debug.x86_64.so` was absent), and the
    oracle refuses to run without it. `tools/arena/build_engine.sh` (runtime
    mode, `GODOT=ON`, `TESTS=OFF`) was therefore run once: **30 min 31 s**, 1,925
-   of 1,926 ninja steps, 0 errors. The binary is a build output and is not
-   committed. No generated C++ was touched by K7, so no named Ninja target was
-   needed.
+   of 1,926 ninja steps, 0 errors. After the K7 commit the extension was
+   rebuilt incrementally (4 ninja steps: the generated version file and the
+   link, ~3 s), so that the banner of the run names the commit the code is in.
+   The binary is a build output and is not committed. No generated C++ was
+   touched by K7, so no named Ninja target was needed.
 2. **Retail.** The `.retail` tree of the sandbox was at **43 / 57** volumes —
    not a valid tree, so the card's "reuse" was impossible, and the smoke needs
    all 213 archives (the mount verifies every archive's md5). The remaining
@@ -202,12 +218,13 @@ Two deviations, both declared:
 
 ## 7 · What was not done
 
-* The oracle was run at the commit of this branch, not at a later one: the
-  banner in `smoke.log` (`OpenBFME 7c51eb3444`) is the engine the extension
-  was built from. K7 changes no compiled source, so the extension is the same
-  binary on every commit of this branch; the GDScript and the runner are read
-  from the working tree by the smoke, so the run covers the tree as it is
-  committed.
+* The oracle was run at the K7 code commit
+  (`27adc314fb6c94c61a195668ffeb86aeeee76715`), not at the commit that adds
+  this evidence: the banner in `smoke.log` (`OpenBFME 27adc314fb`) is the
+  engine the extension was built from. K7 changes no compiled source, so the
+  extension is the same binary on every commit of this branch, and the GDScript
+  and the runner are read from the working tree by the smoke, so the run covers
+  the tree as it is committed.
 * The full `openbfme_tests` suite was not run: the card's gate is `build:
   none | focused` and K7 changes no engine source. The engine's own cursor
   decoder was compiled and run on the asset instead (`cursor-decode.txt`).
