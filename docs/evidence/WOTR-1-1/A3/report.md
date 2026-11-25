@@ -146,8 +146,9 @@
   - Step 2: parts 0002-0005 ingested, rc 0, checkpoint 5/57 (0.46 GiB).
   - Step 3: parts 0006-0010 ingested, rc 0, checkpoint 10/57 (0.93 GiB).
   - Step 4: parts 0011-0015 ingested, rc 0, checkpoint 15/57 (1.39 GiB).
+  - Step 5: parts 0016-0020 ingested, rc 0, checkpoint 20/57 (1.86 GiB).
   - Manifest SHA-256 verified: `45bec1a3f698acddf223a2a6edebf73b40126b38dfc56c7061175af18d68b1ab`.
-- **Status:** IN PROGRESS (hydration ongoing; 15/57 committed, not complete)
+- **Status:** IN PROGRESS (hydration ongoing; 20/57 committed; ingest incomplete; retail validation/BFME2_INSTALL/ROTWK_INSTALL not set; archive policy validation not run)
 
 ## §9.5 Launch automated WOTR Remaster fixture through Godot/OpenBFME
 
@@ -160,3 +161,16 @@
 ## Acceptance record
 
 - **Status:** PENDING
+
+
+## Final status (attempt 4, in-progress)
+
+- **Verdict:** **NOT COMPLETE / REWORK (not pass).** §9.5-§9.13 not run; §9.4 incomplete. No pass claimed.
+- **Tested SHA:** `f3eec31f8f8cbb62d6cf500d9348eaf47bd8b20e` base + evidence commits on `arena/741a3d19-open-bfme` (HEAD at push).
+- **Not run (with reasons):**
+  - §9.4 completion: only 20/57 volumes ingested; remaining 37 volumes not downloaded/ingested in this session; `BFME2_INSTALL`/`ROTWK_INSTALL` not set; retail archive policy validation not run. Reason: time/bandwidth limits; hydration continued safely in <=5-volume steps.
+  - §9.5: not run (no validated retail mount). Must be recorded pass/fail when executed.
+  - §9.6–§9.13: not run (dependent on §9.4/§9.5 real retail).
+  - Independent 12-run locale hash-invariance Godot rerun: not re-executed (auditor note in §9.3); K5 artifact verified present.
+- **Forbidden shortcuts:** none used. No test hooks killing units; no injected results; no mocked asset providers; no hand-authored battle result; no `--write-golden`; no `*.mp3.bin` committed; no "download all 57 volumes for future"; no second parallel build; no restart over live ninja.
+- **Report SHA (repo anchor):** `docs/evidence/WOTR-1-1/A3/report.md`
