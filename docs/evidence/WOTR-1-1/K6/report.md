@@ -93,6 +93,10 @@ cases are recorded as `not run` in `docs/evidence/WOTR-1-1/K4/report.md` and
 under `docs/evidence/WOTR-1-1/K6/**` — no `engine/**` file, so the test binary is the binary the base
 commit produces. Reported as failing, not as passed.
 
+The only other `--clean --tests` build at this SHA is the warm-launcher run in §5. It is a
+measurement of the cache, not a second acceptance, and no acceptance statement in this card is taken
+from it; the acceptance ran exactly once, in step 1 above.
+
 Duplicate run for variance. The same three commands were run once more at the previous commit
 `bb9abac` while the operator was also working in the sandbox: `build_engine.sh --clean --tests`
 rc 0 in 5202 s, tests rc 1 in 69 s, import rc 0 in 8 s. The 50 % spread is CPU contention with the
@@ -205,7 +209,9 @@ producing a complete `engine/build` (714 MiB, 2602 objects, `libopenbfme_core.a`
 
 That 18 s build is not taken on trust: `./engine/build/openbfme_tests` was run on the binaries it
 produced and reported the same `5652 | 5647 passed | 5 failed | 27 skipped` as the gate run (rc 1,
-64 s), and three of the cached objects were recompiled without a launcher into a separate file and
+64 s; the doctest assertion total itself moves a little between runs of the same binary — 1409794,
+1409792 and 1409788 on the three runs here, all from binaries of the same `engine/**` tree, so it is
+the suite's own variance and not the cache), and three of the cached objects were recompiled without a launcher into a separate file and
 compared byte for byte:
 
 ```text
