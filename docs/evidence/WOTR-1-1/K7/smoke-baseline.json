@@ -1,0 +1,12 @@
+{
+  "smoke": "tools/arena/smoke_godot.sh --retail",
+  "rc": 1,
+  "duration_seconds": 22.206,
+  "pointer_registered": false,
+  "install_roots": {
+    "BFME2_INSTALL": "/tmp/wotr-k7-final-baseline/install/BFME2",
+    "ROTWK_INSTALL": "/tmp/wotr-k7-final-baseline/install/RotWK"
+  },
+  "log": "smoke.log",
+  "cursor_error": true
+}
