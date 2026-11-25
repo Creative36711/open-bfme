@@ -141,7 +141,12 @@
   rc=0
   ```
   Expected: `6d195cde7e2419e95f9c1652d64d92cd4bd0c9b01d7c3fbe0dbf22e414d79f07` — **MATCH**.
-- **Status:** IN PROGRESS (metadata+canary PASS; ingest/validation pending, after §9.2 build completes)
+- **Hydration progress (attempt 4):** ingest with `--delete-parts`, steps <=5 volumes.
+  - Step 1 (canary): part 0001 ingested, rc 0, checkpoint 1/57.
+  - Step 2: parts 0002-0005 ingested, rc 0, checkpoint 5/57 (0.46 GiB).
+  - Step 3: parts 0006-0010 ingested, rc 0, checkpoint 10/57 (0.93 GiB).
+  - Manifest SHA-256 verified: `45bec1a3f698acddf223a2a6edebf73b40126b38dfc56c7061175af18d68b1ab`.
+- **Status:** IN PROGRESS (hydration ongoing; 10/57 committed, not complete)
 
 ## §9.5 Launch automated WOTR Remaster fixture through Godot/OpenBFME
 
