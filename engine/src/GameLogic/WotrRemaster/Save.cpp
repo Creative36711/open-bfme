@@ -510,44 +510,49 @@ WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: accepted command is not an object");
         }
-        CommandEnvelope e;
+        CommandEnvelope cmd;
         const JsonValue* f;
         f = item.get("schemaVersion");
         if (!f || f->type != JsonValue::Type::UInt) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing schemaVersion");
         }
-        e.schemaVersion = static_cast<std::uint32_t>(f->uintValue);
+        if (f->uintValue != 1) {
+            return fail<CampaignState>(WotrErrc::InvalidSave,
+                                       "embedded state: unsupported command schemaVersion " +
+                                           std::to_string(f->uintValue));
+        }
+        cmd.schemaVersion = static_cast<std::uint32_t>(f->uintValue);
         f = item.get("campaignId");
         if (!f || f->type != JsonValue::Type::String) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing campaignId");
         }
-        e.campaignId = f->stringValue;
+        cmd.campaignId = f->stringValue;
         f = item.get("turn");
         if (!f || f->type != JsonValue::Type::UInt) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing turn");
         }
-        e.turn = static_cast<std::uint32_t>(f->uintValue);
+        cmd.turn = static_cast<std::uint32_t>(f->uintValue);
         f = item.get("playerId");
         if (!f || f->type != JsonValue::Type::String) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing playerId");
         }
-        e.playerId = f->stringValue;
+        cmd.playerId = f->stringValue;
         f = item.get("clientSequence");
         if (!f || f->type != JsonValue::Type::UInt) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing clientSequence");
         }
-        e.clientSequence = f->uintValue;
+        cmd.clientSequence = f->uintValue;
         f = item.get("commandId");
         if (!f || f->type != JsonValue::Type::String) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing commandId");
         }
-        e.commandId = f->stringValue;
+        cmd.commandId = f->stringValue;
         f = item.get("payload");
         if (!f || !f->isObject()) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
@@ -559,7 +564,12 @@ WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command payload missing type or move");
         }
-        e.payload.type = static_cast<CommandType>(pt->uintValue);
+        if (pt->uintValue != static_cast<std::uint64_t>(CommandType::MoveArmy)) {
+            return fail<CampaignState>(WotrErrc::InvalidSave,
+                                       "embedded state: unsupported command payload type " +
+                                           std::to_string(pt->uintValue));
+        }
+        cmd.payload.type = CommandType::MoveArmy;
         const JsonValue* maid = pm->get("armyId");
         const JsonValue* mtid = pm->get("targetRegionId");
         if (!maid || maid->type != JsonValue::Type::String || !mtid ||
@@ -567,15 +577,24 @@ WotrResult<CampaignState> loadCampaign(const std::string& text, const Pack& pack
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command move missing army ids");
         }
-        e.payload.move.armyId = maid->stringValue;
-        e.payload.move.targetRegionId = mtid->stringValue;
+        cmd.payload.move.armyId = maid->stringValue;
+        cmd.payload.move.targetRegionId = mtid->stringValue;
         f = item.get("checksum");
         if (!f || f->type != JsonValue::Type::String) {
             return fail<CampaignState>(WotrErrc::InvalidSave,
                                        "embedded state: command missing checksum");
         }
-        e.checksum = f->stringValue;
-        s.acceptedCommands.push_back(e);
+        cmd.checksum = f->stringValue;
+        const std::string expectedCmdChecksum = envelopeChecksum(cmd);
+        if (cmd.checksum != expectedCmdChecksum) {
+            return fail<CampaignState>(
+                WotrErrc::DamagedChecksum,
+                "embedded state: accepted command '" + cmd.commandId +
+                    "' checksum '" + cmd.checksum +
+                    "' does not match recomputed envelopeChecksum '" +
+                    expectedCmdChecksum + "'");
+        }
+        s.acceptedCommands.push_back(std::move(cmd));
     }
 
     const std::string parsedStateHash = stateHash(s);
