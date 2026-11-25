@@ -76,7 +76,7 @@
   - Start (UTC): 2026-11-25T17:09:43Z
   - PID: 1751
   - Initial poll: `build.rc` absent (NO_RC_YET), console tail showed `==> configure (mode=tests, Godot=ON, tests=ON)`, build.log progress not yet available.
-- **Progress polls (UTC):** 17:13:57 [262/2618], 17:20:58 [584/2618], 17:28:58 [1147/2618], 17:37:59 [1926/2618], latest polled [1939/2618] at 17:38:58Z; build.rc absent; no failure observed.
+- **Progress polls (UTC):** 17:13:57 [262/2618], 17:20:58 [584/2618], 17:28:58 [1147/2618], 17:37:59 [1926/2618], latest polled [2300/2618] at 18:04:59Z; build.rc absent; no failure observed.
 - **Status:** IN PROGRESS (detached, polling; no restart over live ninja)
 
 ## §9.3 Catalogs/locale hash invariance
